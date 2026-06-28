@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { InventoryItem, InventoryTransaction, Project, InventorySerial, TransactionType } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
+import { useUser } from '@/components/UserContext';
 import { Package, AlertTriangle, ArrowRightLeft, Plus, MousePointerClick, MoreVertical } from 'lucide-react';
 import Link from 'next/link';
 import { ItemDetailModal } from '@/components/ItemDetailModal';
@@ -27,6 +28,7 @@ interface BalanceDisplay {
 }
 
 export default function InventoryBalancePage() {
+  const { currentUser } = useUser();
   const [balances, setBalances] = useState<BalanceDisplay[]>([]);
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -251,7 +253,8 @@ export default function InventoryBalancePage() {
           </Link>
           <button 
             onClick={() => setDetailItemId('NEW')}
-            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded shadow transition"
+            disabled={currentUser?.role === 'VIEWER'}
+            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded shadow transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Plus size={18} />
             新增品項
@@ -282,7 +285,7 @@ export default function InventoryBalancePage() {
            <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500">
              <Package size={48} className="mb-4 opacity-50" />
              <p>此分類目前無任何品項資料</p>
-             <button onClick={() => setDetailItemId('NEW')} className="text-emerald-400 hover:underline mt-2 text-sm">
+             <button onClick={() => setDetailItemId('NEW')} disabled={currentUser?.role === 'VIEWER'} className="text-emerald-400 hover:underline mt-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline">
                點此新增品項
              </button>
            </div>

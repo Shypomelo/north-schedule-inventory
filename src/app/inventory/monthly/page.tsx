@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useUser } from '@/components/UserContext';
 import { InventoryTransaction, InventoryItem, InventoryMonthlyClosing, InventoryMonthlyClosingItem } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { format, subMonths } from 'date-fns';
@@ -9,6 +10,7 @@ import { exportMonthlyReport } from '@/lib/utils/export-excel';
 
 export default function MonthlyReportPage() {
   const [viewMode, setViewMode] = useState<'MONTHLY' | 'ANNUAL'>('MONTHLY');
+  const { currentUser } = useUser();
   const [selectedYear, setSelectedYear] = useState(format(new Date(), 'yyyy'));
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), 'MM'));
   
@@ -275,7 +277,8 @@ export default function MonthlyReportPage() {
              <div className="flex items-center gap-3">
                <button 
                  onClick={handleCloseMonth}
-                 className={`flex items-center gap-2 px-4 py-2 rounded shadow transition ${currentClosing ? 'bg-slate-600 hover:bg-slate-500 text-slate-200' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}`}
+                 disabled={currentUser?.role === 'VIEWER'}
+                 className={`flex items-center gap-2 px-4 py-2 rounded shadow transition ${currentClosing ? 'bg-slate-600 hover:bg-slate-500 text-slate-200' : 'bg-emerald-600 hover:bg-emerald-500 text-white'} disabled:opacity-50 disabled:cursor-not-allowed`}
                >
                  {currentClosing ? <Lock size={18} /> : <CheckCircle size={18} />}
                  {currentClosing ? '重新封存本月' : '封存本月'}

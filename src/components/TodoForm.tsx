@@ -14,6 +14,7 @@ interface TodoFormProps {
 
 export function TodoForm({ initialData, onSubmit, onCancel, isSubmitting }: TodoFormProps) {
   const { currentUser } = useUser();
+  const isViewer = currentUser?.role === 'VIEWER';
   const [projects, setProjects] = useState<Project[]>([]);
   
   const [formData, setFormData] = useState<Omit<Todo, 'id' | 'created_at' | 'updated_at'>>({
@@ -101,8 +102,8 @@ export function TodoForm({ initialData, onSubmit, onCancel, isSubmitting }: Todo
           <button type="button" onClick={onCancel} disabled={isSubmitting} className="px-4 py-2 rounded text-slate-300 hover:bg-slate-800 disabled:opacity-50">
             取消
           </button>
-          <button type="submit" disabled={isSubmitting} className="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold disabled:opacity-50">
-            {isSubmitting ? '儲存中...' : '儲存待辦'}
+          <button type="submit" disabled={isSubmitting || isViewer} className="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold disabled:opacity-50">
+            {isSubmitting ? '儲存中...' : (isViewer ? '檢視權限' : '儲存待辦')}
           </button>
         </div>
       </div>

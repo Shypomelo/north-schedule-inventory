@@ -6,8 +6,10 @@ import { dbAdapter } from '@/lib/db';
 import { TodoForm } from '@/components/TodoForm';
 import { ScheduleTaskForm } from '@/components/ScheduleTaskForm';
 import { Plus, Edit2, CalendarPlus, Trash2 } from 'lucide-react';
+import { useUser } from '@/components/UserContext';
 
 export default function TodosPage() {
+  const { currentUser } = useUser();
   const [todos, setTodos] = useState<Todo[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -77,7 +79,8 @@ export default function TodosPage() {
         <h1 className="text-3xl font-bold text-slate-100">待辦事項</h1>
         <button 
           onClick={() => { setEditingTodo(null); setIsModalOpen(true); }}
-          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded shadow transition"
+          disabled={currentUser?.role === 'VIEWER'}
+          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded shadow transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Plus size={20} />
           新增待辦
@@ -109,16 +112,17 @@ export default function TodosPage() {
                   {todo.status === '待安排' && (
                     <button 
                       onClick={() => { setEditingTodo(todo); setIsTaskModalOpen(true); }} 
-                      className="flex items-center gap-1 text-sm bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/40 px-3 py-1.5 rounded transition"
+                      disabled={currentUser?.role === 'VIEWER'}
+                      className="flex items-center gap-1 text-sm bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/40 px-3 py-1.5 rounded transition disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <CalendarPlus size={16} />
                       排入排程
                     </button>
                   )}
-                  <button onClick={() => { setEditingTodo(todo); setIsModalOpen(true); }} className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition" title="編輯">
+                  <button onClick={() => { setEditingTodo(todo); setIsModalOpen(true); }} disabled={currentUser?.role === 'VIEWER'} className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition disabled:opacity-50 disabled:cursor-not-allowed" title="編輯">
                     <Edit2 size={16} />
                   </button>
-                  <button onClick={() => handleDelete(todo.id)} className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-950/50 rounded transition" title="刪除">
+                  <button onClick={() => handleDelete(todo.id)} disabled={currentUser?.role === 'VIEWER'} className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-950/50 rounded transition disabled:opacity-50 disabled:cursor-not-allowed" title="刪除">
                     <Trash2 size={16} />
                   </button>
                 </div>

@@ -1,6 +1,8 @@
 // In Phase 1, Supabase adapter is a stub to ensure compatibility
 export const supabaseDbAdapter = {
   getUsers: async () => { throw new Error('Supabase not configured yet'); },
+  createUser: async (u: any) => { throw new Error('Supabase not configured yet'); },
+  updateUser: async (id: string, updates: any) => { throw new Error('Supabase not configured yet'); },
   getProjects: async () => { throw new Error('Supabase not configured yet'); },
   createProject: async (p: any) => { throw new Error('Supabase not configured yet'); },
   updateProject: async (id: string, updates: any) => { throw new Error('Supabase not configured yet'); },

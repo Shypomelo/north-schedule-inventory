@@ -34,6 +34,7 @@ const initialUsers: User[] = [
       short_name: 'Admin',
       email: 'admin@vibecode.com',
       role: 'ADMIN',
+      category: 'OTHER',
       is_active: true,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
@@ -43,7 +44,8 @@ const initialUsers: User[] = [
       name: '柚子',
       short_name: '柚',
       email: 'yuzu@vibecode.com',
-      role: 'ENGINEER',
+      role: 'ADMIN',
+      category: 'ENGINEERING',
       is_active: true,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
@@ -54,6 +56,7 @@ const initialUsers: User[] = [
       short_name: '維',
       email: 'weiyang@vibecode.com',
       role: 'ENGINEER',
+      category: 'ENGINEERING',
       is_active: true,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
@@ -64,6 +67,7 @@ const initialUsers: User[] = [
       short_name: '丞',
       email: 'yucheng@vibecode.com',
       role: 'ENGINEER',
+      category: 'ENGINEERING',
       is_active: true,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
@@ -73,7 +77,8 @@ const initialUsers: User[] = [
       name: '慈芸',
       short_name: '芸',
       email: 'tzuyun@vibecode.com',
-      role: 'ENGINEER',
+      role: 'VIEWER',
+      category: 'OTHER',
       is_active: true,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
@@ -84,6 +89,7 @@ const initialUsers: User[] = [
       short_name: '偉',
       email: 'zhiwei@vibecode.com',
       role: 'ENGINEER',
+      category: 'OTHER',
       is_active: true,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
@@ -269,6 +275,25 @@ function persist() {
 export const mockDbAdapter = {
   // --- Users ---
   getUsers: async () => [...db.users],
+  createUser: async (u: Omit<User, 'id'|'created_at'|'updated_at'>) => {
+    const newUser: User = {
+      ...u,
+      id: crypto.randomUUID(),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    db.users.push(newUser);
+    persist();
+    return newUser;
+  },
+  updateUser: async (id: string, updates: Partial<Omit<User, 'id'|'created_at'|'updated_at'>>) => {
+    const idx = db.users.findIndex(user => user.id === id);
+    if (idx === -1) throw new Error("User not found");
+    const updated = { ...db.users[idx], ...updates, updated_at: new Date().toISOString() };
+    db.users[idx] = updated;
+    persist();
+    return updated;
+  },
   
   // --- Projects ---
   getProjects: async () => [...db.projects].sort((a, b) => a.name.localeCompare(b.name)),

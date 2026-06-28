@@ -7,10 +7,12 @@ import { ScheduleTaskForm } from '@/components/ScheduleTaskForm';
 import { TodoForm } from '@/components/TodoForm';
 import { startOfWeek, addDays, subDays, format, isSameDay, startOfMonth, endOfMonth, getDay } from 'date-fns';
 import { ChevronLeft, ChevronRight, Plus, X, ArrowLeft } from 'lucide-react';
+import { useUser } from '@/components/UserContext';
 
 type ViewMode = 'week' | 'month';
 
 export default function SchedulePage() {
+  const { currentUser } = useUser();
   const [viewMode, setViewMode] = useState<ViewMode>('week');
   const [currentDate, setCurrentDate] = useState(new Date());
   
@@ -106,7 +108,7 @@ export default function SchedulePage() {
         setTasks(prev => prev.map(t => t.id === editingTask.id ? { ...t, ...data, updated_at: new Date().toISOString() } as ScheduleTask : t));
         await dbAdapter.updateScheduleTask(editingTask.id, data, newMemberIds);
         await dbAdapter.logActivity({
-          actor_user_id: 'mock-user-engineer', actor_name: '柚子',
+          actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
           action_type: 'UPDATE_TASK', target_type: 'ScheduleTask', target_id: editingTask.id, target_label: data.title,
           project_id: data.project_id, project_name: '', before_value: null, after_value: null, message: '編輯排程任務'
         });
@@ -117,7 +119,7 @@ export default function SchedulePage() {
         setTasks(prev => [...prev, newTask]);
 
         await dbAdapter.logActivity({
-          actor_user_id: 'mock-user-engineer', actor_name: '柚子',
+          actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
           action_type: 'CREATE_TASK', target_type: 'ScheduleTask', target_id: newTask.id, target_label: data.title,
           project_id: data.project_id, project_name: '', before_value: null, after_value: null, message: '建立排程任務'
         });
@@ -126,7 +128,7 @@ export default function SchedulePage() {
           setTodos(prev => prev.filter(t => t.id !== convertingTodoId));
           await dbAdapter.updateTodo(convertingTodoId, { status: '已排程', converted_task_id: newTask.id });
           await dbAdapter.logActivity({
-            actor_user_id: 'mock-user-engineer', actor_name: '柚子',
+            actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
             action_type: 'TODO_TO_TASK', target_type: 'Todo', target_id: convertingTodoId, target_label: data.title,
             project_id: data.project_id, project_name: '', before_value: '待安排', after_value: '已排程', message: '待辦轉排程'
           });
@@ -180,7 +182,7 @@ export default function SchedulePage() {
       }
       
       await dbAdapter.logActivity({
-        actor_user_id: 'mock-user-engineer', actor_name: '柚子',
+        actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
         action_type: 'TASK_TO_TODO', target_type: 'ScheduleTask', target_id: task.id, target_label: task.title,
         project_id: task.project_id, project_name: '', before_value: null, after_value: null, message: '排程退回待辦'
       });
@@ -215,7 +217,7 @@ export default function SchedulePage() {
     try {
       const newTodo = await dbAdapter.createTodo(data);
       await dbAdapter.logActivity({
-        actor_user_id: 'mock-user-engineer', actor_name: '柚子',
+        actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
         action_type: 'CREATE_TODO', target_type: 'Todo', target_id: newTodo.id, target_label: data.title,
         project_id: data.project_id, project_name: '', before_value: null, after_value: null, message: '新增待辦'
       });
@@ -266,7 +268,7 @@ export default function SchedulePage() {
         
         await dbAdapter.updateScheduleTask(dragId, { task_date: dateStr });
         await dbAdapter.logActivity({
-          actor_user_id: 'mock-user-engineer', actor_name: '柚子',
+          actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
           action_type: 'RESCHEDULE_TASK', target_type: 'ScheduleTask', target_id: task.id, target_label: task.title,
           project_id: task.project_id, project_name: '', before_value: task.task_date, after_value: dateStr, message: '拖曳改期'
         });
@@ -308,7 +310,7 @@ export default function SchedulePage() {
         setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: '改期' } : t));
         await dbAdapter.updateScheduleTask(task.id, { status: '改期' });
         await dbAdapter.logActivity({
-          actor_user_id: 'mock-user-engineer', actor_name: '柚子',
+          actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
           action_type: 'RESCHEDULE_TASK', target_type: 'ScheduleTask', target_id: task.id, target_label: task.title,
           project_id: task.project_id, project_name: '', before_value: task.status, after_value: '改期', message: null
         });
@@ -320,7 +322,7 @@ export default function SchedulePage() {
             await dbAdapter.updateTodo(task.source_todo_id, { status: '已完成' });
         }
         await dbAdapter.logActivity({
-          actor_user_id: 'mock-user-engineer', actor_name: '柚子',
+          actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
           action_type: 'COMPLETE_TASK', target_type: 'ScheduleTask', target_id: task.id, target_label: task.title,
           project_id: task.project_id, project_name: '', before_value: task.status, after_value: '完成', message: null
         });
@@ -328,7 +330,7 @@ export default function SchedulePage() {
         setTasks(prev => prev.filter(t => t.id !== task.id));
         await dbAdapter.deleteScheduleTask(task.id);
         await dbAdapter.logActivity({
-          actor_user_id: 'mock-user-engineer', actor_name: '柚子',
+          actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
           action_type: 'DELETE_TASK', target_type: 'ScheduleTask', target_id: task.id, target_label: task.title,
           project_id: task.project_id, project_name: '', before_value: task.status, after_value: '刪除', message: '硬刪除'
         });
@@ -412,7 +414,8 @@ export default function SchedulePage() {
 
         <button 
           onClick={() => { setEditingTask(null); setConvertingTodoId(null); setEditingTaskMembers([]); setIsFormOpen(true); }}
-          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded shadow transition"
+          disabled={currentUser?.role === 'VIEWER'}
+          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded shadow transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Plus size={20} />
           新增任務
@@ -440,6 +443,7 @@ export default function SchedulePage() {
                     onDrop={e => handleDropToDate(e, dateStr)}
                     onContextMenu={e => {
                       e.preventDefault();
+                      if (currentUser?.role === 'VIEWER') return;
                       setContextMenu(null);
                       setTodoContextMenu(null);
                       setDayContextMenu({ dateStr, x: e.clientX, y: e.clientY });
@@ -461,9 +465,12 @@ export default function SchedulePage() {
                         return (
                           <div 
                             key={task.id}
-                            draggable
+                            draggable={currentUser?.role !== 'VIEWER'}
                             onDragStart={(e) => handleDragStart(e, task.id, 'task')}
-                            onContextMenu={(e) => handleContextMenu(e, task.id)}
+                            onContextMenu={(e) => {
+                              if (currentUser?.role === 'VIEWER') return;
+                              handleContextMenu(e, task.id);
+                            }}
                             onClick={() => {
                               setEditingTask(task);
                               setEditingTaskMembers(members.filter(m => m.task_id === task.id).map(m => m.user_id));
@@ -523,6 +530,7 @@ export default function SchedulePage() {
                 onDrop={handleDropToTodo}
                 onContextMenu={e => {
                   e.preventDefault();
+                  if (currentUser?.role === 'VIEWER') return;
                   if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('flex-1')) {
                     setContextMenu(null);
                     setDayContextMenu(null);
@@ -532,7 +540,7 @@ export default function SchedulePage() {
               >
                 <div className="text-center py-3 border-b border-slate-700 font-bold text-amber-400 bg-slate-800 flex justify-between items-center px-4 shrink-0">
                   <span>待辦事項</span>
-                  <button onClick={() => setIsTodoFormOpen(true)} className="hover:bg-slate-700 p-1 rounded" title="新增待辦"><Plus size={16}/></button>
+                  <button onClick={() => setIsTodoFormOpen(true)} disabled={currentUser?.role === 'VIEWER'} className="hover:bg-slate-700 p-1 rounded disabled:opacity-50 disabled:cursor-not-allowed" title="新增待辦"><Plus size={16}/></button>
                 </div>
                 
                 <div className="flex-1 p-2 flex flex-col gap-2 overflow-y-auto">
@@ -543,12 +551,13 @@ export default function SchedulePage() {
                     return (
                       <div 
                         key={todo.id}
-                        draggable
+                        draggable={currentUser?.role !== 'VIEWER'}
                         onDragStart={(e) => handleDragStart(e, todo.id, 'todo')}
                         onClick={() => openTodoConvertForm(todo, format(new Date(), 'yyyy-MM-dd'))}
                         onContextMenu={e => {
                           e.preventDefault();
                           e.stopPropagation();
+                          if (currentUser?.role === 'VIEWER') return;
                           setContextMenu(null);
                           setDayContextMenu(null);
                           setTodoContextMenu({ todoId: todo.id, x: e.clientX, y: e.clientY });
@@ -595,6 +604,7 @@ export default function SchedulePage() {
                       onDrop={e => handleDropToDate(e, dateStr)}
                       onContextMenu={e => {
                         e.preventDefault();
+                        if (currentUser?.role === 'VIEWER') return;
                         setContextMenu(null);
                         setTodoContextMenu(null);
                         setDayContextMenu({ dateStr, x: e.clientX, y: e.clientY });
@@ -610,9 +620,12 @@ export default function SchedulePage() {
                           return (
                             <div 
                               key={task.id}
-                              draggable
+                              draggable={currentUser?.role !== 'VIEWER'}
                               onDragStart={(e) => handleDragStart(e, task.id, 'task')}
-                              onContextMenu={(e) => handleContextMenu(e, task.id)}
+                              onContextMenu={(e) => {
+                                if (currentUser?.role === 'VIEWER') return;
+                                handleContextMenu(e, task.id);
+                              }}
                               onClick={() => {
                                 setEditingTask(task);
                                 setEditingTaskMembers(members.filter(m => m.task_id === task.id).map(m => m.user_id));
@@ -674,7 +687,8 @@ export default function SchedulePage() {
                       <div className="flex items-center gap-2">
                         <button 
                           onClick={() => handleReturnToTodo(task)} 
-                          className="text-xs bg-amber-950/50 hover:bg-amber-900/50 text-amber-400 px-3 py-1 rounded flex items-center gap-1"
+                          disabled={currentUser?.role === 'VIEWER'}
+                          className="text-xs bg-amber-950/50 hover:bg-amber-900/50 text-amber-400 px-3 py-1 rounded flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <ArrowLeft size={12}/> 退回待辦
                         </button>
@@ -682,7 +696,7 @@ export default function SchedulePage() {
                           setEditingTask(task);
                           setEditingTaskMembers(members.filter(m => m.task_id === task.id).map(m => m.user_id));
                           setIsFormOpen(true);
-                        }} className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1 rounded">
+                        }} disabled={currentUser?.role === 'VIEWER'} className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed">
                           編輯
                         </button>
                       </div>
@@ -718,16 +732,16 @@ export default function SchedulePage() {
           style={{ top: contextMenu.y, left: contextMenu.x }}
         >
           <button 
-            className="w-full text-left px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 transition"
-            onClick={(e) => handleContextAction(e, 'RESCHEDULE_TASK')}
+            className="w-full text-left px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={(e) => handleContextAction(e, 'RESCHEDULE_TASK')} disabled={currentUser?.role === 'VIEWER'}
           >改期</button>
           <button 
-            className="w-full text-left px-4 py-2 text-sm text-emerald-400 hover:bg-slate-700 transition"
-            onClick={(e) => handleContextAction(e, 'COMPLETE_TASK')}
+            className="w-full text-left px-4 py-2 text-sm text-emerald-400 hover:bg-slate-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={(e) => handleContextAction(e, 'COMPLETE_TASK')} disabled={currentUser?.role === 'VIEWER'}
           >完成</button>
           <button 
-            className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-slate-700 transition"
-            onClick={(e) => handleContextAction(e, 'DELETE_TASK')}
+            className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-slate-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={(e) => handleContextAction(e, 'DELETE_TASK')} disabled={currentUser?.role === 'VIEWER'}
           >刪除</button>
         </div>
       )}
@@ -738,7 +752,8 @@ export default function SchedulePage() {
           style={{ top: dayContextMenu.y, left: dayContextMenu.x }}
         >
           <button 
-            className="w-full text-left px-4 py-2 hover:bg-slate-700 text-emerald-400"
+            className="w-full text-left px-4 py-2 hover:bg-slate-700 text-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={currentUser?.role === 'VIEWER'}
             onClick={(e) => {
               e.stopPropagation();
               setEditingTask({ task_date: dayContextMenu.dateStr, task_type: '維修', status: '已排程' as TaskStatus });
@@ -759,7 +774,8 @@ export default function SchedulePage() {
         >
           {todoContextMenu.todoId ? (
             <button 
-              className="w-full text-left px-4 py-2 hover:bg-slate-700 text-red-400"
+              className="w-full text-left px-4 py-2 hover:bg-slate-700 text-red-400 disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={currentUser?.role === 'VIEWER'}
               onClick={async (e) => {
                 e.stopPropagation();
                 const id = todoContextMenu.todoId;
@@ -768,7 +784,7 @@ export default function SchedulePage() {
                 setTodos(prev => prev.filter(t => t.id !== id));
                 await dbAdapter.deleteTodo(id);
                 await dbAdapter.logActivity({
-                  actor_user_id: 'mock-user-engineer', actor_name: '柚子',
+                  actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
                   action_type: 'DELETE_TASK', target_type: 'Todo', target_id: id, target_label: '已刪除',
                   project_id: null, project_name: '', before_value: null, after_value: '刪除', message: '刪除待辦'
                 });
@@ -777,7 +793,8 @@ export default function SchedulePage() {
             >刪除待辦</button>
           ) : (
             <button 
-              className="w-full text-left px-4 py-2 hover:bg-slate-700 text-emerald-400"
+              className="w-full text-left px-4 py-2 hover:bg-slate-700 text-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={currentUser?.role === 'VIEWER'}
               onClick={(e) => {
                 e.stopPropagation();
                 setTodoContextMenu(null);

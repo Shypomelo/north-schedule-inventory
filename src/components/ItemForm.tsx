@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { InventoryItem } from '@/lib/db/types';
+import { useUser } from './UserContext';
 
 interface ItemFormProps {
   initialData?: Partial<InventoryItem>;
@@ -11,6 +12,8 @@ interface ItemFormProps {
 }
 
 export function ItemForm({ initialData, onSubmit, onCancel, isSubmitting }: ItemFormProps) {
+  const { currentUser } = useUser();
+  const isViewer = currentUser?.role === 'VIEWER';
   const [formData, setFormData] = useState({
     code: initialData?.code || '',
     name: initialData?.name || '',
@@ -145,8 +148,8 @@ export function ItemForm({ initialData, onSubmit, onCancel, isSubmitting }: Item
         <button type="button" onClick={onCancel} disabled={isSubmitting} className="px-4 py-2 rounded text-slate-300 hover:bg-slate-800 disabled:opacity-50">
           取消
         </button>
-        <button type="submit" disabled={isSubmitting} className="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold disabled:opacity-50">
-          {isSubmitting ? '儲存中...' : '儲存品項'}
+        <button type="submit" disabled={isSubmitting || isViewer} className="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold disabled:opacity-50">
+          {isSubmitting ? '儲存中...' : (isViewer ? '檢視權限' : '儲存品項')}
         </button>
       </div>
     </form>

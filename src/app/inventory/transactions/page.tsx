@@ -228,7 +228,8 @@ export default function TransactionsPage() {
             setEditingTxSerials([]);
             setIsModalOpen(true);
           }}
-          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded shadow transition"
+          disabled={currentUser?.role === 'VIEWER'}
+          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded shadow transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Plus size={20} />
           新增異動 (IN/OUT/RETURN/ADJUST)
@@ -304,8 +305,8 @@ export default function TransactionsPage() {
                     <td className="p-4 text-center space-x-2">
                       {!tx.is_voided && (
                         <>
-                          <button onClick={() => openEditModal(tx)} className="text-indigo-400 hover:text-indigo-300 text-xs bg-indigo-900/30 px-2 py-1 rounded">編輯</button>
-                          <button onClick={() => handleVoidTx(tx.id)} className="text-amber-400 hover:text-amber-300 text-xs bg-amber-900/30 px-2 py-1 rounded">作廢</button>
+                          <button onClick={() => openEditModal(tx)} disabled={currentUser?.role === 'VIEWER'} className="text-indigo-400 hover:text-indigo-300 text-xs bg-indigo-900/30 px-2 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed">編輯</button>
+                          <button onClick={() => handleVoidTx(tx.id)} disabled={currentUser?.role === 'VIEWER'} className="text-amber-400 hover:text-amber-300 text-xs bg-amber-900/30 px-2 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed">作廢</button>
                         </>
                       )}
                       <button onClick={() => setHistoryTxId(tx.id)} className="text-slate-400 hover:text-slate-300 text-xs bg-slate-800 px-2 py-1 rounded">紀錄</button>

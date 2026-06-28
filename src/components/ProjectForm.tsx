@@ -1,7 +1,9 @@
 "use client";
 
 import React, { useState } from 'react';
-import { Project } from '@/lib/db/types';
+import { Project, User } from '@/lib/db/types';
+import { dbAdapter } from '@/lib/db';
+import { useUser } from './UserContext';
 
 interface ProjectFormProps {
   initialData?: Partial<Project>;
@@ -12,6 +14,16 @@ interface ProjectFormProps {
 
 export function ProjectForm({ initialData, onSubmit, onCancel, isSubmitting }: ProjectFormProps) {
   const [activeTab, setActiveTab] = useState(1);
+  const [users, setUsers] = useState<User[]>([]);
+  const { currentUser } = useUser();
+  const isViewer = currentUser?.role === 'VIEWER';
+
+  React.useEffect(() => {
+    dbAdapter.getUsers().then(uData => {
+      setUsers(uData.filter(u => u.is_active && u.category === 'ENGINEERING'));
+    });
+  }, []);
+
   const [formData, setFormData] = useState({
     name: initialData?.name || '',
     short_name: initialData?.short_name || '',
@@ -157,9 +169,7 @@ export function ProjectForm({ initialData, onSubmit, onCancel, isSubmitting }: P
                 onChange={e => setFormData({...formData, manager: e.target.value})}
               >
                 <option value="">(無)</option>
-                <option value="柚子">柚子</option>
-                <option value="維揚">維揚</option>
-                <option value="育丞">育丞</option>
+                {users.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
               </select>
             </label>
             <InputField label="屋主 / 場地所有人" field="owner_name" />
@@ -227,20 +237,11 @@ export function ProjectForm({ initialData, onSubmit, onCancel, isSubmitting }: P
 
       {/* Footer / Actions */}
       <div className="flex justify-end gap-4 mt-6 pt-5 border-t border-slate-700 shrink-0">
-        <button 
-          type="button" 
-          onClick={onCancel} 
-          disabled={isSubmitting} 
-          className="px-6 py-2.5 rounded-lg text-slate-300 font-medium hover:bg-slate-700 disabled:opacity-50 transition-colors"
-        >
+        <button type="button" onClick={onCancel} disabled={isSubmitting} className="px-4 py-2 rounded text-slate-300 hover:bg-slate-800 disabled:opacity-50">
           取消
         </button>
-        <button 
-          type="submit" 
-          disabled={isSubmitting} 
-          className="px-6 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold disabled:opacity-50 transition-all shadow-lg shadow-emerald-500/20"
-        >
-          {isSubmitting ? '儲存中...' : '儲存案場資料'}
+        <button type="submit" disabled={isSubmitting || isViewer} className="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold disabled:opacity-50 shadow-lg shadow-emerald-500/20">
+          {isSubmitting ? '儲存中...' : (isViewer ? '檢視權限' : '儲存變更')}
         </button>
       </div>
     </form>

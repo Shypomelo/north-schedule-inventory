@@ -6,9 +6,10 @@ interface SmartDateInputProps {
   baseDate: string;
   onChange: (value: string) => void;
   placeholder?: string;
+  disabled?: boolean;
 }
 
-export function SmartDateInput({ value, baseDate, onChange, placeholder }: SmartDateInputProps) {
+export function SmartDateInput({ value, baseDate, onChange, placeholder, disabled }: SmartDateInputProps) {
   const [isFocused, setIsFocused] = useState(false);
   const [localValue, setLocalValue] = useState(value);
 
@@ -35,7 +36,8 @@ export function SmartDateInput({ value, baseDate, onChange, placeholder }: Smart
       onFocus={() => setIsFocused(true)}
       onBlur={handleBlur}
       onChange={(e) => setLocalValue(e.target.value)}
-      className="w-full bg-slate-900/50 hover:bg-slate-900 focus:bg-slate-900 px-2 py-1.5 rounded border border-slate-700/50 focus:border-emerald-500/50 transition-colors outline-none placeholder:text-slate-600"
+      disabled={disabled}
+      className={`w-full bg-slate-900/50 px-2 py-1.5 rounded border border-slate-700/50 transition-colors outline-none placeholder:text-slate-600 ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-900 focus:bg-slate-900 focus:border-emerald-500/50'}`}
       placeholder={placeholder}
     />
   );

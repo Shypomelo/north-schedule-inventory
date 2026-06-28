@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { dbAdapter } from '@/lib/db';
 import { Project, SESupplyRecord } from '@/lib/db/types';
 import { Plus, Trash2, Download, Search, Filter } from 'lucide-react';
+import { useUser } from '@/components/UserContext';
 import * as XLSX from 'xlsx';
 
 const RECEIVE_METHODS = [
@@ -15,6 +16,7 @@ const RECEIVE_METHODS = [
 ];
 
 export default function SESupplyPage() {
+  const { currentUser } = useUser();
   const [records, setRecords] = useState<SESupplyRecord[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -215,7 +217,8 @@ export default function SESupplyPage() {
               <td colSpan={11} className="p-0">
                 <button 
                   onClick={handleAddRow}
-                  className="w-full flex items-center justify-center gap-2 py-3 text-emerald-400 hover:bg-emerald-900/20 hover:text-emerald-300 transition-colors font-medium"
+                  disabled={currentUser?.role === 'VIEWER'}
+                  className="w-full flex items-center justify-center gap-2 py-3 text-emerald-400 hover:bg-emerald-900/20 hover:text-emerald-300 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Plus size={16} /> 新增一筆供貨紀錄
                 </button>
@@ -233,7 +236,8 @@ export default function SESupplyPage() {
                     <td className="px-3 py-1.5 text-center">
                       <button 
                         onClick={() => handleDeleteRow(r.id)}
-                        className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all p-1"
+                        disabled={currentUser?.role === 'VIEWER'}
+                        className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all p-1 disabled:opacity-50 disabled:cursor-not-allowed"
                         title="刪除紀錄"
                       >
                         <Trash2 size={16} />
@@ -248,7 +252,8 @@ export default function SESupplyPage() {
                         onBlur={e => handleCellBlur(r.id, 'project_name', e.target.value)}
                         onKeyDown={e => handleKeyDown(e, r.id, 'project_name', e.currentTarget.value)}
                         placeholder="輸入案名..."
-                        className="w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-emerald-500 focus:bg-slate-950 rounded px-2 py-1 outline-none text-slate-200 placeholder-slate-600 transition-colors"
+                        className="w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-emerald-500 focus:bg-slate-950 rounded px-2 py-1 outline-none text-slate-200 placeholder-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={currentUser?.role === 'VIEWER'}
                       />
                     </td>
                     <td className="px-1 py-1">
@@ -259,7 +264,8 @@ export default function SESupplyPage() {
                         onBlur={e => handleCellBlur(r.id, 'old_model', e.target.value)}
                         onKeyDown={e => handleKeyDown(e, r.id, 'old_model', e.currentTarget.value)}
                         placeholder="例: SE100K"
-                        className="w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-emerald-500 focus:bg-slate-950 rounded px-2 py-1 outline-none text-slate-200 placeholder-slate-600 transition-colors"
+                        className="w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-emerald-500 focus:bg-slate-950 rounded px-2 py-1 outline-none text-slate-200 placeholder-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={currentUser?.role === 'VIEWER'}
                       />
                     </td>
                     <td className="px-1 py-1">
@@ -270,7 +276,8 @@ export default function SESupplyPage() {
                         onBlur={e => handleCellBlur(r.id, 'faulty_serial', e.target.value)}
                         onKeyDown={e => handleKeyDown(e, r.id, 'faulty_serial', e.currentTarget.value)}
                         placeholder="序號..."
-                        className="w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-emerald-500 focus:bg-slate-950 rounded px-2 py-1 outline-none text-slate-200 placeholder-slate-600 font-mono text-[13px] transition-colors"
+                        className="w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-emerald-500 focus:bg-slate-950 rounded px-2 py-1 outline-none text-slate-200 placeholder-slate-600 font-mono text-[13px] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={currentUser?.role === 'VIEWER'}
                       />
                     </td>
                     <td className="px-1 py-1">
@@ -282,7 +289,8 @@ export default function SESupplyPage() {
                         onBlur={e => handleCellBlur(r.id, 'fault_reason', e.target.value)}
                         onKeyDown={e => handleKeyDown(e, r.id, 'fault_reason', e.currentTarget.value)}
                         placeholder="故障原因..."
-                        className="w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-emerald-500 focus:bg-slate-950 rounded px-2 py-1 outline-none text-slate-200 placeholder-slate-600 transition-colors"
+                        className="w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-emerald-500 focus:bg-slate-950 rounded px-2 py-1 outline-none text-slate-200 placeholder-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={currentUser?.role === 'VIEWER'}
                       />
                     </td>
                     <td className="px-1 py-1">
@@ -293,7 +301,8 @@ export default function SESupplyPage() {
                         onBlur={e => handleCellBlur(r.id, 'new_serial', e.target.value)}
                         onKeyDown={e => handleKeyDown(e, r.id, 'new_serial', e.currentTarget.value)}
                         placeholder="新序號..."
-                        className="w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-emerald-500 focus:bg-slate-950 rounded px-2 py-1 outline-none text-slate-200 placeholder-slate-600 font-mono text-[13px] transition-colors"
+                        className="w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-emerald-500 focus:bg-slate-950 rounded px-2 py-1 outline-none text-slate-200 placeholder-slate-600 font-mono text-[13px] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={currentUser?.role === 'VIEWER'}
                       />
                     </td>
                     <td className="px-1 py-1">
@@ -305,7 +314,8 @@ export default function SESupplyPage() {
                         onBlur={e => handleCellBlur(r.id, 'receive_method', e.target.value)}
                         onKeyDown={e => handleKeyDown(e, r.id, 'receive_method', e.currentTarget.value)}
                         placeholder="選擇或輸入..."
-                        className="w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-emerald-500 focus:bg-slate-950 rounded px-2 py-1 outline-none text-slate-200 placeholder-slate-600 transition-colors"
+                        className="w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-emerald-500 focus:bg-slate-950 rounded px-2 py-1 outline-none text-slate-200 placeholder-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={currentUser?.role === 'VIEWER'}
                       />
                     </td>
                     <td className="px-1 py-1">
@@ -315,7 +325,8 @@ export default function SESupplyPage() {
                         onChange={e => handleCellChange(r.id, 'receive_date', e.target.value)}
                         onBlur={e => handleCellBlur(r.id, 'receive_date', e.target.value)}
                         onKeyDown={e => handleKeyDown(e, r.id, 'receive_date', e.currentTarget.value)}
-                        className="w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-emerald-500 focus:bg-slate-950 rounded px-2 py-1 outline-none text-slate-200 transition-colors [color-scheme:dark]"
+                        className="w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-emerald-500 focus:bg-slate-950 rounded px-2 py-1 outline-none text-slate-200 transition-colors [color-scheme:dark] disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={currentUser?.role === 'VIEWER'}
                       />
                     </td>
                     <td className="px-1 py-1">
@@ -325,7 +336,8 @@ export default function SESupplyPage() {
                         onChange={e => handleCellChange(r.id, 'replace_date', e.target.value)}
                         onBlur={e => handleCellBlur(r.id, 'replace_date', e.target.value)}
                         onKeyDown={e => handleKeyDown(e, r.id, 'replace_date', e.currentTarget.value)}
-                        className="w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-emerald-500 focus:bg-slate-950 rounded px-2 py-1 outline-none text-slate-200 transition-colors [color-scheme:dark]"
+                        className="w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-emerald-500 focus:bg-slate-950 rounded px-2 py-1 outline-none text-slate-200 transition-colors [color-scheme:dark] disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={currentUser?.role === 'VIEWER'}
                       />
                     </td>
                     <td className="px-3 py-1.5">
@@ -345,7 +357,8 @@ export default function SESupplyPage() {
                         onBlur={e => handleCellBlur(r.id, 'notes', e.target.value)}
                         onKeyDown={e => handleKeyDown(e, r.id, 'notes', e.currentTarget.value)}
                         placeholder="備註..."
-                        className="w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-emerald-500 focus:bg-slate-950 rounded px-2 py-1 outline-none text-slate-200 placeholder-slate-600 transition-colors"
+                        className="w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-emerald-500 focus:bg-slate-950 rounded px-2 py-1 outline-none text-slate-200 placeholder-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={currentUser?.role === 'VIEWER'}
                       />
                     </td>
                   </tr>

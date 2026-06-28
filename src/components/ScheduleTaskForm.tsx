@@ -16,6 +16,7 @@ interface ScheduleTaskFormProps {
 
 export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCancel, isSubmitting }: ScheduleTaskFormProps) {
   const { currentUser } = useUser();
+  const isViewer = currentUser?.role === 'VIEWER';
   const [projects, setProjects] = useState<Project[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   
@@ -69,18 +70,17 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
       }
 
       // Initialize main_assignee_id properly
-      const yuzu = activeUsers.find(u => u.name === '柚子');
-      const allowedMainNames = ['柚子', '維揚', '育丞'];
+      const firstEngineer = activeUsers.find(u => u.category === 'ENGINEERING');
       let currentAssignee = activeUsers.find(u => u.id === initialData?.main_assignee_id);
       
       setFormData(prev => {
         let assigneeId = prev.main_assignee_id;
         if (!initialData?.id) {
-           // New task default to Yuzu
-           assigneeId = yuzu ? yuzu.id : null;
+           // New task default to first engineering user
+           assigneeId = firstEngineer ? firstEngineer.id : null;
         } else {
-           // Editing: if the current assignee is not in the allowed list (e.g. Admin User), clear it
-           if (currentAssignee && !allowedMainNames.includes(currentAssignee.name)) {
+           // Editing: if the current assignee is not engineering, clear it
+           if (currentAssignee && currentAssignee.category !== 'ENGINEERING') {
              assigneeId = '';
            }
         }
@@ -184,8 +184,8 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
     await onSubmit(formData as any, memberIds);
   };
 
-  const mainAssigneeUsers = users.filter(u => ['柚子', '維揚', '育丞'].includes(u.name));
-  const coworkerUsers = users.filter(u => ['柚子', '維揚', '育丞', '慈芸', '志偉'].includes(u.name));
+  const mainAssigneeUsers = users.filter(u => u.category === 'ENGINEERING');
+  const coworkerUsers = users;
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-3">
@@ -390,8 +390,8 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
           <button type="button" onClick={onCancel} disabled={isSubmitting} className="px-4 py-1.5 rounded text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50 transition-colors">
             取消 (Esc)
           </button>
-          <button type="submit" disabled={isSubmitting} className="px-5 py-1.5 rounded text-sm bg-emerald-600 hover:bg-emerald-500 text-white font-semibold disabled:opacity-50 shadow-lg shadow-emerald-500/20 transition-all">
-            {isSubmitting ? '儲存中...' : '儲存'}
+          <button type="submit" disabled={isSubmitting || isViewer} className="px-5 py-1.5 rounded text-sm bg-emerald-600 hover:bg-emerald-500 text-white font-semibold disabled:opacity-50 shadow-lg shadow-emerald-500/20 transition-all">
+            {isSubmitting ? '儲存中...' : (isViewer ? '檢視權限' : '儲存')}
           </button>
         </div>
       </div>

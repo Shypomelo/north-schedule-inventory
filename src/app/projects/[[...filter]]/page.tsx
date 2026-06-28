@@ -1,21 +1,24 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Project, ActiveProject } from '@/lib/db/types';
+import { Project, ActiveProject, User } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { ProjectForm } from '@/components/ProjectForm';
 import { ActiveProjectDetailModal } from '@/components/ActiveProjectDetailModal';
 import { parseDateField } from '@/lib/utils/date-utils';
 import { SmartDateInput } from '@/components/SmartDateInput';
+import { useUser } from '@/components/UserContext';
 import { MapPin, Plus, Search, Filter, Maximize2 } from 'lucide-react';
 import { useParams } from 'next/navigation';
 
 export default function ProjectsPage() {
   const params = useParams();
+  const { currentUser } = useUser();
   const filterKey = Array.isArray(params.filter) ? params.filter[0] : params.filter || 'all';
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjects, setActiveProjects] = useState<ActiveProject[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   
   // Custom Filters
@@ -62,8 +65,10 @@ export default function ProjectsPage() {
     setIsLoading(true);
     const data = await dbAdapter.getProjects();
     const activeData = await dbAdapter.getActiveProjects();
+    const usersData = await dbAdapter.getUsers();
     setProjects(data);
     setActiveProjects(activeData);
+    setUsers(usersData.filter(u => u.is_active && u.category === 'ENGINEERING'));
     setIsLoading(false);
   };
 
@@ -71,14 +76,13 @@ export default function ProjectsPage() {
     fetchProjects();
   }, []);
 
+  const filterUser = users.find(u => u.id === filterKey);
+  const isActiveView = filterKey === 'active' || !!filterUser;
+
   const getPageTitle = () => {
-    switch (filterKey) {
-      case 'active': return '進行中案場';
-      case 'yuzu': return '柚子案場';
-      case 'weiyang': return '維揚案場';
-      case 'yucheng': return '育丞案場';
-      default: return '所有案場';
-    }
+    if (filterKey === 'active') return '進行中案場';
+    if (filterUser) return `${filterUser.name}案場`;
+    return '所有案場';
   };
 
   const getCity = (address: string | null) => {
@@ -108,7 +112,6 @@ export default function ProjectsPage() {
 
   const inverterBrands = useMemo(() => Array.from(new Set(projects.map(p => p.inverter_brand).filter(Boolean))) as string[], [projects]);
 
-  const isActiveView = ['active', 'yuzu', 'weiyang', 'yucheng'].includes(filterKey);
 
   const filteredBaseProjects = useMemo(() => {
     return projects.filter(p => {
@@ -132,9 +135,7 @@ export default function ProjectsPage() {
 
   const filteredActiveProjects = useMemo(() => {
     return activeProjects.filter(p => {
-      if (filterKey === 'yuzu' && p.manager !== '柚子') return false;
-      if (filterKey === 'weiyang' && p.manager !== '維揚') return false;
-      if (filterKey === 'yucheng' && p.manager !== '育丞') return false;
+      if (filterUser && p.manager !== filterUser.name) return false;
 
       if (searchTerm) {
         const lowerTerm = searchTerm.toLowerCase();
@@ -146,7 +147,7 @@ export default function ProjectsPage() {
       }
       return true;
     });
-  }, [activeProjects, searchTerm, filterKey]);
+  }, [activeProjects, searchTerm, filterUser]);
 
   const activeCategories = useMemo(() => {
     const cats = {
@@ -429,6 +430,7 @@ export default function ProjectsPage() {
                   className="hover:bg-slate-700/40 transition-colors group"
                   onContextMenu={(e) => {
                     e.preventDefault();
+                    if (currentUser?.role === 'VIEWER') return;
                     handleDeleteActiveProject(project);
                   }}
                 >
@@ -448,18 +450,18 @@ export default function ProjectsPage() {
                   {/* Editable Fields */}
                   <td className="p-1">
                     <select
+                      disabled={currentUser?.role === 'VIEWER'}
                       value={project.manager || ''} 
                       onChange={(e) => handleActiveProjectInlineChange(project.id, 'manager', e.target.value)}
-                      className="w-full bg-slate-900/50 hover:bg-slate-900 focus:bg-slate-900 px-2 py-1.5 rounded border border-slate-700/50 focus:border-emerald-500/50 transition-colors outline-none text-slate-200 cursor-pointer appearance-none"
+                      className={`w-full bg-slate-900/50 px-2 py-1.5 rounded border border-slate-700/50 transition-colors outline-none text-slate-200 appearance-none ${currentUser?.role === 'VIEWER' ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-900 focus:bg-slate-900 focus:border-emerald-500/50 cursor-pointer'}`}
                     >
                       <option value="">未指定</option>
-                      <option value="柚子">柚子</option>
-                      <option value="維揚">維揚</option>
-                      <option value="育丞">育丞</option>
+                      {users.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
                     </select>
                   </td>
                   {showBracket && <td className="p-1">
                     <SmartDateInput 
+                      disabled={currentUser?.role === 'VIEWER'}
                       value={project.bracket_status || ''}
                       baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
                       onChange={(val) => handleActiveProjectInlineChange(project.id, 'bracket_status', val)}
@@ -467,6 +469,7 @@ export default function ProjectsPage() {
                   </td>}
                   {showPower && <td className="p-1">
                     <SmartDateInput 
+                      disabled={currentUser?.role === 'VIEWER'}
                       value={project.power_status || ''}
                       baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
                       onChange={(val) => handleActiveProjectInlineChange(project.id, 'power_status', val)}
@@ -474,6 +477,7 @@ export default function ProjectsPage() {
                   </td>}
                   {showInspection && <td className="p-1">
                     <SmartDateInput 
+                      disabled={currentUser?.role === 'VIEWER'}
                       value={project.inspection_status || ''}
                       baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
                       onChange={(val) => handleActiveProjectInlineChange(project.id, 'inspection_status', val)}
@@ -481,6 +485,7 @@ export default function ProjectsPage() {
                   </td>}
                   {showMeter && <td className="p-1">
                     <SmartDateInput 
+                      disabled={currentUser?.role === 'VIEWER'}
                       value={project.meter_status || ''}
                       baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
                       onChange={(val) => handleActiveProjectInlineChange(project.id, 'meter_status', val)}
@@ -488,6 +493,7 @@ export default function ProjectsPage() {
                   </td>}
                   {showRoof && <td className="p-1">
                     <SmartDateInput 
+                      disabled={currentUser?.role === 'VIEWER'}
                       value={project.roof_status || ''}
                       baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
                       onChange={(val) => handleActiveProjectInlineChange(project.id, 'roof_status', val)}
@@ -495,6 +501,7 @@ export default function ProjectsPage() {
                   </td>}
                   {showStartDate && <td className="p-1">
                     <SmartDateInput 
+                      disabled={currentUser?.role === 'VIEWER'}
                       value={project.start_date || ''}
                       baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
                       onChange={(val) => handleActiveProjectInlineChange(project.id, 'start_date', val)}
@@ -503,9 +510,10 @@ export default function ProjectsPage() {
                   </td>}
                   <td className="p-1">
                     <input 
+                      disabled={currentUser?.role === 'VIEWER'}
                       type="text" value={project.notes || ''} 
                       onChange={(e) => handleActiveProjectInlineChange(project.id, 'notes', e.target.value)}
-                      className="w-full bg-slate-900/50 hover:bg-slate-900 focus:bg-slate-900 px-2 py-1.5 rounded border border-slate-700/50 focus:border-emerald-500/50 transition-colors outline-none text-slate-400 placeholder:text-slate-600"
+                      className={`w-full bg-slate-900/50 px-2 py-1.5 rounded border border-slate-700/50 transition-colors outline-none text-slate-400 placeholder:text-slate-600 ${currentUser?.role === 'VIEWER' ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-900 focus:bg-slate-900 focus:border-emerald-500/50'}`}
                       placeholder="點擊輸入備註..."
                     />
                   </td>
@@ -513,7 +521,8 @@ export default function ProjectsPage() {
                     <td className="p-1 text-center">
                       <button
                         onClick={(e) => { e.stopPropagation(); handleCompleteProject(project); }}
-                        className="bg-emerald-600/80 hover:bg-emerald-500 text-white px-3 py-1.5 rounded text-xs font-semibold shadow transition-colors w-full"
+                        disabled={currentUser?.role === 'VIEWER'}
+                        className="bg-emerald-600/80 hover:bg-emerald-500 text-white px-3 py-1.5 rounded text-xs font-semibold shadow transition-colors w-full disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         結案
                       </button>
@@ -550,7 +559,8 @@ export default function ProjectsPage() {
           {isActiveView ? (
             <button 
               onClick={() => setIsActiveFormOpen(true)}
-              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-lg shadow-lg shadow-emerald-600/20 transition transform hover:-translate-y-0.5"
+              disabled={currentUser?.role === 'VIEWER'}
+              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-lg shadow-lg shadow-emerald-600/20 transition transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
             >
               <Plus size={20} />
               新增進行中案場
@@ -558,7 +568,8 @@ export default function ProjectsPage() {
           ) : (
             <button 
               onClick={() => { setEditingProject(null); setIsFormModalOpen(true); }}
-              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-lg shadow-lg shadow-emerald-600/20 transition transform hover:-translate-y-0.5"
+              disabled={currentUser?.role === 'VIEWER'}
+              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-lg shadow-lg shadow-emerald-600/20 transition transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
             >
               <Plus size={20} />
               新增所有案場
@@ -726,9 +737,7 @@ export default function ProjectsPage() {
                   <span className="text-sm text-slate-300">人員</span>
                   <select name="manager" className="p-2 bg-slate-900 border border-slate-700 rounded text-slate-100 cursor-pointer">
                     <option value="">未指定</option>
-                    <option value="柚子">柚子</option>
-                    <option value="維揚">維揚</option>
-                    <option value="育丞">育丞</option>
+                    {users.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
                   </select>
                 </label>
                 <label className="flex flex-col gap-1">

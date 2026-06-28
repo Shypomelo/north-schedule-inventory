@@ -44,7 +44,9 @@ export interface User {
   short_name: string;
   email: string;
   role: UserRole;
+  category?: 'ENGINEERING' | 'OTHER';
   is_active: boolean;
+  notes?: string | null;
   created_at: string;
   updated_at: string;
 }

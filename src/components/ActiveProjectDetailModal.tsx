@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ActiveProject, InventoryTransaction, InventoryItem } from '@/lib/db/types';
+import { ActiveProject, InventoryTransaction, InventoryItem, User } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { X, Save, Lock, Unlock, CheckCircle2, Circle, AlertCircle, HelpCircle, FileText, Settings, ListChecks, PackageSearch, Layers, ArrowRightLeft } from 'lucide-react';
 import { format } from 'date-fns';
@@ -45,17 +45,20 @@ export function ActiveProjectDetailModal({ project, onClose, onProjectUpdate }: 
 
   const [transactions, setTransactions] = useState<InventoryTransaction[]>([]);
   const [items, setItems] = useState<InventoryItem[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [isLoadingTx, setIsLoadingTx] = useState(false);
 
   useEffect(() => {
     async function fetchTx() {
       setIsLoadingTx(true);
-      const [txs, itms] = await Promise.all([
+      const [txs, itms, uData] = await Promise.all([
         dbAdapter.getInventoryTransactions(),
-        dbAdapter.getInventoryItems()
+        dbAdapter.getInventoryItems(),
+        dbAdapter.getUsers()
       ]);
       setTransactions(txs.filter(t => t.project_id === project.id || t.project_name === project.name).sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
       setItems(itms);
+      setUsers(uData.filter(u => u.is_active && u.category === 'ENGINEERING'));
       setIsLoadingTx(false);
     }
     fetchTx();
@@ -278,9 +281,7 @@ export function ActiveProjectDetailModal({ project, onClose, onProjectUpdate }: 
                     onChange={e => setFormData({...formData, manager: e.target.value})}
                   >
                     <option value="">未指定</option>
-                    <option value="柚子">柚子</option>
-                    <option value="維揚">維揚</option>
-                    <option value="育丞">育丞</option>
+                    {users.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
                   </select>
                 </label>
 

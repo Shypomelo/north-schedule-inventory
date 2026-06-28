@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { InventoryTransaction, InventoryItem, Project, TransactionType, InventorySerial, InventoryBatch } from '@/lib/db/types';
+import { InventoryTransaction, InventoryItem, Project, TransactionType, InventorySerial, InventoryBatch, User } from '@/lib/db/types';
+import { dbAdapter } from '@/lib/db';
 import { useUser } from './UserContext';
 import { format } from 'date-fns';
 import { Plus } from 'lucide-react';
@@ -26,6 +27,7 @@ interface TransactionFormProps {
 
 export function TransactionForm({ items, projects, balances, allSerials, batches = [], onSubmit, onCancel, isSubmitting, initialData, initialSerials = [], onAddNewItem }: TransactionFormProps) {
   const { currentUser } = useUser();
+  const isViewer = currentUser?.role === 'VIEWER';
   const [formData, setFormData] = useState({
     transaction_type: initialData?.transaction_type || 'OUT' as TransactionType,
     item_id: initialData?.item_id || '',
@@ -48,6 +50,7 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
   const [selectedSerials, setSelectedSerials] = useState<string[]>(initialData?.transaction_type !== 'IN' ? initialSerials : []);
   const [editReason, setEditReason] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [users, setUsers] = useState<User[]>([]);
   const isEditMode = !!initialData?.id;
 
   const [itemSearchText, setItemSearchText] = useState('');
@@ -62,6 +65,12 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    dbAdapter.getUsers().then(uData => {
+      setUsers(uData.filter(u => u.is_active));
+    });
   }, []);
 
   const filteredItems = items.filter(i => 
@@ -165,7 +174,7 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
           if (availableSerialsFIFO.length < formData.quantity && currentBalance >= formData.quantity) {
             return setErrorMsg('此品項仍有待補序號，請先至明細補登序號後再出庫。設備不得完全無序號出庫。');
           }
-          return setErrorMsg(`設備類${formData.transaction_type === 'OUT' ? '出庫' : '退回'}必須有完全相符的序號數量！\n目前異動數量: ${formData.quantity}\n已勾選現有序號: ${selectedSerials.length}\n總和不符，請檢查！`);
+          return setErrorMsg(`設備類${formData.transaction_type === 'OUT' ? '出庫' : '退料'}必須有完全相符的序號數量！\n目前異動數量: ${formData.quantity}\n已勾選現有序號: ${selectedSerials.length}\n總和不符，請檢查！`);
         }
       }
     }
@@ -390,9 +399,7 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
                 value={formData.handler} onChange={e => setFormData({...formData, handler: e.target.value})} 
               >
                 <option value="">(請選擇)</option>
-                <option value="柚子">柚子</option>
-                <option value="維揚">維揚</option>
-                <option value="育丞">育丞</option>
+                {users.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
               </select>
             </label>
           </>
@@ -536,8 +543,8 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
         )}
         <div className="flex justify-end gap-3">
           <button type="button" onClick={onCancel} className="px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded transition">取消</button>
-          <button type="submit" disabled={isSubmitting} className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded shadow-lg shadow-indigo-900/20 disabled:opacity-50 transition">
-            {isSubmitting ? '處理中...' : (isEditMode ? '儲存修改' : '確認送出')}
+          <button type="submit" disabled={isSubmitting || isViewer} className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded shadow-lg shadow-indigo-900/20 disabled:opacity-50 transition">
+            {isSubmitting ? '處理中...' : (isViewer ? '檢視權限' : (isEditMode ? '儲存修改' : '確認送出'))}
           </button>
         </div>
       </div>
