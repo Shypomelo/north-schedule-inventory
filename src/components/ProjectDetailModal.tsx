@@ -3,7 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { Project, Contractor, User } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
-import { X, Building2, Wrench, Calendar, FileText, Plus } from 'lucide-react';
+import { X, Building2, Wrench, Calendar, FileText, Plus, AlertTriangle } from 'lucide-react';
+import { parseISO, format } from 'date-fns';
 import { useUser } from './UserContext';
 
 interface Props {
@@ -31,6 +32,7 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
   
   const [users, setUsers] = useState<User[]>([]);
   const [contractors, setContractors] = useState<Contractor[]>([]);
+  const [allProjects, setAllProjects] = useState<Project[]>([]);
   const [saveStatus, setSaveStatus] = useState<'已儲存' | '儲存中' | '儲存失敗' | ''>('');
 
   useEffect(() => {
@@ -41,6 +43,9 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
       
       const allContractors = await dbAdapter.getContractors();
       setContractors(allContractors.filter(c => c.is_active));
+      
+      const allActiveProjects = await dbAdapter.getProjects();
+      setAllProjects(allActiveProjects.filter(p => p.is_active && p.id !== project.id));
     };
     fetchData();
   }, []);
@@ -59,6 +64,40 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
       console.error(e);
       setSaveStatus('儲存失敗');
     }
+  };
+
+  
+  const getConflictWarning = (typeKey: string) => {
+    const contractorId = editedProject[`${typeKey}_contractor_id` as keyof Project];
+    const startStr = editedProject[`${typeKey}_expected_start_date` as keyof Project] as string;
+    const endStr = editedProject[`${typeKey}_completion_date` as keyof Project] as string;
+    
+    if (!contractorId || !startStr || !endStr) return null;
+
+    const startDate = parseISO(startStr);
+    const endDate = parseISO(endStr);
+    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) return null;
+
+    for (const p of allProjects) {
+      for (const t of CONTRACTOR_TYPES) {
+        if (p[`${t.key}_contractor_id` as keyof Project] === contractorId) {
+          const pStart = p[`${t.key}_expected_start_date` as keyof Project] as string;
+          const pEnd = p[`${t.key}_completion_date` as keyof Project] as string;
+          if (pStart && pEnd) {
+            const psDate = parseISO(pStart);
+            const peDate = parseISO(pEnd);
+            if (!isNaN(psDate.getTime()) && !isNaN(peDate.getTime())) {
+              // start1 <= end2 && start2 <= end1
+              if (startDate.getTime() <= peDate.getTime() && psDate.getTime() <= endDate.getTime()) {
+                 const contractor = contractors.find(c => c.id === contractorId);
+                 return `撞期警示：${contractor?.name} 已於「${p.name}」安排施工 (${format(psDate, 'MM/dd')} ~ ${format(peDate, 'MM/dd')})`;
+              }
+            }
+          }
+        }
+      }
+    }
+    return null;
   };
 
   const getContractorDetails = (id: string | null) => {
@@ -161,8 +200,9 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
         const contractor = getContractorDetails(contractorId);
 
         return (
-          <div key={type.key} className={`p-4 rounded-xl border transition-colors ${isDisabled ? 'bg-slate-900/30 border-slate-800/50 opacity-50' : 'bg-slate-800/40 border-slate-700/50'}`}>
-            <div className="flex items-center justify-between mb-4">
+          <div key={type.key}>
+            <div className={`p-4 rounded-xl border transition-colors ${isDisabled ? 'bg-slate-900/30 border-slate-800/50 opacity-50' : 'bg-slate-800/40 border-slate-700/50'}`}>
+              <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold text-slate-200 flex items-center gap-2">
                 <Wrench size={16} className="text-emerald-500" />
                 {type.label}包商
@@ -211,6 +251,13 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
               </div>
             </div>
           </div>
+          {getConflictWarning(type.key) && (
+            <div className="mt-4 px-3 py-2 bg-rose-500/10 border border-rose-500/20 rounded-lg text-rose-400 text-xs animate-in slide-in-from-top-1 flex items-center gap-2">
+              <AlertTriangle size={14} className="shrink-0" />
+              {getConflictWarning(type.key)}
+            </div>
+          )}
+        </div>
         );
       })}
     </div>
@@ -227,8 +274,9 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
         if (isDisabled) return null;
 
         return (
-          <div key={type.key} className="flex items-center gap-4 p-4 bg-slate-800/40 rounded-xl border border-slate-700/50">
-            <div className="w-24 font-medium text-slate-300 flex items-center gap-2">
+          <div key={type.key}>
+            <div className="flex items-center gap-4 p-4 bg-slate-800/40 rounded-xl border border-slate-700/50">
+              <div className="w-24 font-medium text-slate-300 flex items-center gap-2">
               <Calendar size={14} className="text-blue-400" />
               {type.label}
             </div>
@@ -252,6 +300,13 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
                 disabled={currentUser?.role === 'VIEWER'}
               />
             </div>
+            </div>
+            {getConflictWarning(type.key) && (
+              <div className="flex items-center gap-2 mt-2 px-4 py-2 bg-rose-500/10 border border-rose-500/20 rounded-lg text-rose-400 text-xs ml-[112px] animate-in slide-in-from-top-1">
+                <AlertTriangle size={14} />
+                {getConflictWarning(type.key)}
+              </div>
+            )}
           </div>
         );
       })}

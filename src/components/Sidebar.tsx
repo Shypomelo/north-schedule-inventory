@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { UserSelector } from "@/components/UserSelector";
 import { useUser } from "@/components/UserContext";
-import { ChevronLeft, ChevronRight, Home, Calendar, Building2, Package, Truck, Settings, Users } from "lucide-react";
+import { ChevronLeft, ChevronRight, Home, Calendar, Building2, Package, Truck, Settings, Users, Wrench } from "lucide-react";
 
 export function Sidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -81,6 +81,10 @@ export function Sidebar() {
               <a href="/admin/users" className="hover:bg-slate-800 p-2 rounded text-sm whitespace-nowrap flex items-center gap-2">
                 <Users size={14} />
                 人員管理
+              </a>
+              <a href="/admin/contractors" className="hover:bg-slate-800 p-2 rounded text-sm whitespace-nowrap flex items-center gap-2">
+                <Wrench size={14} />
+                包商管理
               </a>
             </div>
           </details>
