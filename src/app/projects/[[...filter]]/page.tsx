@@ -1,10 +1,10 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Project, ActiveProject, User } from '@/lib/db/types';
+import { Project, User } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { ProjectForm } from '@/components/ProjectForm';
-import { ActiveProjectDetailModal } from '@/components/ActiveProjectDetailModal';
+import { ProjectDetailModal } from '@/components/ProjectDetailModal';
 import { parseDateField } from '@/lib/utils/date-utils';
 import { SmartDateInput } from '@/components/SmartDateInput';
 import { useUser } from '@/components/UserContext';
@@ -17,7 +17,7 @@ export default function ProjectsPage() {
   const filterKey = Array.isArray(params.filter) ? params.filter[0] : params.filter || 'all';
 
   const [projects, setProjects] = useState<Project[]>([]);
-  const [activeProjects, setActiveProjects] = useState<ActiveProject[]>([]);
+  
   const [users, setUsers] = useState<User[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -31,7 +31,14 @@ export default function ProjectsPage() {
   
   // For Active Projects
   const [isActiveFormOpen, setIsActiveFormOpen] = useState(false);
-  const [viewingActiveProject, setViewingActiveProject] = useState<ActiveProject | null>(null);
+  const [viewingProject, setViewingProject] = useState<Project | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, project: Project } | null>(null);
+
+  useEffect(() => {
+    const handleClickOutside = () => setContextMenu(null);
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -47,7 +54,7 @@ export default function ProjectsPage() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(activeProjects),
+        body: JSON.stringify(filteredProjects),
       });
       const data = await response.json();
       if (data.success) {
@@ -64,10 +71,10 @@ export default function ProjectsPage() {
   const fetchProjects = async () => {
     setIsLoading(true);
     const data = await dbAdapter.getProjects();
-    const activeData = await dbAdapter.getActiveProjects();
+    
     const usersData = await dbAdapter.getUsers();
     setProjects(data);
-    setActiveProjects(activeData);
+    
     setUsers(usersData.filter(u => u.is_active && u.category === 'ENGINEERING'));
     setIsLoading(false);
   };
@@ -115,6 +122,7 @@ export default function ProjectsPage() {
 
   const filteredBaseProjects = useMemo(() => {
     return projects.filter(p => {
+      if (p.status !== '已結案' && p.status !== '作廢') return false;
       if (filterCity && getCity(p.address) !== filterCity) return false;
       if (filterWarrantyStatus && p.warranty_status?.split('(')[0].trim() !== filterWarrantyStatus) return false;
       if (filterInverterBrand && p.inverter_brand !== filterInverterBrand) return false;
@@ -133,8 +141,9 @@ export default function ProjectsPage() {
     });
   }, [projects, searchTerm, filterCity, filterWarrantyStatus, filterInverterBrand]);
 
-  const filteredActiveProjects = useMemo(() => {
-    return activeProjects.filter(p => {
+  const filteredProjects = useMemo(() => {
+    return projects.filter(p => {
+      if (p.status === '已結案' || p.status === '作廢') return false;
       if (filterUser && p.manager !== filterUser.name) return false;
 
       if (searchTerm) {
@@ -147,24 +156,24 @@ export default function ProjectsPage() {
       }
       return true;
     });
-  }, [activeProjects, searchTerm, filterUser]);
+  }, [projects, searchTerm, filterUser]);
 
   const activeCategories = useMemo(() => {
     const cats = {
-      section1: [] as ActiveProject[], // 目前施工中案件
-      section2: [] as ActiveProject[], // 下兩周預計進場之案件
-      section3: [] as ActiveProject[], // 其他負責案件
-      section4: [] as ActiveProject[], // 前兩周掛表案件
+      section1: [] as Project[], // 目前施工中案件
+      section2: [] as Project[], // 下兩周預計進場之案件
+      section3: [] as Project[], // 其他負責案件
+      section4: [] as Project[], // 前兩周掛表案件
     };
 
-    filteredActiveProjects.forEach(p => {
+    filteredProjects.forEach(p => {
       const baseDateStr = p.report_base_date || new Date().toISOString().split('T')[0];
       const baseDate = new Date(baseDateStr);
       const baseTime = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate()).getTime();
 
-      const meterDate = parseDateField(p.meter_status, baseDateStr);
-      const bracketDate = parseDateField(p.bracket_status, baseDateStr);
-      const powerDate = parseDateField(p.power_status, baseDateStr);
+      const meterDate = parseDateField(p.meter_status || "", baseDateStr);
+      const bracketDate = parseDateField(p.bracket_status || "", baseDateStr);
+      const powerDate = parseDateField(p.power_status || "", baseDateStr);
 
       const isDateBeforeOrEqualBase = (d: Date | null) => d && d.getTime() <= baseTime;
       const isDateWithin14Days = (d: Date | null) => d && d.getTime() > baseTime && d.getTime() <= baseTime + 14 * 24 * 60 * 60 * 1000;
@@ -175,8 +184,8 @@ export default function ProjectsPage() {
       } else if (
         isDateBeforeOrEqualBase(bracketDate) || 
         isDateBeforeOrEqualBase(powerDate) ||
-        hasCompletedText(p.bracket_status) ||
-        hasCompletedText(p.power_status)
+        hasCompletedText(p.bracket_status || "") ||
+        hasCompletedText(p.power_status || "")
       ) {
         cats.section1.push(p); // 2. 支架或電力在基準日前，或包含已完工/已完成
       } else if (isDateWithin14Days(bracketDate) || isDateWithin14Days(powerDate)) {
@@ -187,7 +196,7 @@ export default function ProjectsPage() {
     });
 
     return cats;
-  }, [filteredActiveProjects]);
+  }, [filteredProjects]);
 
   const handleCreateOrUpdateBase = async (data: Omit<Project, 'id' | 'created_at' | 'updated_at'>) => {
     setIsSubmitting(true);
@@ -213,7 +222,7 @@ export default function ProjectsPage() {
     setIsSubmitting(true);
     const formData = new FormData(e.currentTarget);
     try {
-      const newActive: Omit<ActiveProject, 'id' | 'created_at' | 'updated_at'> = {
+      const newActive = {
         project_code: formData.get('project_code') as string || '',
         name: formData.get('name') as string || '',
         short_name: formData.get('name') as string || '',
@@ -227,12 +236,8 @@ export default function ProjectsPage() {
         start_date: formData.get('start_date') as string || '',
         notes: formData.get('notes') as string || '',
         status: '進行中',
-        matched_project_id: null,
-        report_section: '其他負責案件', // default
-        active_process_nodes: ['開案', '圖面確認', '進場', '掛表', '結案'],
-        active_material_nodes: [],
-        process_nodes: {}
-      };
+        report_section: '其他負責案件'
+      } as any;
       
       const newRecord = {
         ...newActive,
@@ -241,15 +246,7 @@ export default function ProjectsPage() {
         updated_at: new Date().toISOString()
       };
       
-      const adapter = dbAdapter as any;
-      const dbInstance = await adapter.getActiveProjects();
-      dbInstance.push(newRecord);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('schedule-inventory-mock-db-v6', JSON.stringify({
-          ...(JSON.parse(localStorage.getItem('schedule-inventory-mock-db-v6') || '{}')),
-          active_projects: dbInstance
-        }));
-      }
+      await dbAdapter.createProject(newActive);
 
       setIsActiveFormOpen(false);
       await fetchProjects();
@@ -261,14 +258,14 @@ export default function ProjectsPage() {
     }
   };
 
-  const handleDeleteActiveProject = async (project: ActiveProject) => {
+  const handleDeleteProject = async (project: Project) => {
     if (!confirm(`確定要刪除案場「${project.name}」嗎？這將會把它從進行中案場永久移除。`)) {
       return;
     }
     setIsSubmitting(true);
     try {
       const adapter = dbAdapter as any;
-      const dbActive = await adapter.getActiveProjects();
+      const dbActive = await adapter.getProjects();
       const newDbActive = dbActive.filter((p: any) => p.id !== project.id);
       if (typeof window !== 'undefined') {
         localStorage.setItem('schedule-inventory-mock-db-v6', JSON.stringify({
@@ -285,73 +282,26 @@ export default function ProjectsPage() {
     }
   };
 
-  const handleCompleteProject = async (project: ActiveProject) => {
+  
+  const handleArchiveProject = async (project: Project) => {
+    if (!confirm(`確定要作廢「${project.name}」嗎？`)) return;
+    try {
+      await dbAdapter.updateProject(project.id, { status: '作廢' });
+      await fetchProjects();
+    } catch (e) {
+      alert('操作失敗');
+    }
+  };
+
+  const handleCompleteProject = async (project: Project) => {
     if (!confirm(`確定要結案「${project.name}」嗎？這將會把它移出進行中案場，並更新至所有案場中。`)) {
       return;
     }
     setIsSubmitting(true);
     try {
-      // 1. Remove from Active Projects
-      const adapter = dbAdapter as any;
-      const dbActive = await adapter.getActiveProjects();
-      const newDbActive = dbActive.filter((p: any) => p.id !== project.id);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('schedule-inventory-mock-db-v6', JSON.stringify({
-          ...(JSON.parse(localStorage.getItem('schedule-inventory-mock-db-v6') || '{}')),
-          active_projects: newDbActive
-        }));
-      }
-
-      // 2. Find matching in Base Projects
-      const dbBase = await dbAdapter.getProjects();
-      const matched = dbBase.find(p => p.name === project.name) || 
-                      (project.short_name && dbBase.find(p => p.short_name === project.short_name));
-
-      if (matched) {
-        // Update existing
-        await dbAdapter.updateProject(matched.id, {
-          status: '結案',
-          capacity: project.capacity || matched.capacity,
-          manager: project.manager || matched.manager,
-          notes: project.notes ? `${matched.notes ? matched.notes + '\n' : ''}${project.notes}` : matched.notes,
-        });
-      } else {
-        // Create new
-        await dbAdapter.createProject({
-          name: project.name,
-          short_name: project.short_name,
-          capacity: project.capacity,
-          manager: project.manager,
-          notes: project.notes,
-          status: '結案',
-          address: null,
-          owner_name: null,
-          contact_name: null,
-          contact_phone: null,
-          is_active: true,
-          region: null,
-          project_type: null,
-          owner_phone: null,
-          data_source: 'active_complete',
-          warranty_status: null,
-          completion_date: project.meter_status || null,
-          warranty_years: null,
-          warranty_end_date: null,
-          has_maintenance_contract: null,
-          maintenance_start_date: null,
-          maintenance_end_date: null,
-          maintenance_notes: null,
-          inverter_brand: null,
-          inverter_warranty: null,
-          monitoring_system: null,
-          module_mounting_type: null,
-          last_inspection_date: null,
-          inspection_cycle_months: null,
-          next_inspection_date: null,
-          inspection_reminder_days: null
-        });
-      }
-
+      await dbAdapter.updateProject(project.id, {
+        status: '已結案'
+      });
       await fetchProjects();
     } catch (e) {
       console.error(e);
@@ -361,21 +311,27 @@ export default function ProjectsPage() {
     }
   };
 
-  const handleActiveProjectInlineChange = (id: string, field: keyof ActiveProject, value: string) => {
-    setActiveProjects(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p));
-    setSaveStatus('儲存中');
-    
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(async () => {
-      try {
-        await dbAdapter.updateActiveProject(id, { [field]: value });
-        setSaveStatus('已儲存');
-        setTimeout(() => setSaveStatus(''), 2000); // clear after 2 seconds
-      } catch (error) {
-        console.error("Failed to update active project inline", error);
-        setSaveStatus('儲存失敗');
-      }
-    }, 1000);
+  const handleProjectInlineChange = async (id: string, field: string, value: string) => {
+    try {
+      setSaveStatus('儲存中');
+      const updatedProjects = projects.map(p => p.id === id ? { ...p, [field]: value } as Project : p);
+      setProjects(updatedProjects);
+      
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = setTimeout(async () => {
+        try {
+          await dbAdapter.updateProject(id, { [field]: value });
+          setSaveStatus('已儲存');
+          setTimeout(() => setSaveStatus(''), 2000); // clear after 2 seconds
+        } catch (error) {
+          console.error("Failed to update project inline", error);
+          setSaveStatus('儲存失敗');
+        }
+      }, 1000);
+    } catch (e) {
+      console.error(e);
+      setSaveStatus('儲存失敗');
+    }
   };
 
   const openGoogleMaps = (e: React.MouseEvent, address: string) => {
@@ -384,7 +340,7 @@ export default function ProjectsPage() {
     window.open(url, '_blank');
   };
 
-  const renderActiveTable = (title: string, projectsList: ActiveProject[]) => {
+  const renderActiveTable = (title: string, projectsList: Project[]) => {
     const isSec1 = title === '1. 目前施工中案件';
     const isSec2 = title === '2. 下兩周預計進場之案件';
     const isSec3 = title === '3. 其他負責案件';
@@ -431,12 +387,12 @@ export default function ProjectsPage() {
                   onContextMenu={(e) => {
                     e.preventDefault();
                     if (currentUser?.role === 'VIEWER') return;
-                    handleDeleteActiveProject(project);
+                    handleDeleteProject(project);
                   }}
                 >
                   <td className="p-3 text-center">
                     <button 
-                      onClick={() => setViewingActiveProject(project)}
+                      onClick={() => setViewingProject(project)}
                       className="p-1.5 rounded-md bg-slate-800 text-emerald-500 hover:bg-emerald-500 hover:text-white transition-colors"
                       title="開啟詳細資料"
                     >
@@ -452,7 +408,7 @@ export default function ProjectsPage() {
                     <select
                       disabled={currentUser?.role === 'VIEWER'}
                       value={project.manager || ''} 
-                      onChange={(e) => handleActiveProjectInlineChange(project.id, 'manager', e.target.value)}
+                      onChange={(e) => handleProjectInlineChange(project.id, 'manager', e.target.value)}
                       className={`w-full bg-slate-900/50 px-2 py-1.5 rounded border border-slate-700/50 transition-colors outline-none text-slate-200 appearance-none ${currentUser?.role === 'VIEWER' ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-900 focus:bg-slate-900 focus:border-emerald-500/50 cursor-pointer'}`}
                     >
                       <option value="">未指定</option>
@@ -464,7 +420,7 @@ export default function ProjectsPage() {
                       disabled={currentUser?.role === 'VIEWER'}
                       value={project.bracket_status || ''}
                       baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
-                      onChange={(val) => handleActiveProjectInlineChange(project.id, 'bracket_status', val)}
+                      onChange={(val) => handleProjectInlineChange(project.id, 'bracket_status', val)}
                     />
                   </td>}
                   {showPower && <td className="p-1">
@@ -472,7 +428,7 @@ export default function ProjectsPage() {
                       disabled={currentUser?.role === 'VIEWER'}
                       value={project.power_status || ''}
                       baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
-                      onChange={(val) => handleActiveProjectInlineChange(project.id, 'power_status', val)}
+                      onChange={(val) => handleProjectInlineChange(project.id, 'power_status', val)}
                     />
                   </td>}
                   {showInspection && <td className="p-1">
@@ -480,7 +436,7 @@ export default function ProjectsPage() {
                       disabled={currentUser?.role === 'VIEWER'}
                       value={project.inspection_status || ''}
                       baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
-                      onChange={(val) => handleActiveProjectInlineChange(project.id, 'inspection_status', val)}
+                      onChange={(val) => handleProjectInlineChange(project.id, 'inspection_status', val)}
                     />
                   </td>}
                   {showMeter && <td className="p-1">
@@ -488,7 +444,7 @@ export default function ProjectsPage() {
                       disabled={currentUser?.role === 'VIEWER'}
                       value={project.meter_status || ''}
                       baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
-                      onChange={(val) => handleActiveProjectInlineChange(project.id, 'meter_status', val)}
+                      onChange={(val) => handleProjectInlineChange(project.id, 'meter_status', val)}
                     />
                   </td>}
                   {showRoof && <td className="p-1">
@@ -496,7 +452,7 @@ export default function ProjectsPage() {
                       disabled={currentUser?.role === 'VIEWER'}
                       value={project.roof_status || ''}
                       baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
-                      onChange={(val) => handleActiveProjectInlineChange(project.id, 'roof_status', val)}
+                      onChange={(val) => handleProjectInlineChange(project.id, 'roof_status', val)}
                     />
                   </td>}
                   {showStartDate && <td className="p-1">
@@ -504,7 +460,7 @@ export default function ProjectsPage() {
                       disabled={currentUser?.role === 'VIEWER'}
                       value={project.start_date || ''}
                       baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
-                      onChange={(val) => handleActiveProjectInlineChange(project.id, 'start_date', val)}
+                      onChange={(val) => handleProjectInlineChange(project.id, 'start_date', val)}
                       placeholder="YYYY-MM-DD"
                     />
                   </td>}
@@ -512,7 +468,7 @@ export default function ProjectsPage() {
                     <input 
                       disabled={currentUser?.role === 'VIEWER'}
                       type="text" value={project.notes || ''} 
-                      onChange={(e) => handleActiveProjectInlineChange(project.id, 'notes', e.target.value)}
+                      onChange={(e) => handleProjectInlineChange(project.id, 'notes', e.target.value)}
                       className={`w-full bg-slate-900/50 px-2 py-1.5 rounded border border-slate-700/50 transition-colors outline-none text-slate-400 placeholder:text-slate-600 ${currentUser?.role === 'VIEWER' ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-900 focus:bg-slate-900 focus:border-emerald-500/50'}`}
                       placeholder="點擊輸入備註..."
                     />
@@ -540,7 +496,7 @@ export default function ProjectsPage() {
   return (
     <div className="p-8 min-w-[1600px] mx-auto flex flex-col h-full">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-slate-100">{getPageTitle()} <span className="text-lg text-slate-500 font-normal ml-2">({isActiveView ? filteredActiveProjects.length : filteredBaseProjects.length})</span></h1>
+        <h1 className="text-3xl font-bold text-slate-100">{getPageTitle()} <span className="text-lg text-slate-500 font-normal ml-2">({isActiveView ? filteredProjects.length : filteredBaseProjects.length})</span></h1>
         
         <div className="flex items-center gap-4">
           {isActiveView && saveStatus && (
@@ -701,16 +657,16 @@ export default function ProjectsPage() {
         )}
       </div>
 
-      {viewingActiveProject && (
-        <ActiveProjectDetailModal 
-          project={viewingActiveProject} 
-          onClose={() => setViewingActiveProject(null)} 
-          onProjectUpdate={async () => {
+      {viewingProject && (
+        <ProjectDetailModal 
+          project={viewingProject as any} 
+          onClose={() => setViewingProject(null)} 
+          onUpdate={async () => {
             await fetchProjects();
             const adapter = dbAdapter as any;
-            const updatedProjects = await adapter.getActiveProjects();
-            const updated = updatedProjects.find((p: ActiveProject) => p.id === viewingActiveProject.id);
-            if (updated) setViewingActiveProject(updated);
+            const updatedProjects = await adapter.getProjects();
+            const updated = updatedProjects.find((p: Project) => p.id === viewingProject.id);
+            if (updated) setViewingProject(updated);
           }}
         />
       )}

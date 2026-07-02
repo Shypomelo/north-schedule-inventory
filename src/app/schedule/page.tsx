@@ -105,33 +105,59 @@ export default function SchedulePage() {
       let sourceTodoId = convertingTodoId || (editingTask as ScheduleTask)?.source_todo_id;
 
       if (editingTask?.id) {
+        const originalTask = tasks.find(t => t.id === editingTask.id);
+        // Optimistic Update
         setTasks(prev => prev.map(t => t.id === editingTask.id ? { ...t, ...data, updated_at: new Date().toISOString() } as ScheduleTask : t));
-        await dbAdapter.updateScheduleTask(editingTask.id, data, newMemberIds);
-        await dbAdapter.logActivity({
-          actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
-          action_type: 'UPDATE_TASK', target_type: 'ScheduleTask', target_id: editingTask.id, target_label: data.title,
-          project_id: data.project_id, project_name: '', before_value: null, after_value: null, message: '編輯排程任務'
-        });
-      } else {
-        const payload = { ...data, source_todo_id: convertingTodoId };
-        const newTask = await dbAdapter.createScheduleTask(payload, newMemberIds);
         
-        setTasks(prev => [...prev, newTask]);
-
-        await dbAdapter.logActivity({
-          actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
-          action_type: 'CREATE_TASK', target_type: 'ScheduleTask', target_id: newTask.id, target_label: data.title,
-          project_id: data.project_id, project_name: '', before_value: null, after_value: null, message: '建立排程任務'
-        });
-
-        if (convertingTodoId) {
-          setTodos(prev => prev.filter(t => t.id !== convertingTodoId));
-          await dbAdapter.updateTodo(convertingTodoId, { status: '已排程', converted_task_id: newTask.id });
+        try {
+          await dbAdapter.updateScheduleTask(editingTask.id, data, newMemberIds);
           await dbAdapter.logActivity({
             actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
-            action_type: 'TODO_TO_TASK', target_type: 'Todo', target_id: convertingTodoId, target_label: data.title,
-            project_id: data.project_id, project_name: '', before_value: '待安排', after_value: '已排程', message: '待辦轉排程'
+            action_type: 'UPDATE_TASK', target_type: 'ScheduleTask', target_id: editingTask.id, target_label: data.title,
+            project_id: data.project_id, project_name: '', before_value: null, after_value: null, message: '編輯排程任務'
           });
+        } catch (error) {
+          console.error('Update failed, rolling back:', error);
+          alert('排程更新失敗，請檢查網路連線或稍後再試。');
+          if (originalTask) {
+            setTasks(prev => prev.map(t => t.id === editingTask.id ? originalTask : t));
+          }
+          throw error;
+        }
+      } else {
+        const payload = { ...data, source_todo_id: convertingTodoId };
+        
+        // Optimistic Create
+        const tempId = `temp-${Date.now()}`;
+        const tempTask = { ...payload, id: tempId, created_at: new Date().toISOString(), updated_at: new Date().toISOString() } as ScheduleTask;
+        setTasks(prev => [...prev, tempTask]);
+        
+        try {
+          const newTask = await dbAdapter.createScheduleTask(payload, newMemberIds);
+          
+          // Replace temp with real
+          setTasks(prev => prev.map(t => t.id === tempId ? newTask : t));
+
+          await dbAdapter.logActivity({
+            actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
+            action_type: 'CREATE_TASK', target_type: 'ScheduleTask', target_id: newTask.id, target_label: data.title,
+            project_id: data.project_id, project_name: '', before_value: null, after_value: null, message: '建立排程任務'
+          });
+
+          if (convertingTodoId) {
+            setTodos(prev => prev.filter(t => t.id !== convertingTodoId));
+            await dbAdapter.updateTodo(convertingTodoId, { status: '已排程', converted_task_id: newTask.id });
+            await dbAdapter.logActivity({
+              actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
+              action_type: 'TODO_TO_TASK', target_type: 'Todo', target_id: convertingTodoId, target_label: data.title,
+              project_id: data.project_id, project_name: '', before_value: '待安排', after_value: '已排程', message: '待辦轉排程'
+            });
+          }
+        } catch (error) {
+          console.error('Create failed, rolling back:', error);
+          alert('排程建立失敗，請檢查網路連線或稍後再試。');
+          setTasks(prev => prev.filter(t => t.id !== tempId));
+          throw error;
         }
       }
 
@@ -142,9 +168,11 @@ export default function SchedulePage() {
       setIsFormOpen(false);
       setEditingTask(null);
       setConvertingTodoId(null);
-      await fetchData(false);
+      // Fetch data silently in background
+      fetchData(false);
 
       if (selectedDayTasks) {
+        // ... (This will be updated implicitly when tasks state changes or via fetchData)
         const freshTasks = await dbAdapter.getScheduleTasks();
         const dateStr = format(selectedDayTasks.date, 'yyyy-MM-dd');
         setSelectedDayTasks({
@@ -263,16 +291,28 @@ export default function SchedulePage() {
       if (dragType === 'task') {
         const task = tasks.find(t => t.id === dragId);
         if (!task || task.task_date === dateStr) return;
-        // Optimistic UI Update
+        
+        const originalDate = task.task_date;
+        
+        // Optimistic UI Update: Move immediately
         setTasks(prev => prev.map(t => t.id === dragId ? { ...t, task_date: dateStr } : t));
         
-        await dbAdapter.updateScheduleTask(dragId, { task_date: dateStr });
-        await dbAdapter.logActivity({
-          actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
-          action_type: 'RESCHEDULE_TASK', target_type: 'ScheduleTask', target_id: task.id, target_label: task.title,
-          project_id: task.project_id, project_name: '', before_value: task.task_date, after_value: dateStr, message: '拖曳改期'
-        });
-        await fetchData(false);
+        try {
+          await dbAdapter.updateScheduleTask(dragId, { task_date: dateStr });
+          await dbAdapter.logActivity({
+            actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
+            action_type: 'RESCHEDULE_TASK', target_type: 'ScheduleTask', target_id: task.id, target_label: task.title,
+            project_id: task.project_id, project_name: '', before_value: originalDate, after_value: dateStr, message: '拖曳改期'
+          });
+          // Optimistic update succeeded, we can fetch later silently
+          fetchData(false);
+        } catch (error) {
+          console.error('Update failed, rolling back:', error);
+          alert('排程更新失敗，請檢查網路連線或稍後再試。');
+          // Rollback
+          setTasks(prev => prev.map(t => t.id === dragId ? { ...t, task_date: originalDate } : t));
+        }
+
         if (selectedDayTasks) {
           const freshTasks = await dbAdapter.getScheduleTasks();
           setSelectedDayTasks(prev => prev ? {

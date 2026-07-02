@@ -96,30 +96,73 @@ export interface Project {
   inspection_cycle_months: string | null;
   next_inspection_date: string | null;
   inspection_reminder_days: string | null;
-  // Note: we removed is_active_project to separate the concepts
+  
+  // F. 進行中案場專用 (Active Project Fields)
+  project_code: string | null; // 案場代碼
+  report_base_date?: string | null; // 週回報表基準日
+  report_section?: string | null; // 手動分區
+  
+  // Legacy fields (kept for backward compatibility with weekly report)
+  bracket_status?: string | null;
+  power_status?: string | null;
+  inspection_status?: string | null;
+  meter_status?: string | null;
+  roof_status?: string | null;
+  start_date?: string | null;
+  
+  // 支架施工 (Racking)
+  racking_contractor_id: string | null;
+  racking_expected_start_date: string | null;
+  racking_completion_date: string | null;
+  racking_status: string | null;
+  racking_notes: string | null;
+
+  // 電力施工 (Electrical)
+  electrical_contractor_id: string | null;
+  electrical_expected_start_date: string | null;
+  electrical_completion_date: string | null;
+  electrical_status: string | null;
+  electrical_notes: string | null;
+
+  // 鋼構施工 (Steel)
+  steel_contractor_id: string | null;
+  steel_expected_start_date: string | null;
+  steel_completion_date: string | null;
+  steel_status: string | null;
+  steel_notes: string | null;
+
+  // 新設頂蓋施工 (Roof Cover)
+  roof_cover_contractor_id: string | null;
+  roof_cover_expected_start_date: string | null;
+  roof_cover_completion_date: string | null;
+  roof_cover_status: string | null;
+  roof_cover_notes: string | null;
+
+  // 挖地 / 土木施工 (Civil)
+  civil_contractor_id: string | null;
+  civil_expected_start_date: string | null;
+  civil_completion_date: string | null;
+  civil_status: string | null;
+  civil_notes: string | null;
+
+  // 其他施工 (Other)
+  other_contractor_id: string | null;
+  other_expected_start_date: string | null;
+  other_completion_date: string | null;
+  other_status: string | null;
+  other_notes: string | null;
 }
 
-export interface ActiveProject {
-  id: string; // active_project_id
-  project_code: string; // 案場代碼
-  name: string; // 案場名稱
-  short_name: string; // 案場簡稱
-  capacity: string; // 容量(kW)
-  matched_project_id: string | null; // 對應到 Project 的 ID
-  manager: string; // 人員
-  bracket_status: string; // 支架
-  power_status: string; // 電力
-  inspection_status: string; // 驗收
-  meter_status: string; // 掛表
-  roof_status: string; // 新設頂蓋
-  start_date: string; // 開工日期
-  notes: string; // 備註
-  status: string; // 狀態 (from Excel)
-  report_base_date?: string | null; // 基準日 (for UI override, though maybe we just pass it from page)
-  report_section?: string | null; // 手動分區
-  process_nodes?: Record<string, { status: string; locked: boolean }>;
-  active_process_nodes?: string[];
-  active_material_nodes?: string[];
+export type ContractorType = 'racking' | 'electrical' | 'steel' | 'roof_cover' | 'civil' | 'other';
+
+export interface Contractor {
+  id: string;
+  name: string;
+  contractor_type: ContractorType;
+  contact_person: string | null;
+  phone: string | null;
+  notes: string | null;
+  is_active: boolean;
   created_at: string;
   updated_at: string;
 }

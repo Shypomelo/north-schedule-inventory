@@ -1,4 +1,4 @@
-import { User, Project, ActiveProject, ScheduleTask, ScheduleTaskMember, Todo, InventoryItem, InventoryTransaction, InventorySerial, InventoryTransactionSerial, InventoryMonthlyClosing, InventoryMonthlyClosingItem, StockCategory, ActivityLog, InventoryBatch, SESupplyRecord } from './types';
+import { User, Project, ScheduleTask, ScheduleTaskMember, Todo, InventoryItem, InventoryTransaction, InventorySerial, InventoryTransactionSerial, InventoryMonthlyClosing, InventoryMonthlyClosingItem, StockCategory, ActivityLog, Contractor, InventoryBatch, SESupplyRecord } from './types';
 
 import mockProjectsData from './mock-projects.json';
 import mockActiveProjectsData from './mock-active-projects.json';
@@ -10,7 +10,7 @@ const IS_BROWSER = typeof window !== 'undefined';
 interface MockDatabase {
   users: User[];
   projects: Project[];
-  active_projects: ActiveProject[];
+  contractors: Contractor[];
   schedule_tasks: ScheduleTask[];
   schedule_task_members: ScheduleTaskMember[];
   todos: Todo[];
@@ -99,7 +99,7 @@ const initialUsers: User[] = [
 let db: MockDatabase = {
   users: [...initialUsers],
   projects: (mockProjectsData as any[]) as Project[],
-  active_projects: (mockActiveProjectsData as any[]) as ActiveProject[],
+  contractors: [],
   schedule_tasks: [],
   schedule_task_members: [],
   todos: [],
@@ -124,15 +124,27 @@ if (IS_BROWSER) {
   if (saved) {
     try {
       db = JSON.parse(saved);
-      if (!db.active_projects) {
-        db.active_projects = (mockActiveProjectsData as any[]) as ActiveProject[];
+      let hasMigrationChanges = false;
+      if (!db.contractors) {
+        db.contractors = [];
+      }
+      if ((db as any).active_projects && (db as any).active_projects.length > 0) {
+        (db as any).active_projects.forEach((ap: any) => {
+          const projIdx = db.projects.findIndex(p => p.id === ap.matched_project_id || p.name === ap.name);
+          if (projIdx >= 0) {
+            db.projects[projIdx] = { ...db.projects[projIdx], ...ap, status: ap.status || '施工中' };
+          } else {
+            db.projects.push({ ...ap, status: ap.status || '施工中' } as any);
+          }
+        });
+        (db as any).active_projects = [];
+        hasMigrationChanges = true;
       }
       if (!db.inventory_monthly_closing_items) {
         db.inventory_monthly_closing_items = [];
       }
       
       // Auto-migrate inventory items categories and sources
-      let hasMigrationChanges = false;
       db.inventory_items = db.inventory_items.map(item => {
         let newItem = { ...item };
         let changed = false;
@@ -319,16 +331,26 @@ export const mockDbAdapter = {
     return updated;
   },
 
-  // --- Active Projects ---
-  getActiveProjects: async () => [...db.active_projects].sort((a, b) => a.name.localeCompare(b.name)),
-
-  updateActiveProject: async (id: string, updates: Partial<Omit<ActiveProject, 'id'|'created_at'|'updated_at'>>) => {
-    const idx = db.active_projects.findIndex(proj => proj.id === id);
-    if (idx === -1) throw new Error("Active Project not found");
-    const updated = { ...db.active_projects[idx], ...updates, updated_at: new Date().toISOString() };
-    db.active_projects[idx] = updated;
+  // --- Contractors ---
+  getContractors: async () => [...db.contractors],
+  createContractor: async (c: Omit<Contractor, 'id' | 'created_at' | 'updated_at'>) => {
+    const newContractor: Contractor = { ...c, id: crypto.randomUUID(), created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+    db.contractors.push(newContractor);
     persist();
-    return updated;
+    return newContractor;
+  },
+  updateContractor: async (id: string, updates: Partial<Contractor>) => {
+    const idx = db.contractors.findIndex(x => x.id === id);
+    if (idx >= 0) {
+      db.contractors[idx] = { ...db.contractors[idx], ...updates, updated_at: new Date().toISOString() };
+      persist();
+      return db.contractors[idx];
+    }
+    throw new Error('Contractor not found');
+  },
+  deleteContractor: async (id: string) => {
+    db.contractors = db.contractors.filter(x => x.id !== id);
+    persist();
   },
 
   // --- Todos ---
