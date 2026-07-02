@@ -5,8 +5,10 @@ import { Project, User } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { ProjectForm } from '@/components/ProjectForm';
 import { ProjectDetailModal } from '@/components/ProjectDetailModal';
+import { GanttChart } from '@/components/GanttChart';
 import { parseDateField } from '@/lib/utils/date-utils';
 import { SmartDateInput } from '@/components/SmartDateInput';
+import { DateDualInput } from '@/components/DateDualInput';
 import { useUser } from '@/components/UserContext';
 import { MapPin, Plus, Search, Filter, Maximize2 } from 'lucide-react';
 import { useParams } from 'next/navigation';
@@ -32,6 +34,8 @@ export default function ProjectsPage() {
   // For Active Projects
   const [isActiveFormOpen, setIsActiveFormOpen] = useState(false);
   const [viewingProject, setViewingProject] = useState<Project | null>(null);
+  const [activeTab, setActiveTab] = useState<'report' | 'gantt'>('report');
+  const contractors: any[] = [];
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, project: Project } | null>(null);
 
   useEffect(() => {
@@ -311,6 +315,29 @@ export default function ProjectsPage() {
     }
   };
 
+
+  const handleProjectDatesChange = async (id: string, updates: Partial<Project>) => {
+    try {
+      setSaveStatus('儲存中');
+      setProjects(prev => prev.map(p => p.id === id ? { ...p, ...updates } as Project : p));
+      
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = setTimeout(async () => {
+        try {
+          await dbAdapter.updateProject(id, updates);
+          setSaveStatus('已儲存');
+          setTimeout(() => setSaveStatus(''), 2000);
+        } catch (error) {
+          console.error("Failed to update project dates", error);
+          setSaveStatus('儲存失敗');
+        }
+      }, 1000);
+    } catch (e) {
+      console.error(e);
+      setSaveStatus('儲存失敗');
+    }
+  };
+
   const handleProjectInlineChange = async (id: string, field: string, value: string) => {
     try {
       setSaveStatus('儲存中');
@@ -383,11 +410,11 @@ export default function ProjectsPage() {
               ) : projectsList.map(project => (
                 <tr 
                   key={project.id} 
-                  className="hover:bg-slate-700/40 transition-colors group"
+                  className="hover:bg-slate-700/40 transition-colors group cursor-context-menu"
                   onContextMenu={(e) => {
                     e.preventDefault();
                     if (currentUser?.role === 'VIEWER') return;
-                    handleDeleteProject(project);
+                    setContextMenu({ x: e.clientX, y: e.clientY, project });
                   }}
                 >
                   <td className="p-3 text-center">
@@ -416,43 +443,48 @@ export default function ProjectsPage() {
                     </select>
                   </td>
                   {showBracket && <td className="p-1">
-                    <SmartDateInput 
-                      disabled={currentUser?.role === 'VIEWER'}
-                      value={project.bracket_status || ''}
+                    <DateDualInput 
                       baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
-                      onChange={(val) => handleProjectInlineChange(project.id, 'bracket_status', val)}
+                      disabled={currentUser?.role === 'VIEWER'}
+                      expectedDate={project.racking_expected_start_date || null}
+                      completionDate={project.racking_completion_date || null}
+                      onChange={(exp, comp) => handleProjectDatesChange(project.id, { racking_expected_start_date: exp, racking_completion_date: comp })}
                     />
                   </td>}
                   {showPower && <td className="p-1">
-                    <SmartDateInput 
-                      disabled={currentUser?.role === 'VIEWER'}
-                      value={project.power_status || ''}
+                    <DateDualInput 
                       baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
-                      onChange={(val) => handleProjectInlineChange(project.id, 'power_status', val)}
+                      disabled={currentUser?.role === 'VIEWER'}
+                      expectedDate={project.electrical_expected_start_date || null}
+                      completionDate={project.electrical_completion_date || null}
+                      onChange={(exp, comp) => handleProjectDatesChange(project.id, { electrical_expected_start_date: exp, electrical_completion_date: comp })}
                     />
                   </td>}
                   {showInspection && <td className="p-1">
-                    <SmartDateInput 
-                      disabled={currentUser?.role === 'VIEWER'}
-                      value={project.inspection_status || ''}
+                    <DateDualInput 
                       baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
-                      onChange={(val) => handleProjectInlineChange(project.id, 'inspection_status', val)}
+                      disabled={currentUser?.role === 'VIEWER'}
+                      expectedDate={project.inspection_expected_date || null}
+                      completionDate={project.inspection_completion_date || null}
+                      onChange={(exp, comp) => handleProjectDatesChange(project.id, { inspection_expected_date: exp, inspection_completion_date: comp })}
                     />
                   </td>}
                   {showMeter && <td className="p-1">
-                    <SmartDateInput 
-                      disabled={currentUser?.role === 'VIEWER'}
-                      value={project.meter_status || ''}
+                    <DateDualInput 
                       baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
-                      onChange={(val) => handleProjectInlineChange(project.id, 'meter_status', val)}
+                      disabled={currentUser?.role === 'VIEWER'}
+                      expectedDate={project.meter_expected_date || null}
+                      completionDate={project.meter_completion_date || null}
+                      onChange={(exp, comp) => handleProjectDatesChange(project.id, { meter_expected_date: exp, meter_completion_date: comp })}
                     />
                   </td>}
                   {showRoof && <td className="p-1">
-                    <SmartDateInput 
-                      disabled={currentUser?.role === 'VIEWER'}
-                      value={project.roof_status || ''}
+                    <DateDualInput 
                       baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
-                      onChange={(val) => handleProjectInlineChange(project.id, 'roof_status', val)}
+                      disabled={currentUser?.role === 'VIEWER'}
+                      expectedDate={project.roof_cover_expected_start_date || null}
+                      completionDate={project.roof_cover_completion_date || null}
+                      onChange={(exp, comp) => handleProjectDatesChange(project.id, { roof_cover_expected_start_date: exp, roof_cover_completion_date: comp })}
                     />
                   </td>}
                   {showStartDate && <td className="p-1">
@@ -494,7 +526,8 @@ export default function ProjectsPage() {
   };
 
   return (
-    <div className="p-8 min-w-[1600px] mx-auto flex flex-col h-full">
+    <>
+      <div className="p-8 min-w-[1600px] mx-auto flex flex-col h-full">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold text-slate-100">{getPageTitle()} <span className="text-lg text-slate-500 font-normal ml-2">({isActiveView ? filteredProjects.length : filteredBaseProjects.length})</span></h1>
         
@@ -586,12 +619,37 @@ export default function ProjectsPage() {
         {isLoading ? (
           <div className="absolute inset-0 flex items-center justify-center text-slate-400">載入中...</div>
         ) : isActiveView ? (
-          <div className="pb-8">
-            {renderActiveTable("1. 目前施工中案件", activeCategories.section1)}
-            {renderActiveTable("2. 下兩周預計進場之案件", activeCategories.section2)}
-            {renderActiveTable("3. 其他負責案件", activeCategories.section3)}
-            {renderActiveTable("4. 前兩周掛表案件", activeCategories.section4)}
+          
+          <div className="pb-8 flex flex-col h-full">
+            <div className="flex gap-4 mb-6 border-b border-slate-700/50 pb-2 shrink-0">
+              <button 
+                onClick={() => setActiveTab('report')}
+                className={`px-4 py-2 font-medium transition-colors border-b-2 -mb-[10px] ${activeTab === 'report' ? 'text-emerald-400 border-emerald-500' : 'text-slate-400 border-transparent hover:text-slate-300'}`}
+              >
+                週回報表
+              </button>
+              <button 
+                onClick={() => setActiveTab('gantt')}
+                className={`px-4 py-2 font-medium transition-colors border-b-2 -mb-[10px] ${activeTab === 'gantt' ? 'text-emerald-400 border-emerald-500' : 'text-slate-400 border-transparent hover:text-slate-300'}`}
+              >
+                包商排工 (甘特圖)
+              </button>
+            </div>
+
+            {activeTab === 'report' ? (
+              <>
+                {renderActiveTable("1. 目前施工中案件", activeCategories.section1)}
+                {renderActiveTable("2. 下兩周預計進場之案件", activeCategories.section2)}
+                {renderActiveTable("3. 其他負責案件", activeCategories.section3)}
+                {renderActiveTable("4. 前兩周掛表案件", activeCategories.section4)}
+              </>
+            ) : (
+              <div className="flex-1 overflow-hidden min-h-[500px]">
+                <GanttChart projects={filteredProjects} contractors={contractors} />
+              </div>
+            )}
           </div>
+
         ) : filteredBaseProjects.length === 0 ? (
            <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 gap-2">
              <Search size={32} className="opacity-20" />
@@ -748,5 +806,33 @@ export default function ProjectsPage() {
         </div>
       )}
     </div>
+      {contextMenu && (
+        <div 
+          className="fixed z-[100] w-48 bg-slate-800 border border-slate-700/60 rounded-xl shadow-2xl py-2"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button 
+            className="w-full text-left px-4 py-2 hover:bg-slate-700 text-slate-200 text-sm"
+            onClick={() => { setViewingProject(contextMenu.project); setContextMenu(null); }}
+          >
+            詳細資料
+          </button>
+          
+          <button 
+            className="w-full text-left px-4 py-2 hover:bg-slate-700 text-emerald-400 text-sm border-t border-slate-700/50 mt-1 pt-2"
+            onClick={() => { handleCompleteProject(contextMenu.project); setContextMenu(null); }}
+          >
+            結案
+          </button>
+          <button 
+            className="w-full text-left px-4 py-2 hover:bg-slate-700 text-rose-400 text-sm"
+            onClick={() => { handleArchiveProject(contextMenu.project); setContextMenu(null); }}
+          >
+            作廢 / 停用
+          </button>
+        </div>
+      )}
+    </>
   );
 }

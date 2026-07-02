@@ -140,6 +140,14 @@ if (IS_BROWSER) {
         (db as any).active_projects = [];
         hasMigrationChanges = true;
       }
+      // Fix for legacy projects that were "未設定" -> should be "已結案"
+      db.projects.forEach(p => {
+        if (!p.status || p.status === '未設定' || p.status === '') {
+          p.status = '已結案';
+          hasMigrationChanges = true;
+        }
+      });
+
       if (!db.inventory_monthly_closing_items) {
         db.inventory_monthly_closing_items = [];
       }

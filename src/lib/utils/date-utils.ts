@@ -30,6 +30,29 @@ export function parseDateField(value: string, baseDateStr: string): Date | null 
     }
   }
 
+  // Regex for YYYYMMDD (8 digits)
+  const yyyymmddMatch = v.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (yyyymmddMatch) {
+    const year = parseInt(yyyymmddMatch[1], 10);
+    const month = parseInt(yyyymmddMatch[2], 10);
+    const day = parseInt(yyyymmddMatch[3], 10);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return new Date(year, month - 1, day);
+    }
+  }
+
+  // Regex for MMDD (4 digits)
+  const mmddMatch = v.match(/^(\d{2})(\d{2})$/);
+  if (mmddMatch) {
+    const month = parseInt(mmddMatch[1], 10);
+    const day = parseInt(mmddMatch[2], 10);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      const baseDate = new Date(baseDateStr);
+      const year = isNaN(baseDate.getFullYear()) ? new Date().getFullYear() : baseDate.getFullYear();
+      return new Date(year, month - 1, day);
+    }
+  }
+
   return null;
 }
 

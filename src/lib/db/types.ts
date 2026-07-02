@@ -106,7 +106,11 @@ export interface Project {
   bracket_status?: string | null;
   power_status?: string | null;
   inspection_status?: string | null;
+  inspection_expected_date?: string | null;
+  inspection_completion_date?: string | null;
   meter_status?: string | null;
+  meter_expected_date?: string | null;
+  meter_completion_date?: string | null;
   roof_status?: string | null;
   start_date?: string | null;
   
