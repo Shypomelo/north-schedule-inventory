@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Project, User } from '@/lib/db/types';
+import { Project, User, Contractor } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { ProjectForm } from '@/components/ProjectForm';
 import { ProjectDetailModal } from '@/components/ProjectDetailModal';
@@ -35,7 +35,7 @@ export default function ProjectsPage() {
   const [isActiveFormOpen, setIsActiveFormOpen] = useState(false);
   const [viewingProject, setViewingProject] = useState<Project | null>(null);
   const [activeTab, setActiveTab] = useState<'report' | 'gantt'>('report');
-  const contractors: any[] = [];
+  const [contractors, setContractors] = useState<Contractor[]>([]);
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, project: Project } | null>(null);
 
   useEffect(() => {
@@ -77,9 +77,11 @@ export default function ProjectsPage() {
     const data = await dbAdapter.getProjects();
     
     const usersData = await dbAdapter.getUsers();
+    const contractorsData = await dbAdapter.getContractors();
     setProjects(data);
     
     setUsers(usersData.filter(u => u.is_active && u.category === 'ENGINEERING'));
+    setContractors(contractorsData.filter(c => c.is_active));
     setIsLoading(false);
   };
 
@@ -170,32 +172,58 @@ export default function ProjectsPage() {
       section4: [] as Project[], // 前兩周掛表案件
     };
 
+    const globalBaseDateStr = new Date().toISOString().split('T')[0];
+    const globalBaseDate = new Date(globalBaseDateStr);
+    const globalBaseTime = new Date(globalBaseDate.getFullYear(), globalBaseDate.getMonth(), globalBaseDate.getDate()).getTime();
+
     filteredProjects.forEach(p => {
-      const baseDateStr = p.report_base_date || new Date().toISOString().split('T')[0];
-      const baseDate = new Date(baseDateStr);
-      const baseTime = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate()).getTime();
+      // 強制使用全域的「今日」作為分類判斷的基準日，避免各案場自帶的舊基準日導致「下兩周」的定義錯亂
+      const baseDateStr = globalBaseDateStr;
+      const baseTime = globalBaseTime;
 
-      const meterDate = parseDateField(p.meter_status || "", baseDateStr);
-      const bracketDate = parseDateField(p.bracket_status || "", baseDateStr);
-      const powerDate = parseDateField(p.power_status || "", baseDateStr);
-
+      // 掛表日期判斷：優先看新的 DateDualInput 產生的 expected_date，若無則看舊的 status
+      let meterDate: Date | null = null;
+      if (p.meter_expected_date) {
+        meterDate = parseDateField(p.meter_expected_date, baseDateStr) || new Date(p.meter_expected_date);
+      } else {
+        meterDate = parseDateField(p.meter_status || "", baseDateStr);
+      }
+      
       const isDateBeforeOrEqualBase = (d: Date | null) => d && d.getTime() <= baseTime;
-      const isDateWithin14Days = (d: Date | null) => d && d.getTime() > baseTime && d.getTime() <= baseTime + 14 * 24 * 60 * 60 * 1000;
-      const hasCompletedText = (text: string | null) => text?.includes('已完工') || text?.includes('已完成');
+      const expectedDates: Date[] = [];
+      const contractorTypes = ['racking', 'electrical', 'steel', 'roof_cover', 'civil', 'other'];
+      
+      contractorTypes.forEach(type => {
+        const expectedStr = p[`${type}_expected_start_date` as keyof Project] as string | null;
+        if (expectedStr) {
+          const parsed = parseDateField(expectedStr, baseDateStr);
+          if (parsed) expectedDates.push(parsed);
+          else expectedDates.push(new Date(expectedStr)); // fallback
+        }
+      });
+
+      if (!p.racking_expected_start_date) {
+        const d = parseDateField(p.bracket_status || "", baseDateStr);
+        if (d) expectedDates.push(d);
+      }
+      if (!p.electrical_expected_start_date) {
+        const d = parseDateField(p.power_status || "", baseDateStr);
+        if (d) expectedDates.push(d);
+      }
+
+      const hasDateWithin14Days = expectedDates.some(d => d && d.getTime() >= baseTime && d.getTime() <= baseTime + 14 * 24 * 60 * 60 * 1000);
+      const hasDateBeforeBase = expectedDates.some(d => d && d.getTime() < baseTime);
+      const isLegacyCompleted = (text: string | null) => text?.includes('已完工') || text?.includes('已完成');
+      const isLegacyDone = isLegacyCompleted(p.bracket_status || "") || isLegacyCompleted(p.power_status || "");
 
       if (isDateBeforeOrEqualBase(meterDate)) {
         cats.section4.push(p); // 1. 掛表日期在基準日前
-      } else if (
-        isDateBeforeOrEqualBase(bracketDate) || 
-        isDateBeforeOrEqualBase(powerDate) ||
-        hasCompletedText(p.bracket_status || "") ||
-        hasCompletedText(p.power_status || "")
-      ) {
-        cats.section1.push(p); // 2. 支架或電力在基準日前，或包含已完工/已完成
-      } else if (isDateWithin14Days(bracketDate) || isDateWithin14Days(powerDate)) {
-        cats.section2.push(p); // 3. 支架或電力在未來14天內
+      } else if (hasDateBeforeBase || isLegacyDone) {
+        cats.section1.push(p); // 2. 任何工種進場日在基準日前 (代表已實際進場施工中)，或包含已完工/已完成
+      } else if (hasDateWithin14Days) {
+        cats.section2.push(p); // 3. 只要有任何工種預計在兩周內進場，且沒有任何工種已經進場
       } else {
-        cats.section3.push(p); // 4. 其他
+        cats.section3.push(p); // 4. 其他 (超過兩周才要進場的案件)
       }
     });
 
@@ -567,19 +595,19 @@ export default function ProjectsPage() {
         </div>
       </div>
 
-      <div className="bg-slate-800/60 border border-slate-700/60 p-4 rounded-xl mb-6 flex flex-col md:flex-row gap-4 backdrop-blur-sm shrink-0">
-        <div className="flex-1 flex items-center gap-3 bg-slate-900/50 rounded-lg px-3 border border-slate-700/50">
-          <Search className="text-slate-400" size={20} />
-          <input 
-            type="text" 
-            placeholder="搜尋案場名稱、代碼、備註..." 
-            className="bg-transparent border-none outline-none text-slate-200 w-full placeholder:text-slate-500 py-2.5"
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-          />
-        </div>
-        
-        {!isActiveView && (
+      {!isActiveView && (
+        <div className="bg-slate-800/60 border border-slate-700/60 p-4 rounded-xl mb-6 flex flex-col md:flex-row gap-4 backdrop-blur-sm shrink-0">
+          <div className="flex-1 flex items-center gap-3 bg-slate-900/50 rounded-lg px-3 border border-slate-700/50">
+            <Search className="text-slate-400" size={20} />
+            <input 
+              type="text" 
+              placeholder="搜尋案場名稱、代碼、備註..." 
+              className="bg-transparent border-none outline-none text-slate-200 w-full placeholder:text-slate-500 py-2.5"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+            />
+          </div>
+          
           <div className="flex gap-3 overflow-x-auto">
             <div className="flex items-center gap-2 bg-slate-900/50 rounded-lg px-3 py-1 border border-slate-700/50 min-w-max">
               <Filter size={16} className="text-slate-400" />
@@ -612,8 +640,8 @@ export default function ProjectsPage() {
               </select>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       <div className="flex-1 overflow-auto relative">
         {isLoading ? (
@@ -645,7 +673,11 @@ export default function ProjectsPage() {
               </>
             ) : (
               <div className="flex-1 overflow-hidden min-h-[500px]">
-                <GanttChart projects={filteredProjects} contractors={contractors} />
+                <GanttChart 
+                  projects={filteredProjects} 
+                  contractors={contractors} 
+                  onProjectClick={(p) => setViewingProject(p)}
+                />
               </div>
             )}
           </div>

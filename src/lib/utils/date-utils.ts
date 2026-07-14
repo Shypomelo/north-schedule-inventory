@@ -1,7 +1,7 @@
 export function parseDateField(value: string, baseDateStr: string): Date | null {
   if (!value || typeof value !== 'string') return null;
 
-  const v = value.trim();
+  const v = value.trim().replace(/^(?:預計|實際|暫定)\s*/, '');
   // match simple text that are obviously not dates
   if (['施工中', '已完工', '已完成', '已驗收', '待確認', '未開始', '待台電外線', '待使照取得'].includes(v)) {
     return null;

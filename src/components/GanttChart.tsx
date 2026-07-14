@@ -1,10 +1,12 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { addDays, differenceInDays, format, isAfter, isBefore, max, min, parseISO, startOfDay } from 'date-fns';
+import { AlertTriangle } from 'lucide-react';
 import { Project, Contractor } from '@/lib/db/types';
 
 interface GanttChartProps {
   projects: Project[];
   contractors: Contractor[];
+  onProjectClick?: (project: Project) => void;
 }
 
 const CONTRACTOR_TYPES = [
@@ -16,7 +18,9 @@ const CONTRACTOR_TYPES = [
   { key: 'other', label: '其他', color: 'bg-slate-500', bgLight: 'bg-slate-500/20', border: 'border-slate-500' },
 ];
 
-export function GanttChart({ projects, contractors }: GanttChartProps) {
+export function GanttChart({ projects, contractors, onProjectClick }: GanttChartProps) {
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  
   // We want to extract all tasks across all projects
   const tasks = useMemo(() => {
     const extracted: any[] = [];
@@ -52,21 +56,38 @@ export function GanttChart({ projects, contractors }: GanttChartProps) {
   }, [projects, contractors]);
 
   const { validTasks, invalidTasks } = useMemo(() => {
-    const valid = [];
-    const invalid = [];
+    const valid: any[] = [];
+    const invalid: any[] = [];
     for (const t of tasks) {
       if (t.hasStart && t.hasEnd) {
         // Parse dates safely
         const start = parseISO(t.startDateStr);
         const end = parseISO(t.endDateStr);
         if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
-          valid.push({ ...t, start, end });
+          valid.push({ ...t, start: startOfDay(start), end: startOfDay(end), conflicts: [] });
           continue;
         }
       }
       // If it reaches here, it has a start date but no end date, or invalid parsing
       invalid.push(t);
     }
+
+    // Detect overlaps among valid tasks
+    for (let i = 0; i < valid.length; i++) {
+      for (let j = i + 1; j < valid.length; j++) {
+        const t1 = valid[i];
+        const t2 = valid[j];
+        
+        // Check if same contractor and they overlap (but ignore if it's the same project)
+        if (t1.contractor && t2.contractor && t1.contractor.id === t2.contractor.id && t1.project.id !== t2.project.id) {
+          if (t1.start <= t2.end && t1.end >= t2.start) {
+            t1.conflicts.push(t2);
+            t2.conflicts.push(t1);
+          }
+        }
+      }
+    }
+
     return { validTasks: valid, invalidTasks: invalid };
   }, [tasks]);
 
@@ -110,6 +131,42 @@ export function GanttChart({ projects, contractors }: GanttChartProps) {
     return sortedProjects;
   }, [validTasks]);
 
+  const conflictingContractors = useMemo(() => {
+    const conflictMap = new Map<string, any[]>();
+    validTasks.forEach(t => {
+      if (t.conflicts && t.conflicts.length > 0 && t.contractor) {
+        if (!conflictMap.has(t.contractor.id)) {
+          conflictMap.set(t.contractor.id, []);
+        }
+        conflictMap.get(t.contractor.id)!.push(t);
+      }
+    });
+    return Array.from(conflictMap.entries()).map(([id, tasks]) => ({
+      contractor: tasks[0].contractor,
+      tasks: tasks.sort((a, b) => a.start.getTime() - b.start.getTime())
+    }));
+  }, [validTasks]);
+
+  const handleProjectLeftClick = (projectId: string) => {
+    const projectRow = groupedByProject.find(p => p[0] === projectId);
+    if (!projectRow || !scrollContainerRef.current) return;
+    
+    const tasks = projectRow[1];
+    if (tasks.length === 0) return;
+    
+    // Find earliest start date for this project
+    const earliestStart = min(tasks.map(t => t.start));
+    const startOffset = differenceInDays(earliestStart, minDate);
+    
+    // Calculate scroll position (40px per day, minus some padding)
+    const scrollPos = Math.max(0, startOffset * 40 - 120);
+    
+    scrollContainerRef.current.scrollTo({
+      left: scrollPos,
+      behavior: 'smooth'
+    });
+  };
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Warning Section for tasks without end dates */}
@@ -128,8 +185,39 @@ export function GanttChart({ projects, contractors }: GanttChartProps) {
         </div>
       )}
 
+      {/* Conflict Warning Section */}
+      {conflictingContractors.length > 0 && (
+        <div className="bg-orange-500/10 border border-orange-500/50 rounded-xl p-4 mb-4 flex-shrink-0 shadow-lg shadow-orange-500/5">
+          <h3 className="text-orange-400 font-bold mb-3 flex items-center gap-2">
+            <AlertTriangle size={18} /> 發現包商撞期（同一包商在不同案場或工種的施工期間重疊）：
+          </h3>
+          <div className="flex flex-col gap-3 text-sm text-orange-200/80">
+            {conflictingContractors.map((c, idx) => (
+              <div key={idx} className="bg-orange-500/20 px-3 py-2.5 rounded-lg flex flex-col gap-2">
+                <span className="font-bold text-orange-300 text-base">[{c.contractor.name}]</span>
+                <div className="flex flex-wrap gap-2">
+                  {c.tasks.map((t: any, i: number) => (
+                    <div key={i} className="bg-slate-900/60 px-2 py-1 rounded border border-orange-500/30 flex items-center gap-2">
+                      <button 
+                        onClick={() => document.getElementById(`gantt-project-${t.project.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+                        className="font-medium text-emerald-400 hover:text-emerald-300 hover:underline cursor-pointer"
+                      >
+                        {t.project.name} ({t.type.label})
+                      </button>
+                      <span className="text-orange-300/80 text-xs">
+                        {format(t.start, 'yyyy/MM/dd')} ~ {format(t.end, 'yyyy/MM/dd')}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Gantt Chart Container */}
-      <div className="flex-1 overflow-auto rounded-xl border border-slate-700/50 bg-slate-800/20 shadow-xl relative">
+      <div ref={scrollContainerRef} className="flex-1 overflow-auto rounded-xl border border-slate-700/50 bg-slate-800/20 shadow-xl relative">
         {validTasks.length === 0 ? (
           <div className="p-8 text-center text-slate-400">目前沒有可顯示的排程資料（需有進場及完工日期）</div>
         ) : (
@@ -158,10 +246,16 @@ export function GanttChart({ projects, contractors }: GanttChartProps) {
             {groupedByProject.map(([projectId, projectTasks]) => {
               const project = projectTasks[0].project;
               return (
-                <div key={projectId} className="flex border-b border-slate-700/30 hover:bg-slate-700/20 transition-colors relative">
+                <div key={projectId} id={`gantt-project-${projectId}`} className="flex border-b border-slate-700/30 hover:bg-slate-700/20 transition-colors relative">
                   {/* Left fixed column */}
                   <div className="w-48 flex-shrink-0 border-r border-slate-700/50 p-3 sticky left-0 z-10 bg-slate-800/95 backdrop-blur font-medium text-slate-200">
-                    <div className="truncate" title={project.name}>{project.name}</div>
+                    <button 
+                      onClick={() => handleProjectLeftClick(projectId)}
+                      className="truncate hover:text-emerald-400 hover:underline cursor-pointer text-left w-full block" 
+                      title={project.name}
+                    >
+                      {project.name}
+                    </button>
                     <div className="text-xs text-slate-500 truncate">{project.manager || '未指定負責人'}</div>
                   </div>
                   
@@ -200,18 +294,27 @@ export function GanttChart({ projects, contractors }: GanttChartProps) {
                       // For simplicity, we just vertically stack tasks inside the row.
                       // That means the row needs to be tall enough to fit them all.
                       // We will set the row container's min-height based on number of tasks.
+                      
+                      const hasConflict = t.conflicts && t.conflicts.length > 0;
+                      let tooltipText = `${t.type.label} (${t.contractor?.name || '未指定包商'})\n${format(t.start, 'yyyy/MM/dd')} - ${format(t.end, 'yyyy/MM/dd')}`;
+                      if (hasConflict) {
+                        tooltipText += `\n\n⚠️ 撞期警告：\n此包商在重疊期間也被安排於：\n` + 
+                          t.conflicts.map((c: any) => `- ${c.project.name} (${c.type.label})`).join('\n');
+                      }
 
                       return (
                         <div
                           key={`${projectId}-${t.type.key}`}
-                          className={`absolute h-6 rounded-md shadow-sm border flex items-center px-2 text-xs text-white truncate cursor-pointer transition-transform hover:-translate-y-0.5 ${t.type.color} ${t.type.border}`}
+                          className={`absolute h-6 rounded-md shadow-sm border flex items-center px-2 text-xs text-white truncate cursor-pointer transition-transform hover:-translate-y-0.5 ${hasConflict ? 'border-orange-400 border-2 bg-orange-500/80 !text-white animate-pulse' : `${t.type.color} ${t.type.border}`}`}
                           style={{
                             left: `${leftPos}px`,
                             width: `${width}px`,
                             top: `${topOffset}px`
                           }}
-                          title={`${t.type.label} (${t.contractor?.name || '未指定包商'})\n${format(t.start, 'yyyy/MM/dd')} - ${format(t.end, 'yyyy/MM/dd')}`}
+                          title={tooltipText}
+                          onClick={() => onProjectClick?.(t.project)}
                         >
+                          {hasConflict && <AlertTriangle size={12} className="mr-1 text-white shrink-0" />}
                           <span className="truncate font-medium">{t.type.label}</span>
                           {t.contractor && <span className="ml-1 opacity-80 truncate">- {t.contractor.name}</span>}
                         </div>

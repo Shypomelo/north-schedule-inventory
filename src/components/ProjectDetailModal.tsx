@@ -6,6 +6,7 @@ import { dbAdapter } from '@/lib/db';
 import { X, Building2, Wrench, Calendar, FileText, Plus, AlertTriangle } from 'lucide-react';
 import { parseISO, format } from 'date-fns';
 import { useUser } from './UserContext';
+import { DateDualInput } from './DateDualInput';
 
 interface Props {
   project: Project;
@@ -13,7 +14,7 @@ interface Props {
   onUpdate: () => Promise<void>;
 }
 
-type TabType = 'basic' | 'contractors' | 'progress' | 'notes';
+type TabType = 'basic' | 'progress' | 'notes';
 
 const CONTRACTOR_TYPES = [
   { key: 'racking', label: '支架' },
@@ -186,124 +187,120 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
             <option value="作廢">作廢</option>
           </select>
         </div>
+        <div>
+          <label className="block text-sm font-medium text-slate-400 mb-1">掛表日期</label>
+          <div className="h-[38px]">
+            <DateDualInput 
+              baseDate={new Date().toISOString().split('T')[0]}
+              expectedDate={editedProject.meter_expected_date || null}
+              completionDate={editedProject.meter_completion_date || null}
+              onChange={(exp: string | null, comp: string | null) => handleSave({ meter_expected_date: exp, meter_completion_date: comp })}
+              disabled={currentUser?.role === 'VIEWER'}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="pt-6 mt-6 border-t border-slate-700/50">
+        <label className="block text-sm font-medium text-slate-300 mb-4">參與工種 (勾選代表該案場包含此工程)</label>
+        <div className="flex flex-wrap gap-4">
+          {CONTRACTOR_TYPES.map(type => {
+            const statusField = `${type.key}_status` as keyof Project;
+            const isEnabled = editedProject[statusField] !== 'disabled';
+            
+            return (
+              <label key={type.key} className={`flex items-center gap-2 px-4 py-2 rounded-lg border cursor-pointer transition-colors ${isEnabled ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-slate-800/50 border-slate-700/50 text-slate-500 hover:bg-slate-800'}`}>
+                <input
+                  type="checkbox"
+                  className="hidden"
+                  checked={isEnabled}
+                  onChange={(e) => handleSave({ [statusField]: e.target.checked ? null : 'disabled' })}
+                  disabled={currentUser?.role === 'VIEWER'}
+                />
+                <div className={`w-4 h-4 rounded border flex items-center justify-center ${isEnabled ? 'bg-emerald-500 border-emerald-500' : 'border-slate-600'}`}>
+                  {isEnabled && <svg className="w-3 h-3 text-slate-900" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                </div>
+                <span className="font-medium">{type.label}</span>
+              </label>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
 
-  const renderContractors = () => (
+  const renderProgress = () => (
     <div className="space-y-6">
       {CONTRACTOR_TYPES.map(type => {
         const idField = `${type.key}_contractor_id` as keyof Project;
+        const startField = `${type.key}_expected_start_date` as keyof Project;
+        const endField = `${type.key}_completion_date` as keyof Project;
         const statusField = `${type.key}_status` as keyof Project;
-        const contractorId = editedProject[idField] as string | null;
+        
         const isDisabled = editedProject[statusField] === 'disabled';
+        const contractorId = editedProject[idField] as string | null;
         const contractor = getContractorDetails(contractorId);
 
+        if (isDisabled) return null;
+
         return (
-          <div key={type.key}>
-            <div className={`p-4 rounded-xl border transition-colors ${isDisabled ? 'bg-slate-900/30 border-slate-800/50 opacity-50' : 'bg-slate-800/40 border-slate-700/50'}`}>
-              <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-slate-200 flex items-center gap-2">
-                <Wrench size={16} className="text-emerald-500" />
-                {type.label}包商
-              </h3>
-              <button
-                onClick={() => handleSave({ [statusField]: isDisabled ? null : 'disabled' })}
-                disabled={currentUser?.role === 'VIEWER'}
-                className={`px-3 py-1 rounded text-xs font-medium ${isDisabled ? 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20' : 'bg-rose-500/10 text-rose-400 hover:bg-rose-500/20'}`}
-              >
-                {isDisabled ? '啟用' : '停用'}
-              </button>
-            </div>
+          <div key={type.key} className="bg-slate-800/40 p-5 rounded-xl border border-slate-700/50">
+            <h3 className="font-semibold text-emerald-400 flex items-center gap-2 mb-4">
+              <Wrench size={18} />
+              {type.label}工程
+            </h3>
             
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
               <div>
-                <label className="block text-xs text-slate-400 mb-1">選擇包商</label>
+                <label className="block text-xs text-slate-400 mb-1">發包對象</label>
                 <select
-                  className="w-full bg-slate-900/50 px-3 py-1.5 rounded border border-slate-700/50 text-sm text-slate-200 outline-none disabled:opacity-50"
+                  className="w-full bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-700/50 text-sm text-slate-200 outline-none focus:border-emerald-500/50"
                   value={contractorId || ''}
                   onChange={e => handleSave({ [idField]: e.target.value || null })}
-                  disabled={isDisabled || currentUser?.role === 'VIEWER'}
+                  disabled={currentUser?.role === 'VIEWER'}
                 >
                   <option value="">未指定</option>
-                  {contractors.filter(c => c.contractor_type === type.key || c.contractor_type === 'other').map(c => (
+                  {contractors.filter(c => {
+                    if (c.contractor_type === 'other') return true;
+                    if (type.key === 'racking' && ['racking', 'steel', 'electrical'].includes(c.contractor_type)) return true;
+                    return c.contractor_type === type.key;
+                  }).map(c => (
                     <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
                 </select>
               </div>
               <div>
-                <label className="block text-xs text-slate-400 mb-1">聯絡人</label>
+                <label className="block text-xs text-slate-400 mb-1">預計進場日</label>
                 <input
-                  type="text"
-                  readOnly
-                  className="w-full bg-slate-900/30 px-3 py-1.5 rounded border border-slate-800/50 text-sm text-slate-400 outline-none"
-                  value={contractor?.contact_person || '未指定'}
+                  type="date"
+                  className="w-full bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-700/50 text-sm text-slate-200 outline-none focus:border-emerald-500/50"
+                  value={(editedProject[startField] as string) || ''}
+                  onChange={e => handleSave({ [startField]: e.target.value })}
+                  disabled={currentUser?.role === 'VIEWER'}
                 />
               </div>
               <div>
-                <label className="block text-xs text-slate-400 mb-1">電話</label>
+                <label className="block text-xs text-slate-400 mb-1">預計完工日</label>
                 <input
-                  type="text"
-                  readOnly
-                  className="w-full bg-slate-900/30 px-3 py-1.5 rounded border border-slate-800/50 text-sm text-slate-400 outline-none"
-                  value={contractor?.phone || '未指定'}
+                  type="date"
+                  className="w-full bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-700/50 text-sm text-slate-200 outline-none focus:border-emerald-500/50"
+                  value={(editedProject[endField] as string) || ''}
+                  onChange={e => handleSave({ [endField]: e.target.value })}
+                  disabled={currentUser?.role === 'VIEWER'}
                 />
               </div>
             </div>
-          </div>
-          {getConflictWarning(type.key) && (
-            <div className="mt-4 px-3 py-2 bg-rose-500/10 border border-rose-500/20 rounded-lg text-rose-400 text-xs animate-in slide-in-from-top-1 flex items-center gap-2">
-              <AlertTriangle size={14} className="shrink-0" />
-              {getConflictWarning(type.key)}
-            </div>
-          )}
-        </div>
-        );
-      })}
-    </div>
-  );
+            
+            {(contractor?.contact_person || contractor?.phone) && (
+              <div className="flex items-center gap-4 text-xs text-slate-400 bg-slate-900/30 p-2.5 rounded-lg border border-slate-800/50">
+                {contractor.contact_person && <span>聯絡人：<span className="text-slate-300">{contractor.contact_person}</span></span>}
+                {contractor.phone && <span>電話：<span className="text-slate-300">{contractor.phone}</span></span>}
+              </div>
+            )}
 
-  const renderProgress = () => (
-    <div className="space-y-4">
-      {CONTRACTOR_TYPES.map(type => {
-        const startField = `${type.key}_expected_start_date` as keyof Project;
-        const endField = `${type.key}_completion_date` as keyof Project;
-        const statusField = `${type.key}_status` as keyof Project;
-        const isDisabled = editedProject[statusField] === 'disabled';
-
-        if (isDisabled) return null;
-
-        return (
-          <div key={type.key}>
-            <div className="flex items-center gap-4 p-4 bg-slate-800/40 rounded-xl border border-slate-700/50">
-              <div className="w-24 font-medium text-slate-300 flex items-center gap-2">
-              <Calendar size={14} className="text-blue-400" />
-              {type.label}
-            </div>
-            <div className="flex-1">
-              <label className="block text-xs text-slate-500 mb-1">預計進場日</label>
-              <input
-                type="date"
-                className="w-full bg-slate-900/50 px-3 py-1.5 rounded border border-slate-700/50 text-sm text-slate-200 outline-none"
-                value={(editedProject[startField] as string) || ''}
-                onChange={e => handleSave({ [startField]: e.target.value })}
-                disabled={currentUser?.role === 'VIEWER'}
-              />
-            </div>
-            <div className="flex-1">
-              <label className="block text-xs text-slate-500 mb-1">預計完工日</label>
-              <input
-                type="date"
-                className="w-full bg-slate-900/50 px-3 py-1.5 rounded border border-slate-700/50 text-sm text-slate-200 outline-none"
-                value={(editedProject[endField] as string) || ''}
-                onChange={e => handleSave({ [endField]: e.target.value })}
-                disabled={currentUser?.role === 'VIEWER'}
-              />
-            </div>
-            </div>
             {getConflictWarning(type.key) && (
-              <div className="flex items-center gap-2 mt-2 px-4 py-2 bg-rose-500/10 border border-rose-500/20 rounded-lg text-rose-400 text-xs ml-[112px] animate-in slide-in-from-top-1">
-                <AlertTriangle size={14} />
+              <div className="mt-3 px-3 py-2 bg-rose-500/10 border border-rose-500/20 rounded-lg text-rose-400 text-xs flex items-center gap-2">
+                <AlertTriangle size={14} className="shrink-0" />
                 {getConflictWarning(type.key)}
               </div>
             )}
@@ -313,7 +310,7 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
       
       {CONTRACTOR_TYPES.every(type => editedProject[`${type.key}_status` as keyof Project] === 'disabled') && (
         <div className="p-8 text-center text-slate-500 bg-slate-800/20 rounded-xl border border-slate-700/30 border-dashed">
-          所有工種皆已停用
+          基本資料中尚未勾選任何參與工種
         </div>
       )}
     </div>
@@ -334,7 +331,6 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
 
   const tabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
     { id: 'basic', label: '基本資料', icon: <Building2 size={18} /> },
-    { id: 'contractors', label: '包商資料', icon: <Wrench size={18} /> },
     { id: 'progress', label: '施工進度', icon: <Calendar size={18} /> },
     { id: 'notes', label: '備註', icon: <FileText size={18} /> }
   ];
@@ -382,7 +378,6 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
 
           <div className="flex-1 overflow-y-auto p-6 bg-slate-900/30">
             {activeTab === 'basic' && renderBasicInfo()}
-            {activeTab === 'contractors' && renderContractors()}
             {activeTab === 'progress' && renderProgress()}
             {activeTab === 'notes' && renderNotes()}
           </div>
