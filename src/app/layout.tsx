@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { UserProvider } from "@/components/UserContext";
-import { Sidebar } from "@/components/Sidebar";
+import { AuthGuard } from "@/components/AuthGuard";
+import { LayoutContent } from "@/components/LayoutContent";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -17,12 +18,9 @@ export default function RootLayout({
     <html lang="zh-TW">
       <body className="antialiased h-screen overflow-hidden bg-slate-900 text-slate-50 flex">
         <UserProvider>
-          <Sidebar />
-          <main className="flex-1 h-full overflow-auto custom-scrollbar bg-slate-900 relative">
-            <div className="min-w-[1400px] h-full">
-              {children}
-            </div>
-          </main>
+          <AuthGuard>
+            <LayoutContent>{children}</LayoutContent>
+          </AuthGuard>
         </UserProvider>
       </body>
     </html>

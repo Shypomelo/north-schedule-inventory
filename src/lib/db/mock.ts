@@ -43,7 +43,7 @@ const initialUsers: User[] = [
       id: 'mock-user-engineer',
       name: '柚子',
       short_name: '柚',
-      email: 'yuzu@vibecode.com',
+      email: 'yozi@solargarden.com.tw',
       role: 'ADMIN',
       category: 'ENGINEERING',
       is_active: true,
@@ -89,6 +89,17 @@ const initialUsers: User[] = [
       short_name: '偉',
       email: 'zhiwei@vibecode.com',
       role: 'ENGINEER',
+      category: 'OTHER',
+      is_active: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    },
+    {
+      id: 'mock-user-shypomelo',
+      name: '管理者',
+      short_name: '管',
+      email: 'shypomelo@gmail.com',
+      role: 'ADMIN',
       category: 'OTHER',
       is_active: true,
       created_at: new Date().toISOString(),
@@ -147,6 +158,31 @@ if (IS_BROWSER) {
           hasMigrationChanges = true;
         }
       });
+
+      // Ensure yuzu's email is correct and shypomelo is added
+      if (db.users) {
+        const engineerIdx = db.users.findIndex(u => u.id === 'mock-user-engineer');
+        if (engineerIdx >= 0 && db.users[engineerIdx].email !== 'yozi@solargarden.com.tw') {
+          db.users[engineerIdx].email = 'yozi@solargarden.com.tw';
+          hasMigrationChanges = true;
+        }
+
+        const shypomeloIdx = db.users.findIndex(u => u.id === 'mock-user-shypomelo');
+        if (shypomeloIdx === -1) {
+          db.users.push({
+            id: 'mock-user-shypomelo',
+            name: '管理者',
+            short_name: '管',
+            email: 'shypomelo@gmail.com',
+            role: 'ADMIN',
+            category: 'OTHER',
+            is_active: true,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
+          hasMigrationChanges = true;
+        }
+      }
 
       if (!db.inventory_monthly_closing_items) {
         db.inventory_monthly_closing_items = [];
