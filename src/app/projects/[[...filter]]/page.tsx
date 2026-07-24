@@ -72,17 +72,34 @@ export default function ProjectsPage() {
     }
   };
 
+  const [error, setError] = useState<string | null>(null);
+
   const fetchProjects = async () => {
     setIsLoading(true);
-    const data = await dbAdapter.getProjects();
-    
-    const usersData = await dbAdapter.getUsers();
-    const contractorsData = await dbAdapter.getContractors();
-    setProjects(data);
-    
-    setUsers(usersData.filter(u => u.is_active && u.category === 'ENGINEERING'));
-    setContractors(contractorsData.filter(c => c.is_active));
-    setIsLoading(false);
+    setError(null);
+    try {
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('讀取超時，請重試')), 10000)
+      );
+
+      const [data, usersData, contractorsData] = await Promise.race([
+        Promise.all([
+          dbAdapter.getProjects().catch(e => { console.error(e); return []; }),
+          dbAdapter.getUsers().catch(e => { console.error(e); return []; }),
+          dbAdapter.getContractors().catch(e => { console.error(e); return []; })
+        ]),
+        timeoutPromise
+      ]) as [Project[], User[], Contractor[]];
+
+      setProjects(data);
+      setUsers(usersData.filter(u => u.is_active && u.category === 'ENGINEERING'));
+      setContractors(contractorsData.filter(c => c.is_active));
+    } catch (err: any) {
+      console.error('Fetch projects failed:', err);
+      setError(err.message || '無法載入案場資料');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -644,7 +661,13 @@ export default function ProjectsPage() {
       )}
 
       <div className="flex-1 overflow-auto relative">
-        {isLoading ? (
+        {error ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-rose-400">
+            <p className="mb-2 text-xl font-bold">載入失敗</p>
+            <p>{error}</p>
+            <button onClick={() => fetchProjects()} className="mt-4 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded">重試</button>
+          </div>
+        ) : isLoading ? (
           <div className="absolute inset-0 flex items-center justify-center text-slate-400">載入中...</div>
         ) : isActiveView ? (
           

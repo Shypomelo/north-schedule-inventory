@@ -44,11 +44,28 @@ export default function AdminContractorsPage() {
     }
   }, [currentUser, contextLoading, router]);
 
+  const [error, setError] = useState<string | null>(null);
+
   async function loadContractors() {
     setIsLoading(true);
-    const data = await dbAdapter.getContractors();
-    setContractors(data);
-    setIsLoading(false);
+    setError(null);
+    try {
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('讀取超時，請重試')), 10000)
+      );
+
+      const data = await Promise.race([
+        dbAdapter.getContractors(),
+        timeoutPromise
+      ]) as Contractor[];
+
+      setContractors(data);
+    } catch (err: any) {
+      console.error('Fetch contractors failed:', err);
+      setError(err.message || '無法載入包商資料');
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   if (contextLoading || currentUser?.role !== 'ADMIN') {
@@ -132,7 +149,13 @@ export default function AdminContractorsPage() {
       </div>
 
       <div className="bg-slate-800/40 border border-slate-700/60 rounded-xl overflow-hidden shadow-xl backdrop-blur-sm">
-        {isLoading ? (
+        {error ? (
+          <div className="p-8 text-center text-rose-400">
+            <p className="font-bold mb-2">載入失敗</p>
+            <p>{error}</p>
+            <button onClick={() => loadContractors()} className="mt-4 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded">重試</button>
+          </div>
+        ) : isLoading ? (
           <div className="p-8 text-center text-slate-400">載入中...</div>
         ) : (
           <table className="w-full text-left border-collapse">

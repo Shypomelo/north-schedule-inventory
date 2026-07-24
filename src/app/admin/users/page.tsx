@@ -37,11 +37,28 @@ export default function AdminUsersPage() {
     }
   }, [currentUser, contextLoading, router]);
 
+  const [error, setError] = useState<string | null>(null);
+
   async function loadUsers() {
     setIsLoading(true);
-    const data = await dbAdapter.getUsers();
-    setUsers(data);
-    setIsLoading(false);
+    setError(null);
+    try {
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('讀取超時，請重試')), 10000)
+      );
+      
+      const data = await Promise.race([
+        dbAdapter.getUsers(),
+        timeoutPromise
+      ]) as User[];
+      
+      setUsers(data);
+    } catch (err: any) {
+      console.error('Fetch users failed:', err);
+      setError(err.message || '無法載入人員資料');
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   if (contextLoading || currentUser?.role !== 'ADMIN') {
@@ -94,7 +111,8 @@ export default function AdminUsersPage() {
       loadUsers();
       // Force reload layout or context if user edits themselves, but for now just load users table
     } catch (err: any) {
-      alert("儲存失敗: " + err.message);
+      console.error('Save user error:', err);
+      alert(`儲存失敗 (${process.env.NEXT_PUBLIC_SUPABASE_URL ? 'Supabase' : 'Mock'}): ${err.message || '未知錯誤'}`);
     }
   };
 
@@ -117,8 +135,23 @@ export default function AdminUsersPage() {
         </button>
       </div>
 
+      <div className="bg-slate-900 border border-slate-700 p-4 rounded-xl text-xs text-slate-400 font-mono">
+        <p><strong className="text-slate-300">Origin:</strong> {typeof window !== 'undefined' ? window.location.origin : 'SSR'}</p>
+        <p><strong className="text-slate-300">hasSupabase:</strong> {process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? 'true' : 'false'}</p>
+        <p><strong className="text-slate-300">Supabase Host:</strong> {process.env.NEXT_PUBLIC_SUPABASE_URL ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).hostname : 'None'}</p>
+        <p><strong className="text-slate-300">Current Email:</strong> {currentUser?.email || 'N/A'}</p>
+        <p><strong className="text-slate-300">Current Role:</strong> {currentUser?.role || 'N/A'}</p>
+        <p><strong className="text-slate-300">Adapter:</strong> {process.env.NEXT_PUBLIC_SUPABASE_URL ? 'Supabase' : 'Mock'}</p>
+      </div>
+
       <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden shadow-sm">
-        {isLoading ? (
+        {error ? (
+          <div className="p-12 text-center text-rose-400">
+            <p className="font-bold mb-2">載入失敗</p>
+            <p>{error}</p>
+            <button onClick={() => loadUsers()} className="mt-4 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded">重試</button>
+          </div>
+        ) : isLoading ? (
           <div className="p-12 text-center text-slate-400">載入中...</div>
         ) : (
           <table className="w-full text-left border-collapse whitespace-nowrap">

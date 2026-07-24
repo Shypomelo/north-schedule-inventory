@@ -49,21 +49,39 @@ export default function SchedulePage() {
     return () => document.removeEventListener('click', handleClick);
   }, []);
 
+  const [error, setError] = useState<string | null>(null);
+
   const fetchData = async (showLoading = true) => {
     if (showLoading) setIsLoading(true);
-    const [t, m, p, u, td] = await Promise.all([
-      dbAdapter.getScheduleTasks(),
-      dbAdapter.getScheduleTaskMembers(),
-      dbAdapter.getProjects(),
-      dbAdapter.getUsers(),
-      dbAdapter.getTodos()
-    ]);
-    setTasks(t);
-    setMembers(m);
-    setProjects(p);
-    setUsers(u);
-    setTodos(td);
-    if (showLoading) setIsLoading(false);
+    setError(null);
+    try {
+      // Add timeout to prevent infinite loading
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('讀取超時，請重試')), 10000)
+      );
+
+      const [t, m, p, u, td] = await Promise.race([
+        Promise.all([
+          dbAdapter.getScheduleTasks().catch(e => { console.error('Schedule tasks error:', e); return []; }),
+          dbAdapter.getScheduleTaskMembers().catch(e => { console.error('Schedule members error:', e); return []; }),
+          dbAdapter.getProjects().catch(e => { console.error('Projects error:', e); return []; }),
+          dbAdapter.getUsers().catch(e => { console.error('Users error:', e); return []; }),
+          dbAdapter.getTodos().catch(e => { console.error('Todos error:', e); return []; })
+        ]),
+        timeoutPromise
+      ]) as [ScheduleTask[], ScheduleTaskMember[], Project[], User[], Todo[]];
+
+      setTasks(t);
+      setMembers(m);
+      setProjects(p);
+      setUsers(u);
+      setTodos(td);
+    } catch (err: any) {
+      console.error('Fetch data failed:', err);
+      setError(err.message || '無法載入排程資料');
+    } finally {
+      if (showLoading) setIsLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -462,8 +480,16 @@ export default function SchedulePage() {
         </button>
       </div>
 
-      {isLoading ? (
+      {error ? (
+        <div className="flex-1 flex flex-col items-center justify-center text-rose-400">
+          <p className="mb-2 text-xl font-bold">載入失敗</p>
+          <p>{error}</p>
+          <button onClick={() => fetchData(true)} className="mt-4 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded">重試</button>
+        </div>
+      ) : isLoading ? (
         <div className="flex-1 flex items-center justify-center text-slate-400">載入中...</div>
+      ) : tasks.length === 0 && viewMode === 'week' ? (
+        <div className="flex-1 flex items-center justify-center text-slate-400">目前沒有排程，點擊右上角「新增任務」開始排程。</div>
       ) : (
         <div className="flex-1 overflow-hidden flex flex-col">
           {viewMode === 'week' ? (

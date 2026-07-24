@@ -7,7 +7,7 @@ import { ChevronLeft, ChevronRight, Home, Calendar, Building2, Package, Truck, S
 
 export function Sidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const { currentUser, allUsers } = useUser();
+  const { currentUser, allUsers, logout } = useUser();
   const engineeringUsers = allUsers.filter(u => u.is_active && u.category === 'ENGINEERING');
 
   return (
@@ -19,15 +19,30 @@ export function Sidebar() {
         {isCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
       </button>
 
-      <div className={`font-bold text-emerald-400 mb-2 transition-all duration-300 overflow-hidden whitespace-nowrap ${isCollapsed ? 'text-xs opacity-0 w-0 h-0 m-0' : 'text-lg opacity-100'}`}>
-        北部工程
+      <div className={`font-bold text-emerald-400 mb-6 transition-all duration-300 overflow-hidden whitespace-nowrap flex-shrink-0 ${isCollapsed ? 'text-xs opacity-0 w-0 h-0 m-0' : 'text-xl opacity-100'}`}>
+        北部工程排程系統
       </div>
       
-      <div className={`transition-all duration-300 overflow-hidden ${isCollapsed ? 'w-0 h-0 opacity-0' : 'w-full opacity-100'}`}>
-        <UserSelector />
+      <div className={`transition-all duration-300 overflow-hidden flex-shrink-0 mb-2 ${isCollapsed ? 'w-0 h-0 opacity-0' : 'w-full opacity-100'}`}>
+        {(!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) && (
+          <div className="mb-4">
+            <UserSelector />
+          </div>
+        )}
         {currentUser && (
-          <div className="mt-2 text-xs text-slate-400 px-1">
-            目前使用者：{currentUser.name}｜{currentUser.role === 'ADMIN' ? 'Admin' : currentUser.role === 'ENGINEER' ? 'Engineer' : 'Viewer'}
+          <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
+            <div className="text-sm font-bold text-slate-200">{currentUser.name}</div>
+            <div className="text-xs text-slate-400 mt-1 mb-2">
+              角色: {currentUser.role === 'ADMIN' ? 'Admin' : currentUser.role === 'ENGINEER' ? 'Engineer' : 'Viewer'}
+            </div>
+            {process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY && (
+              <button 
+                onClick={logout}
+                className="text-xs w-full py-1.5 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 rounded transition-colors"
+              >
+                登出
+              </button>
+            )}
           </div>
         )}
       </div>
