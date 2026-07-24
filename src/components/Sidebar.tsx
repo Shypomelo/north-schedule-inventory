@@ -29,6 +29,11 @@ export function Sidebar() {
             <UserSelector />
           </div>
         )}
+        <div className="bg-orange-900/50 p-2 mb-2 rounded text-xs border border-orange-500 text-orange-200">
+          <p>Sidebar hasSupabase: {process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? 'true' : 'false'}</p>
+          <p>Email: {currentUser?.email || 'None'}</p>
+          <p>Role: {currentUser?.role || 'None'}</p>
+        </div>
         {currentUser && (
           <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
             <div className="text-sm font-bold text-slate-200">{currentUser.name}</div>

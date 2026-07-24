@@ -38,6 +38,9 @@ export function LayoutContent({ children }: { children: React.ReactNode }) {
           {children}
         </div>
       </main>
+      <div style={{ position: 'fixed', right: '12px', bottom: '44px', background: 'orange', color: 'black', zIndex: 999999, fontSize: '12px', padding: '6px 8px', borderRadius: '6px' }}>
+        APP SHELL MARKER: 2026-07-25-AUTH-LAYOUT
+      </div>
     </div>
   );
 }
