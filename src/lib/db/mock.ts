@@ -374,6 +374,14 @@ export const mockDbAdapter = {
     persist();
     return updated;
   },
+  
+  deleteProject: async (id: string) => {
+    const idx = db.projects.findIndex(proj => proj.id === id);
+    if (idx !== -1) {
+      db.projects[idx] = { ...db.projects[idx], status: '作廢', is_active: false };
+      persist();
+    }
+  },
 
   // --- Contractors ---
   getContractors: async () => [...db.contractors],

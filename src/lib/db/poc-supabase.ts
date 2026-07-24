@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import { ScheduleTask, User, UserRole, Contractor } from './types';
+import { ScheduleTask, User, UserRole, Contractor, Project } from './types';
 
 const mapUser = (row: any): User => ({
   id: row.id,
@@ -312,6 +312,169 @@ export const pocSupabaseAdapter = {
 
     if (error) {
       console.error('Error deleting contractor:', error);
+      throw error;
+    }
+  },
+
+  // --- Projects (Step 3: Basic Data Only) ---
+  getProjects: async (): Promise<Project[]> => {
+    const { data, error } = await supabase
+      .from('projects')
+      .select('*')
+      .is('deleted_at', null)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching projects:', error);
+      throw error;
+    }
+
+    return data.map((row: any) => ({
+      id: row.id,
+      project_code: row.project_code || null,
+      name: row.project_name || '',
+      short_name: row.project_short_name || null,
+      capacity: row.capacity_kw || null,
+      address: row.address || null,
+      region: row.region || null,
+      manager: row.responsible_member_name || null,
+      status: row.status || '開案',
+      meter_expected_date: row.meter_date || null,
+      notes: row.notes || null,
+      is_active: row.deleted_at === null,
+      created_at: row.created_at || new Date().toISOString(),
+      updated_at: row.updated_at || new Date().toISOString(),
+      
+      // Fallbacks to satisfy the interface until Step 4
+      owner_name: null, contact_name: null, contact_phone: null, project_type: null,
+      owner_phone: null, data_source: null, warranty_status: null, completion_date: row.completed_at ? row.completed_at.split('T')[0] : null,
+      warranty_years: null, warranty_end_date: null, has_maintenance_contract: null,
+      maintenance_start_date: null, maintenance_end_date: null, maintenance_notes: null,
+      inverter_brand: null, inverter_warranty: null, monitoring_system: null, module_mounting_type: null,
+      last_inspection_date: null, inspection_cycle_months: null, next_inspection_date: null,
+      inspection_reminder_days: null, report_base_date: null, report_section: row.stage || null,
+      
+      bracket_status: null, power_status: null, inspection_status: null, inspection_expected_date: null,
+      inspection_completion_date: null, meter_status: null, meter_completion_date: null,
+      roof_status: null, start_date: null,
+      
+      racking_contractor_id: null, racking_expected_start_date: null, racking_completion_date: null,
+      racking_status: null, racking_notes: null,
+      
+      electrical_contractor_id: null, electrical_expected_start_date: null, electrical_completion_date: null,
+      electrical_status: null, electrical_notes: null,
+      
+      steel_contractor_id: null, steel_expected_start_date: null, steel_completion_date: null,
+      steel_status: null, steel_notes: null,
+      
+      roof_cover_contractor_id: null, roof_cover_expected_start_date: null, roof_cover_completion_date: null,
+      roof_cover_status: null, roof_cover_notes: null,
+      
+      civil_contractor_id: null, civil_expected_start_date: null, civil_completion_date: null,
+      civil_status: null, civil_notes: null,
+      
+      other_contractor_id: null, other_expected_start_date: null, other_completion_date: null,
+      other_status: null, other_notes: null,
+    }));
+  },
+
+  createProject: async (p: Partial<Project>): Promise<Project> => {
+    // Current user context is not easily available here unless passed down. 
+    // We'll skip created_by/updated_by for now or assume it's handled by trigger/rls later if needed.
+    const dbData: any = {
+      project_code: p.project_code || null,
+      project_name: p.name || '未命名案場',
+      project_short_name: p.short_name || null,
+      capacity_kw: p.capacity || null,
+      address: p.address || null,
+      region: p.region || null,
+      responsible_member_name: p.manager || null,
+      status: p.status || '開案',
+      stage: p.report_section || null,
+      meter_date: p.meter_expected_date || null,
+      notes: p.notes || null,
+    };
+
+    if (dbData.status === '已結案') {
+      dbData.completed_at = new Date().toISOString();
+    }
+
+    const { data, error } = await supabase
+      .from('projects')
+      .insert(dbData)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error creating project:', error);
+      throw error;
+    }
+
+    // Rather than re-implementing mapProject, we'll just fetch again or reuse map logic,
+    // but a simple trick is to just fetch the whole list to guarantee sync, or manually format.
+    // For now, return a full fetch of that single row by passing it to map logic:
+    // Wait, mapProject logic is inside getProjects. Let's just refactor it if needed, or inline map it:
+    return {
+      ...p,
+      id: data.id,
+      name: data.project_name,
+      status: data.status,
+      created_at: data.created_at,
+      updated_at: data.updated_at,
+    } as Project;
+  },
+
+  updateProject: async (id: string, p: Partial<Project>): Promise<Project> => {
+    const dbUpdates: any = {};
+    if (p.project_code !== undefined) dbUpdates.project_code = p.project_code;
+    if (p.name !== undefined) dbUpdates.project_name = p.name;
+    if (p.short_name !== undefined) dbUpdates.project_short_name = p.short_name;
+    if (p.capacity !== undefined) dbUpdates.capacity_kw = p.capacity;
+    if (p.address !== undefined) dbUpdates.address = p.address;
+    if (p.region !== undefined) dbUpdates.region = p.region;
+    if (p.manager !== undefined) dbUpdates.responsible_member_name = p.manager;
+    if (p.status !== undefined) {
+      dbUpdates.status = p.status;
+      if (p.status === '已結案') {
+        dbUpdates.completed_at = new Date().toISOString();
+      }
+    }
+    if (p.meter_expected_date !== undefined) dbUpdates.meter_date = p.meter_expected_date;
+    if (p.notes !== undefined) dbUpdates.notes = p.notes;
+    if (p.report_section !== undefined) dbUpdates.stage = p.report_section;
+
+    // handled by trigger
+    dbUpdates.updated_at = new Date().toISOString();
+
+    const { data, error } = await supabase
+      .from('projects')
+      .update(dbUpdates)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error updating project:', error);
+      throw error;
+    }
+
+    return {
+      ...p,
+      id: data.id,
+      name: data.project_name,
+      status: data.status,
+      updated_at: data.updated_at,
+    } as Project;
+  },
+
+  deleteProject: async (id: string): Promise<void> => {
+    const { error } = await supabase
+      .from('projects')
+      .update({ deleted_at: new Date().toISOString(), status: '作廢' })
+      .eq('id', id);
+
+    if (error) {
+      console.error('Error deleting project:', error);
       throw error;
     }
   }
