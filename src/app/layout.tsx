@@ -22,6 +22,9 @@ export default function RootLayout({
             <LayoutContent>{children}</LayoutContent>
           </AuthGuard>
         </UserProvider>
+        <div style={{ position: 'fixed', right: '12px', bottom: '12px', background: 'red', color: 'white', zIndex: 99999, fontSize: '12px', padding: '6px 8px', borderRadius: '6px' }}>
+          BUILD MARKER: 2026-07-25-VERCEL-DEBUG-01
+        </div>
       </body>
     </html>
   );
