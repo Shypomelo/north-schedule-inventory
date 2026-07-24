@@ -23,7 +23,8 @@ export default function AdminUsersPage() {
     role: 'VIEWER',
     category: 'OTHER',
     is_active: true,
-    notes: ''
+    notes: '',
+    google_calendar_email: ''
   });
 
   useEffect(() => {
@@ -57,7 +58,8 @@ export default function AdminUsersPage() {
         role: user.role,
         category: user.category || 'OTHER',
         is_active: user.is_active,
-        notes: user.notes || ''
+        notes: user.notes || '',
+        google_calendar_email: user.google_calendar_email || ''
       });
     } else {
       setEditingUser(null);
@@ -68,7 +70,8 @@ export default function AdminUsersPage() {
         role: 'VIEWER',
         category: 'OTHER',
         is_active: true,
-        notes: ''
+        notes: '',
+        google_calendar_email: ''
       });
     }
     setIsModalOpen(true);
@@ -126,6 +129,7 @@ export default function AdminUsersPage() {
                 <th className="p-4 font-semibold">分類</th>
                 <th className="p-4 font-semibold">角色</th>
                 <th className="p-4 font-semibold">狀態</th>
+                <th className="p-4 font-semibold">登入 Email</th>
                 <th className="p-4 font-semibold">Google Calendar Email</th>
                 <th className="p-4 font-semibold">備註</th>
                 <th className="p-4 font-semibold text-right">操作</th>
@@ -137,7 +141,7 @@ export default function AdminUsersPage() {
                   <td className="p-4 text-slate-200 font-medium">{user.name}</td>
                   <td className="p-4 text-slate-400">{user.short_name}</td>
                   <td className="p-4 text-slate-300">
-                    {user.category === 'ENGINEERING' ? '工程' : user.category === 'OTHER' ? '其他' : '-'}
+                    {user.category === 'ENGINEERING' ? '工程' : user.category === 'MANAGEMENT' ? '管理' : user.category === 'OTHER' ? '其他' : '-'}
                   </td>
                   <td className="p-4">
                     <span className={`px-2 py-1 rounded text-xs font-medium ${
@@ -156,6 +160,7 @@ export default function AdminUsersPage() {
                     )}
                   </td>
                   <td className="p-4 text-slate-400">{user.email}</td>
+                  <td className="p-4 text-slate-400">{user.google_calendar_email || '-'}</td>
                   <td className="p-4 text-slate-400 max-w-[200px] truncate" title={user.notes || ''}>{user.notes || '-'}</td>
                   <td className="p-4 text-right">
                     <button
@@ -219,10 +224,11 @@ export default function AdminUsersPage() {
                   <label className="text-sm font-medium text-slate-300">人員分類 <span className="text-red-400">*</span></label>
                   <select 
                     value={formData.category} 
-                    onChange={e => setFormData({...formData, category: e.target.value as 'ENGINEERING' | 'OTHER'})}
+                    onChange={e => setFormData({...formData, category: e.target.value as 'ENGINEERING' | 'MANAGEMENT' | 'OTHER'})}
                     className="bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-slate-200 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                   >
                     <option value="ENGINEERING">工程</option>
+                    <option value="MANAGEMENT">管理</option>
                     <option value="OTHER">其他</option>
                   </select>
                 </div>
@@ -252,13 +258,25 @@ export default function AdminUsersPage() {
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium text-slate-300">Google Calendar Email</label>
+                <label className="text-sm font-medium text-slate-300">登入 Email (Supabase Auth) <span className="text-red-400">*</span></label>
                 <input 
                   type="email" 
+                  required
                   value={formData.email || ''} 
                   onChange={e => setFormData({...formData, email: e.target.value})}
                   className="bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-slate-200 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                   placeholder="name@example.com"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-slate-300">Google Calendar Email</label>
+                <input 
+                  type="email" 
+                  value={formData.google_calendar_email || ''} 
+                  onChange={e => setFormData({...formData, google_calendar_email: e.target.value})}
+                  className="bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-slate-200 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  placeholder="calendar@example.com (選填)"
                 />
               </div>
 

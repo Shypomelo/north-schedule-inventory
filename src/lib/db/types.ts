@@ -44,9 +44,10 @@ export interface User {
   short_name: string;
   email: string;
   role: UserRole;
-  category?: 'ENGINEERING' | 'OTHER';
+  category?: 'ENGINEERING' | 'MANAGEMENT' | 'OTHER';
   is_active: boolean;
   notes?: string | null;
+  google_calendar_email?: string | null;
   created_at: string;
   updated_at: string;
 }

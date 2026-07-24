@@ -1,7 +1,91 @@
 import { supabase } from './supabaseClient';
-import { ScheduleTask } from './types';
+import { ScheduleTask, User, UserRole } from './types';
+
+const mapUser = (row: any): User => ({
+  id: row.id,
+  name: row.name,
+  short_name: row.name.charAt(0),
+  email: row.email,
+  role: (row.role || 'viewer').toUpperCase() as UserRole,
+  category: (row.category || 'other').toUpperCase() as 'ENGINEERING' | 'OTHER',
+  is_active: row.is_active ?? true,
+  google_calendar_email: row.google_calendar_email || null,
+  notes: row.notes || null,
+  created_at: row.created_at || new Date().toISOString(),
+  updated_at: row.updated_at || new Date().toISOString(),
+});
 
 export const pocSupabaseAdapter = {
+  // --- Users (team_members) ---
+  getUsers: async (): Promise<User[]> => {
+    const { data, error } = await supabase
+      .from('team_members')
+      .select('*')
+      .is('deleted_at', null)
+      .order('created_at', { ascending: true });
+      
+    if (error) {
+      console.error('Error fetching team_members:', error);
+      throw error;
+    }
+    
+    return data.map(mapUser);
+  },
+
+  createUser: async (u: Omit<User, 'id'|'created_at'|'updated_at'>): Promise<User> => {
+    const dbData = {
+      name: u.name,
+      email: u.email,
+      role: u.role.toLowerCase(),
+      category: u.category?.toLowerCase() || 'other',
+      is_active: u.is_active,
+      google_calendar_email: u.google_calendar_email || null,
+      notes: u.notes || null,
+    };
+    
+    const { data, error } = await supabase
+      .from('team_members')
+      .insert(dbData)
+      .select()
+      .single();
+      
+    if (error) {
+      console.error('Error creating team_member:', error);
+      throw error;
+    }
+    
+    return mapUser(data);
+  },
+
+  updateUser: async (id: string, updates: Partial<Omit<User, 'id'|'created_at'|'updated_at'>>): Promise<User> => {
+    const dbUpdates: any = {};
+    if (updates.name !== undefined) dbUpdates.name = updates.name;
+    if (updates.email !== undefined) dbUpdates.email = updates.email;
+    if (updates.role !== undefined) dbUpdates.role = updates.role.toLowerCase();
+    if (updates.category !== undefined) dbUpdates.category = updates.category.toLowerCase();
+    if (updates.is_active !== undefined) dbUpdates.is_active = updates.is_active;
+    if (updates.google_calendar_email !== undefined) dbUpdates.google_calendar_email = updates.google_calendar_email;
+    if (updates.notes !== undefined) dbUpdates.notes = updates.notes;
+    
+    // updated_at can be handled by trigger, but we set it here just in case
+    dbUpdates.updated_at = new Date().toISOString();
+
+    const { data, error } = await supabase
+      .from('team_members')
+      .update(dbUpdates)
+      .eq('id', id)
+      .select()
+      .single();
+      
+    if (error) {
+      console.error('Error updating team_member:', error);
+      throw error;
+    }
+    
+    return mapUser(data);
+  },
+
+  // --- Schedule Tasks ---
   getScheduleTasks: async (): Promise<ScheduleTask[]> => {
     const { data, error } = await supabase
       .from('schedule_tasks')
