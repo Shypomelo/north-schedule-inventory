@@ -223,6 +223,8 @@ export default function AdminUsersPage() {
         )}
       </div>
 
+      {debugPanel}
+
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm">
           <div className="bg-slate-800 rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-slate-700">
