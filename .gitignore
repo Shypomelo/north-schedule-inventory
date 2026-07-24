@@ -6,3 +6,7 @@ out
 .env.*.local
 npm-debug.log
 .DS_Store
+
+# TypeScript cache
+tsconfig.tsbuildinfo
+*.tsbuildinfo
