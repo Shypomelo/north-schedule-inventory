@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import { ScheduleTask, User, UserRole } from './types';
+import { ScheduleTask, User, UserRole, Contractor } from './types';
 
 const mapUser = (row: any): User => ({
   id: row.id,
@@ -232,6 +232,86 @@ export const pocSupabaseAdapter = {
 
     if (error) {
       console.error('Error deleting schedule_task:', error);
+      throw error;
+    }
+  },
+
+  // --- Contractors ---
+  getContractors: async (): Promise<Contractor[]> => {
+    const { data, error } = await supabase
+      .from('contractors')
+      .select('*')
+      .is('deleted_at', null)
+      .order('created_at', { ascending: true });
+      
+    if (error) {
+      console.error('Error fetching contractors:', error);
+      throw error;
+    }
+    
+    return data as Contractor[];
+  },
+
+  createContractor: async (c: Omit<Contractor, 'id' | 'created_at' | 'updated_at'>): Promise<Contractor> => {
+    const dbData = {
+      name: c.name,
+      contractor_type: c.contractor_type,
+      contact_person: c.contact_person || null,
+      phone: c.phone || null,
+      notes: c.notes || null,
+      is_active: c.is_active ?? true,
+    };
+    
+    const { data, error } = await supabase
+      .from('contractors')
+      .insert(dbData)
+      .select()
+      .single();
+      
+    if (error) {
+      console.error('Error creating contractor:', error);
+      throw error;
+    }
+    
+    return data as Contractor;
+  },
+
+  updateContractor: async (id: string, updates: Partial<Contractor>): Promise<Contractor> => {
+    const dbUpdates: any = {};
+    if (updates.name !== undefined) dbUpdates.name = updates.name;
+    if (updates.contractor_type !== undefined) dbUpdates.contractor_type = updates.contractor_type;
+    if (updates.contact_person !== undefined) dbUpdates.contact_person = updates.contact_person;
+    if (updates.phone !== undefined) dbUpdates.phone = updates.phone;
+    if (updates.notes !== undefined) dbUpdates.notes = updates.notes;
+    if (updates.is_active !== undefined) dbUpdates.is_active = updates.is_active;
+    
+    // updated_at is handled by trigger
+    dbUpdates.updated_at = new Date().toISOString();
+
+    const { data, error } = await supabase
+      .from('contractors')
+      .update(dbUpdates)
+      .eq('id', id)
+      .select()
+      .single();
+      
+    if (error) {
+      console.error('Error updating contractor:', error);
+      throw error;
+    }
+    
+    return data as Contractor;
+  },
+
+  deleteContractor: async (id: string): Promise<void> => {
+    // Soft delete
+    const { error } = await supabase
+      .from('contractors')
+      .update({ deleted_at: new Date().toISOString(), is_active: false })
+      .eq('id', id);
+
+    if (error) {
+      console.error('Error deleting contractor:', error);
       throw error;
     }
   }
