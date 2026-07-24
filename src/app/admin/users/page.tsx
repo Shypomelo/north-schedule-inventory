@@ -63,6 +63,8 @@ export default function AdminUsersPage() {
 
   const debugPanel = (
     <div className="bg-slate-900 border border-slate-700 p-4 rounded-xl text-xs text-slate-400 font-mono mb-6 mx-4 sm:mx-6 lg:mx-8 mt-4">
+      <h2 className="text-red-400 font-bold mb-2">TEST DEBUG PANEL ACTIVE</h2>
+      <h2 className="text-red-400 font-bold mb-2">DEBUG BUILD VERSION: 061973d-verify</h2>
       <p><strong className="text-slate-300">Origin:</strong> {typeof window !== 'undefined' ? window.location.origin : 'SSR'}</p>
       <p><strong className="text-slate-300">hasSupabase:</strong> {process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? 'true' : 'false'}</p>
       <p><strong className="text-slate-300">Supabase Host:</strong> {process.env.NEXT_PUBLIC_SUPABASE_URL ? 'Defined' : 'None'}</p>
