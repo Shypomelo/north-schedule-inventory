@@ -30,14 +30,30 @@ export function GanttChart({ projects, contractors, onProjectClick }: GanttChart
         const startField = `${type.key}_expected_start_date` as keyof Project;
         const endField = `${type.key}_completion_date` as keyof Project;
         const contractorIdField = `${type.key}_contractor_id` as keyof Project;
+        const contractorNameField = `${type.key}_contractor_name` as keyof Project;
         
         if (p[statusField] === 'disabled') return;
 
         const startDateStr = p[startField] as string | null;
         const endDateStr = p[endField] as string | null;
         const contractorId = p[contractorIdField] as string | null;
+        const contractorName = p[contractorNameField] as string | null;
         
-        const contractor = contractors.find(c => c.id === contractorId);
+        let contractor = contractors.find(c => c.id === contractorId);
+        if (!contractor && (contractorId || contractorName)) {
+           // Create a fallback contractor object for the chart
+           contractor = {
+             id: contractorId || `fallback-${contractorName}`,
+             name: contractorName || '未知包商',
+             contractor_type: type.key as any,
+             is_active: false,
+             contact_person: null,
+             phone: null,
+             notes: null,
+             created_at: '',
+             updated_at: ''
+           } as Contractor;
+        }
 
         if (startDateStr) {
           extracted.push({
@@ -79,8 +95,13 @@ export function GanttChart({ projects, contractors, onProjectClick }: GanttChart
         const t2 = valid[j];
         
         // Check if same contractor and they overlap (but ignore if it's the same project)
-        if (t1.contractor && t2.contractor && t1.contractor.id === t2.contractor.id && t1.project.id !== t2.project.id) {
-          if (t1.start <= t2.end && t1.end >= t2.start) {
+        if (t1.contractor && t2.contractor && t1.project.id !== t2.project.id) {
+          // Compare by ID if exists, otherwise by exact name
+          const isSameContractor = t1.contractor.id === t2.contractor.id || 
+                                  (!t1.contractor.id.startsWith('fallback-') && t1.contractor.id === t2.contractor.id) ||
+                                  (t1.contractor.name === t2.contractor.name);
+          
+          if (isSameContractor && t1.start <= t2.end && t1.end >= t2.start) {
             t1.conflicts.push(t2);
             t2.conflicts.push(t1);
           }

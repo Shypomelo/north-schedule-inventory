@@ -117,6 +117,7 @@ export interface Project {
   
   // 支架施工 (Racking)
   racking_contractor_id: string | null;
+  racking_contractor_name?: string | null;
   racking_expected_start_date: string | null;
   racking_completion_date: string | null;
   racking_status: string | null;
@@ -124,6 +125,7 @@ export interface Project {
 
   // 電力施工 (Electrical)
   electrical_contractor_id: string | null;
+  electrical_contractor_name?: string | null;
   electrical_expected_start_date: string | null;
   electrical_completion_date: string | null;
   electrical_status: string | null;
@@ -131,6 +133,7 @@ export interface Project {
 
   // 鋼構施工 (Steel)
   steel_contractor_id: string | null;
+  steel_contractor_name?: string | null;
   steel_expected_start_date: string | null;
   steel_completion_date: string | null;
   steel_status: string | null;
@@ -138,6 +141,7 @@ export interface Project {
 
   // 新設頂蓋施工 (Roof Cover)
   roof_cover_contractor_id: string | null;
+  roof_cover_contractor_name?: string | null;
   roof_cover_expected_start_date: string | null;
   roof_cover_completion_date: string | null;
   roof_cover_status: string | null;
@@ -145,6 +149,7 @@ export interface Project {
 
   // 挖地 / 土木施工 (Civil)
   civil_contractor_id: string | null;
+  civil_contractor_name?: string | null;
   civil_expected_start_date: string | null;
   civil_completion_date: string | null;
   civil_status: string | null;
@@ -152,6 +157,7 @@ export interface Project {
 
   // 其他施工 (Other)
   other_contractor_id: string | null;
+  other_contractor_name?: string | null;
   other_expected_start_date: string | null;
   other_completion_date: string | null;
   other_status: string | null;

@@ -15,6 +15,85 @@ const mapUser = (row: any): User => ({
   updated_at: row.updated_at || new Date().toISOString(),
 });
 
+const syncProjectProgress = async (projectId: string, p: Partial<Project>) => {
+  const workTypes = ['racking', 'electrical', 'steel', 'roof_cover', 'civil', 'other'];
+  
+  const { data: contractorsData } = await supabase.from('contractors').select('id, name');
+  const contractorsMap = new Map((contractorsData || []).map((c: any) => [c.id, c.name]));
+
+  const { data: existingProgress } = await supabase
+    .from('project_construction_progress')
+    .select('*')
+    .eq('project_id', projectId);
+    
+  for (const type of workTypes) {
+    const cidKey = `${type}_contractor_id` as keyof Project;
+    const sDateKey = `${type}_expected_start_date` as keyof Project;
+    const eDateKey = `${type}_completion_date` as keyof Project;
+    const statusKey = `${type}_status` as keyof Project;
+    const notesKey = `${type}_notes` as keyof Project;
+
+    if (
+      p[cidKey] === undefined && p[sDateKey] === undefined && 
+      p[eDateKey] === undefined && p[statusKey] === undefined && 
+      p[notesKey] === undefined
+    ) {
+      continue;
+    }
+
+    const existing = existingProgress?.find((x: any) => x.work_type === type);
+    
+    const payload: any = {
+      project_id: projectId,
+      work_type: type,
+    };
+    
+    let hasData = false;
+    
+    if (p[cidKey] !== undefined) {
+      payload.contractor_id = p[cidKey] || null;
+      if (payload.contractor_id) {
+         payload.contractor_name = contractorsMap.get(payload.contractor_id) || null;
+      } else {
+         payload.contractor_name = null;
+      }
+      hasData = true;
+    } else if (existing) {
+      payload.contractor_id = existing.contractor_id;
+      payload.contractor_name = existing.contractor_name;
+    }
+
+    if (p[sDateKey] !== undefined) { payload.planned_start_date = p[sDateKey] || null; hasData = true; }
+    else if (existing) { payload.planned_start_date = existing.planned_start_date; }
+
+    if (p[eDateKey] !== undefined) { payload.completed_date = p[eDateKey] || null; hasData = true; }
+    else if (existing) { payload.completed_date = existing.completed_date; }
+
+    if (p[statusKey] !== undefined) { payload.status_override = p[statusKey] || null; hasData = true; }
+    else if (existing) { payload.status_override = existing.status_override; }
+
+    if (p[notesKey] !== undefined) { payload.notes = p[notesKey] || null; hasData = true; }
+    else if (existing) { payload.notes = existing.notes; }
+
+    if (hasData || existing) {
+       const isNowEmpty = !payload.contractor_id && !payload.planned_start_date && !payload.completed_date && !payload.status_override && !payload.notes;
+       
+       if (existing) {
+          if (isNowEmpty) {
+             await supabase.from('project_construction_progress').update({ deleted_at: new Date().toISOString() }).eq('id', existing.id);
+          } else {
+             payload.deleted_at = null;
+             await supabase.from('project_construction_progress').update(payload).eq('id', existing.id);
+          }
+       } else {
+          if (!isNowEmpty) {
+             await supabase.from('project_construction_progress').insert(payload);
+          }
+       }
+    }
+  }
+};
+
 export const pocSupabaseAdapter = {
   // --- Users (team_members) ---
   getUsers: async (): Promise<User[]> => {
@@ -316,11 +395,12 @@ export const pocSupabaseAdapter = {
     }
   },
 
-  // --- Projects (Step 3: Basic Data Only) ---
+  // --- Projects (Step 3: Basic Data + Step 4: Progress) ---
+  
   getProjects: async (): Promise<Project[]> => {
     const { data, error } = await supabase
       .from('projects')
-      .select('*')
+      .select('*, project_construction_progress(*)')
       .is('deleted_at', null)
       .order('created_at', { ascending: true });
 
@@ -329,53 +409,92 @@ export const pocSupabaseAdapter = {
       throw error;
     }
 
-    return data.map((row: any) => ({
-      id: row.id,
-      project_code: row.project_code || null,
-      name: row.project_name || '',
-      short_name: row.project_short_name || null,
-      capacity: row.capacity_kw || null,
-      address: row.address || null,
-      region: row.region || null,
-      manager: row.responsible_member_name || null,
-      status: row.status || '開案',
-      meter_expected_date: row.meter_date || null,
-      notes: row.notes || null,
-      is_active: row.deleted_at === null,
-      created_at: row.created_at || new Date().toISOString(),
-      updated_at: row.updated_at || new Date().toISOString(),
-      
-      // Fallbacks to satisfy the interface until Step 4
-      owner_name: null, contact_name: null, contact_phone: null, project_type: null,
-      owner_phone: null, data_source: null, warranty_status: null, completion_date: row.completed_at ? row.completed_at.split('T')[0] : null,
-      warranty_years: null, warranty_end_date: null, has_maintenance_contract: null,
-      maintenance_start_date: null, maintenance_end_date: null, maintenance_notes: null,
-      inverter_brand: null, inverter_warranty: null, monitoring_system: null, module_mounting_type: null,
-      last_inspection_date: null, inspection_cycle_months: null, next_inspection_date: null,
-      inspection_reminder_days: null, report_base_date: null, report_section: row.stage || null,
-      
-      bracket_status: null, power_status: null, inspection_status: null, inspection_expected_date: null,
-      inspection_completion_date: null, meter_status: null, meter_completion_date: null,
-      roof_status: null, start_date: null,
-      
-      racking_contractor_id: null, racking_expected_start_date: null, racking_completion_date: null,
-      racking_status: null, racking_notes: null,
-      
-      electrical_contractor_id: null, electrical_expected_start_date: null, electrical_completion_date: null,
-      electrical_status: null, electrical_notes: null,
-      
-      steel_contractor_id: null, steel_expected_start_date: null, steel_completion_date: null,
-      steel_status: null, steel_notes: null,
-      
-      roof_cover_contractor_id: null, roof_cover_expected_start_date: null, roof_cover_completion_date: null,
-      roof_cover_status: null, roof_cover_notes: null,
-      
-      civil_contractor_id: null, civil_expected_start_date: null, civil_completion_date: null,
-      civil_status: null, civil_notes: null,
-      
-      other_contractor_id: null, other_expected_start_date: null, other_completion_date: null,
-      other_status: null, other_notes: null,
-    }));
+    return data.map((row: any) => {
+      const pData: any = {};
+      if (row.project_construction_progress) {
+        row.project_construction_progress.forEach((prog: any) => {
+          if (prog.deleted_at) return;
+          const type = prog.work_type; // 'racking', 'electrical', etc.
+          pData[`${type}_contractor_id`] = prog.contractor_id;
+          pData[`${type}_contractor_name`] = prog.contractor_name;
+          pData[`${type}_expected_start_date`] = prog.planned_start_date;
+          pData[`${type}_completion_date`] = prog.completed_date;
+          pData[`${type}_status`] = prog.status_override;
+          pData[`${type}_notes`] = prog.notes;
+        });
+      }
+
+      return {
+        id: row.id,
+        project_code: row.project_code || null,
+        name: row.project_name || '',
+        short_name: row.project_short_name || null,
+        capacity: row.capacity_kw || null,
+        address: row.address || null,
+        region: row.region || null,
+        manager: row.responsible_member_name || null,
+        status: row.status || '開案',
+        meter_expected_date: row.meter_date || null,
+        notes: row.notes || null,
+        is_active: row.deleted_at === null,
+        created_at: row.created_at || new Date().toISOString(),
+        updated_at: row.updated_at || new Date().toISOString(),
+        
+        owner_name: null, contact_name: null, contact_phone: null, project_type: null,
+        owner_phone: null, data_source: null, warranty_status: null, completion_date: row.completed_at ? row.completed_at.split('T')[0] : null,
+        warranty_years: null, warranty_end_date: null, has_maintenance_contract: null,
+        maintenance_start_date: null, maintenance_end_date: null, maintenance_notes: null,
+        inverter_brand: null, inverter_warranty: null, monitoring_system: null, module_mounting_type: null,
+        last_inspection_date: null, inspection_cycle_months: null, next_inspection_date: null,
+        inspection_reminder_days: null, report_base_date: null, report_section: row.stage || null,
+        
+        bracket_status: null, power_status: null, inspection_status: null, inspection_expected_date: null,
+        inspection_completion_date: null, meter_status: null, meter_completion_date: null,
+        roof_status: null, start_date: null,
+        
+        racking_contractor_id: pData.racking_contractor_id || null,
+        racking_contractor_name: pData.racking_contractor_name || null,
+        racking_expected_start_date: pData.racking_expected_start_date || null,
+        racking_completion_date: pData.racking_completion_date || null,
+        racking_status: pData.racking_status || null,
+        racking_notes: pData.racking_notes || null,
+        
+        electrical_contractor_id: pData.electrical_contractor_id || null,
+        electrical_contractor_name: pData.electrical_contractor_name || null,
+        electrical_expected_start_date: pData.electrical_expected_start_date || null,
+        electrical_completion_date: pData.electrical_completion_date || null,
+        electrical_status: pData.electrical_status || null,
+        electrical_notes: pData.electrical_notes || null,
+        
+        steel_contractor_id: pData.steel_contractor_id || null,
+        steel_contractor_name: pData.steel_contractor_name || null,
+        steel_expected_start_date: pData.steel_expected_start_date || null,
+        steel_completion_date: pData.steel_completion_date || null,
+        steel_status: pData.steel_status || null,
+        steel_notes: pData.steel_notes || null,
+        
+        roof_cover_contractor_id: pData.roof_cover_contractor_id || null,
+        roof_cover_contractor_name: pData.roof_cover_contractor_name || null,
+        roof_cover_expected_start_date: pData.roof_cover_expected_start_date || null,
+        roof_cover_completion_date: pData.roof_cover_completion_date || null,
+        roof_cover_status: pData.roof_cover_status || null,
+        roof_cover_notes: pData.roof_cover_notes || null,
+        
+        civil_contractor_id: pData.civil_contractor_id || null,
+        civil_contractor_name: pData.civil_contractor_name || null,
+        civil_expected_start_date: pData.civil_expected_start_date || null,
+        civil_completion_date: pData.civil_completion_date || null,
+        civil_status: pData.civil_status || null,
+        civil_notes: pData.civil_notes || null,
+        
+        other_contractor_id: pData.other_contractor_id || null,
+        other_contractor_name: pData.other_contractor_name || null,
+        other_expected_start_date: pData.other_expected_start_date || null,
+        other_completion_date: pData.other_completion_date || null,
+        other_status: pData.other_status || null,
+        other_notes: pData.other_notes || null,
+      };
+    });
   },
 
   createProject: async (p: Partial<Project>): Promise<Project> => {
@@ -409,11 +528,9 @@ export const pocSupabaseAdapter = {
       console.error('Error creating project:', error);
       throw error;
     }
+    
+    await syncProjectProgress(data.id, p);
 
-    // Rather than re-implementing mapProject, we'll just fetch again or reuse map logic,
-    // but a simple trick is to just fetch the whole list to guarantee sync, or manually format.
-    // For now, return a full fetch of that single row by passing it to map logic:
-    // Wait, mapProject logic is inside getProjects. Let's just refactor it if needed, or inline map it:
     return {
       ...p,
       id: data.id,
@@ -457,6 +574,8 @@ export const pocSupabaseAdapter = {
       console.error('Error updating project:', error);
       throw error;
     }
+
+    await syncProjectProgress(id, p);
 
     return {
       ...p,
