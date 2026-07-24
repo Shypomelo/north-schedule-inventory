@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { UserProvider } from "@/components/UserContext";
 import { AuthGuard } from "@/components/AuthGuard";
-import { LayoutContent } from "@/components/LayoutContent";
+import { LayoutContent } from "@/components/LayoutContentV3";
 import "./globals.css";
 
 export const metadata: Metadata = {

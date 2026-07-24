@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { usePathname } from 'next/navigation';
-import { Sidebar } from '@/components/Sidebar';
+import { Sidebar } from '@/components/SidebarV3';
 import { useUser } from '@/components/UserContext';
 import { LogOut } from 'lucide-react';
 
