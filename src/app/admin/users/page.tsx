@@ -61,8 +61,24 @@ export default function AdminUsersPage() {
     }
   }
 
+  const debugPanel = (
+    <div className="bg-slate-900 border border-slate-700 p-4 rounded-xl text-xs text-slate-400 font-mono mb-6 mx-4 sm:mx-6 lg:mx-8 mt-4">
+      <p><strong className="text-slate-300">Origin:</strong> {typeof window !== 'undefined' ? window.location.origin : 'SSR'}</p>
+      <p><strong className="text-slate-300">hasSupabase:</strong> {process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? 'true' : 'false'}</p>
+      <p><strong className="text-slate-300">Supabase Host:</strong> {process.env.NEXT_PUBLIC_SUPABASE_URL ? 'Defined' : 'None'}</p>
+      <p><strong className="text-slate-300">Current Email:</strong> {currentUser?.email || 'N/A'}</p>
+      <p><strong className="text-slate-300">Current Role:</strong> {currentUser?.role || 'N/A'}</p>
+      <p><strong className="text-slate-300">Adapter:</strong> {process.env.NEXT_PUBLIC_SUPABASE_URL ? 'Supabase' : 'Mock'}</p>
+    </div>
+  );
+
   if (contextLoading || currentUser?.role !== 'ADMIN') {
-    return <div className="p-8 text-center text-slate-400">驗證權限中...</div>;
+    return (
+      <div className="flex flex-col w-full">
+        {debugPanel}
+        <div className="p-8 text-center text-slate-400">驗證權限中...</div>
+      </div>
+    );
   }
 
   const handleOpenModal = (user?: User) => {
@@ -118,6 +134,7 @@ export default function AdminUsersPage() {
 
   return (
     <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 flex flex-col gap-6">
+      {debugPanel}
       <div className="flex justify-between items-center bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-sm">
         <div>
           <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-2">
@@ -135,14 +152,7 @@ export default function AdminUsersPage() {
         </button>
       </div>
 
-      <div className="bg-slate-900 border border-slate-700 p-4 rounded-xl text-xs text-slate-400 font-mono">
-        <p><strong className="text-slate-300">Origin:</strong> {typeof window !== 'undefined' ? window.location.origin : 'SSR'}</p>
-        <p><strong className="text-slate-300">hasSupabase:</strong> {process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? 'true' : 'false'}</p>
-        <p><strong className="text-slate-300">Supabase Host:</strong> {process.env.NEXT_PUBLIC_SUPABASE_URL ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).hostname : 'None'}</p>
-        <p><strong className="text-slate-300">Current Email:</strong> {currentUser?.email || 'N/A'}</p>
-        <p><strong className="text-slate-300">Current Role:</strong> {currentUser?.role || 'N/A'}</p>
-        <p><strong className="text-slate-300">Adapter:</strong> {process.env.NEXT_PUBLIC_SUPABASE_URL ? 'Supabase' : 'Mock'}</p>
-      </div>
+
 
       <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden shadow-sm">
         {error ? (
