@@ -10,6 +10,7 @@ import { parseDateField } from '@/lib/utils/date-utils';
 import { SmartDateInput } from '@/components/SmartDateInput';
 import { DateDualInput } from '@/components/DateDualInput';
 import { useUser } from '@/components/UserContext';
+import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
 import { MapPin, Plus, Search, Filter, Maximize2 } from 'lucide-react';
 import { useParams } from 'next/navigation';
 
@@ -84,9 +85,9 @@ export default function ProjectsPage() {
 
       const [data, usersData, contractorsData] = await Promise.race([
         Promise.all([
-          dbAdapter.getProjects().catch(e => { console.error(e); return []; }),
+          dbAdapter.getProjects(),
           dbAdapter.getUsers().catch(e => { console.error(e); return []; }),
-          dbAdapter.getContractors().catch(e => { console.error(e); return []; })
+          dbAdapter.getContractors()
         ]),
         timeoutPromise
       ]) as [Project[], User[], Contractor[]];
@@ -96,7 +97,7 @@ export default function ProjectsPage() {
       setContractors(contractorsData.filter(c => c.is_active));
     } catch (err: any) {
       console.error('Fetch projects failed:', err);
-      setError(err.message || '無法載入案場資料');
+      setError(getDatabaseErrorMessage(err, '無法載入案場資料'));
     } finally {
       setIsLoading(false);
     }

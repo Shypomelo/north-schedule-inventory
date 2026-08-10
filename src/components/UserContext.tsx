@@ -69,7 +69,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       
       if (event === 'SIGNED_IN') {
         setIsLoading(true);
-        loadUsersAndHandleSession(session);
+        setTimeout(() => {
+          if (mounted) loadUsersAndHandleSession(session);
+        }, 0);
       } else if (event === 'SIGNED_OUT') {
         setCurrentUser(null);
         setAuthError(null);

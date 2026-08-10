@@ -41,9 +41,9 @@ export default function MigrationPage() {
       setError(null);
 
       // 1. Read localStorage
-      const saved = localStorage.getItem('schedule-inventory-db');
+      const saved = localStorage.getItem('schedule-inventory-mock-db-v7') || localStorage.getItem('schedule-inventory-db');
       if (!saved) {
-        throw new Error('找不到 localStorage 中的舊資料 (schedule-inventory-db)');
+        throw new Error('找不到 localStorage 中的舊資料 (schedule-inventory-mock-db-v7 / schedule-inventory-db)');
       }
       
       const localDb = JSON.parse(saved);

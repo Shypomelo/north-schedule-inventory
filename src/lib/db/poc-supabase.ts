@@ -1,5 +1,6 @@
 import { supabase } from './supabaseClient';
 import { ScheduleTask, User, UserRole, Contractor, Project } from './types';
+import { throwMissingCoreTablesErrorIfNeeded } from './supabase-errors';
 
 const mapUser = (row: any): User => ({
   id: row.id,
@@ -18,13 +19,15 @@ const mapUser = (row: any): User => ({
 const syncProjectProgress = async (projectId: string, p: Partial<Project>) => {
   const workTypes = ['racking', 'electrical', 'steel', 'roof_cover', 'civil', 'other'];
   
-  const { data: contractorsData } = await supabase.from('contractors').select('id, name');
+  const { data: contractorsData, error: contractorsError } = await supabase.from('contractors').select('id, name');
+  throwMissingCoreTablesErrorIfNeeded(contractorsError);
   const contractorsMap = new Map((contractorsData || []).map((c: any) => [c.id, c.name]));
 
-  const { data: existingProgress } = await supabase
+  const { data: existingProgress, error: progressError } = await supabase
     .from('project_construction_progress')
     .select('*')
     .eq('project_id', projectId);
+  throwMissingCoreTablesErrorIfNeeded(progressError);
     
   for (const type of workTypes) {
     const cidKey = `${type}_contractor_id` as keyof Project;
@@ -325,6 +328,7 @@ export const pocSupabaseAdapter = {
       
     if (error) {
       console.error('Error fetching contractors:', error);
+      throwMissingCoreTablesErrorIfNeeded(error);
       throw error;
     }
     
@@ -349,6 +353,7 @@ export const pocSupabaseAdapter = {
       
     if (error) {
       console.error('Error creating contractor:', error);
+      throwMissingCoreTablesErrorIfNeeded(error);
       throw error;
     }
     
@@ -376,6 +381,7 @@ export const pocSupabaseAdapter = {
       
     if (error) {
       console.error('Error updating contractor:', error);
+      throwMissingCoreTablesErrorIfNeeded(error);
       throw error;
     }
     
@@ -391,6 +397,7 @@ export const pocSupabaseAdapter = {
 
     if (error) {
       console.error('Error deleting contractor:', error);
+      throwMissingCoreTablesErrorIfNeeded(error);
       throw error;
     }
   },
@@ -406,6 +413,7 @@ export const pocSupabaseAdapter = {
 
     if (error) {
       console.error('Error fetching projects:', error);
+      throwMissingCoreTablesErrorIfNeeded(error);
       throw error;
     }
 
@@ -526,6 +534,7 @@ export const pocSupabaseAdapter = {
 
     if (error) {
       console.error('Error creating project:', error);
+      throwMissingCoreTablesErrorIfNeeded(error);
       throw error;
     }
     
@@ -572,6 +581,7 @@ export const pocSupabaseAdapter = {
 
     if (error) {
       console.error('Error updating project:', error);
+      throwMissingCoreTablesErrorIfNeeded(error);
       throw error;
     }
 
@@ -594,6 +604,7 @@ export const pocSupabaseAdapter = {
 
     if (error) {
       console.error('Error deleting project:', error);
+      throwMissingCoreTablesErrorIfNeeded(error);
       throw error;
     }
   }

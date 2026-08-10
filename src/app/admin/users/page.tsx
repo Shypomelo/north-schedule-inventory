@@ -10,6 +10,7 @@ import { Plus, Edit2, ShieldAlert } from 'lucide-react';
 export default function AdminUsersPage() {
   const router = useRouter();
   const { currentUser, isLoading: contextLoading } = useUser();
+  const isAdmin = currentUser?.role?.toLowerCase() === 'admin';
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
@@ -29,13 +30,13 @@ export default function AdminUsersPage() {
 
   useEffect(() => {
     if (!contextLoading) {
-      if (currentUser?.role !== 'ADMIN') {
+      if (!isAdmin) {
         router.push('/');
       } else {
         loadUsers();
       }
     }
-  }, [currentUser, contextLoading, router]);
+  }, [isAdmin, contextLoading, router]);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -74,7 +75,7 @@ export default function AdminUsersPage() {
     </div>
   );
 
-  if (contextLoading || currentUser?.role !== 'ADMIN') {
+  if (contextLoading || !isAdmin) {
     return (
       <div className="flex flex-col w-full">
         {debugPanel}
@@ -190,7 +191,7 @@ export default function AdminUsersPage() {
                   </td>
                   <td className="p-4">
                     <span className={`px-2 py-1 rounded text-xs font-medium ${
-                      user.role === 'ADMIN' ? 'bg-purple-500/20 text-purple-300' :
+                      user.role?.toLowerCase() === 'admin' ? 'bg-purple-500/20 text-purple-300' :
                       user.role === 'ENGINEER' ? 'bg-blue-500/20 text-blue-300' :
                       'bg-slate-500/20 text-slate-300'
                     }`}>

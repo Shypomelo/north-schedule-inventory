@@ -8,6 +8,7 @@ import { TodoForm } from '@/components/TodoForm';
 import { startOfWeek, addDays, subDays, format, isSameDay, startOfMonth, endOfMonth, getDay } from 'date-fns';
 import { ChevronLeft, ChevronRight, Plus, X, ArrowLeft } from 'lucide-react';
 import { useUser } from '@/components/UserContext';
+import { getDatabaseErrorMessage, isMissingCoreTablesError } from '@/lib/db/supabase-errors';
 
 type ViewMode = 'week' | 'month';
 
@@ -64,7 +65,11 @@ export default function SchedulePage() {
         Promise.all([
           dbAdapter.getScheduleTasks().catch(e => { console.error('Schedule tasks error:', e); return []; }),
           dbAdapter.getScheduleTaskMembers().catch(e => { console.error('Schedule members error:', e); return []; }),
-          dbAdapter.getProjects().catch(e => { console.error('Projects error:', e); return []; }),
+          dbAdapter.getProjects().catch(e => {
+            console.error('Projects error:', e);
+            if (isMissingCoreTablesError(e)) throw e;
+            return [];
+          }),
           dbAdapter.getUsers().catch(e => { console.error('Users error:', e); return []; }),
           dbAdapter.getTodos().catch(e => { console.error('Todos error:', e); return []; })
         ]),
@@ -78,7 +83,7 @@ export default function SchedulePage() {
       setTodos(td);
     } catch (err: any) {
       console.error('Fetch data failed:', err);
-      setError(err.message || '無法載入排程資料');
+      setError(getDatabaseErrorMessage(err, '無法載入排程資料'));
     } finally {
       if (showLoading) setIsLoading(false);
     }

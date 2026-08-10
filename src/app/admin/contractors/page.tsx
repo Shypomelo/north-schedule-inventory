@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useUser } from '@/components/UserContext';
 import { Contractor, ContractorType } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
+import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
 import { Plus, Edit2, Wrench } from 'lucide-react';
 
 const CONTRACTOR_TYPES: { key: ContractorType; label: string; color: string }[] = [
@@ -19,6 +20,7 @@ const CONTRACTOR_TYPES: { key: ContractorType; label: string; color: string }[] 
 export default function AdminContractorsPage() {
   const router = useRouter();
   const { currentUser, isLoading: contextLoading } = useUser();
+  const isAdmin = currentUser?.role?.toLowerCase() === 'admin';
   const [contractors, setContractors] = useState<Contractor[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
@@ -36,13 +38,13 @@ export default function AdminContractorsPage() {
 
   useEffect(() => {
     if (!contextLoading) {
-      if (currentUser?.role !== 'ADMIN') {
+      if (!isAdmin) {
         router.push('/');
       } else {
         loadContractors();
       }
     }
-  }, [currentUser, contextLoading, router]);
+  }, [isAdmin, contextLoading, router]);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -62,13 +64,13 @@ export default function AdminContractorsPage() {
       setContractors(data);
     } catch (err: any) {
       console.error('Fetch contractors failed:', err);
-      setError(err.message || '無法載入包商資料');
+      setError(getDatabaseErrorMessage(err, '無法載入包商資料'));
     } finally {
       setIsLoading(false);
     }
   }
 
-  if (contextLoading || currentUser?.role !== 'ADMIN') {
+  if (contextLoading || !isAdmin) {
     return <div className="p-8 text-center text-slate-400">驗證權限中...</div>;
   }
 

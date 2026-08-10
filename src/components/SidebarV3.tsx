@@ -8,6 +8,7 @@ import { ChevronLeft, ChevronRight, Home, Calendar, Building2, Package, Truck, S
 export function Sidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const { currentUser, allUsers, logout } = useUser();
+  const currentRole = currentUser?.role?.toLowerCase();
   const engineeringUsers = allUsers.filter(u => u.is_active && u.category === 'ENGINEERING');
 
   return (
@@ -29,16 +30,11 @@ export function Sidebar() {
             <UserSelector />
           </div>
         )}
-        <div className="bg-orange-900/50 p-2 mb-2 rounded text-xs border border-orange-500 text-orange-200">
-          <p>Sidebar hasSupabase: {process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? 'true' : 'false'}</p>
-          <p>Sidebar currentUser email: {currentUser?.email || 'None'}</p>
-          <p>Sidebar currentUser role: {currentUser?.role || 'None'}</p>
-        </div>
         {currentUser && (
           <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
             <div className="text-sm font-bold text-slate-200">{currentUser.name}</div>
             <div className="text-xs text-slate-400 mt-1 mb-2">
-              角色: {currentUser.role === 'ADMIN' ? 'Admin' : currentUser.role === 'ENGINEER' ? 'Engineer' : 'Viewer'}
+              角色: {currentRole === 'admin' ? 'Admin' : currentUser.role === 'ENGINEER' ? 'Engineer' : 'Viewer'}
             </div>
             {process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY && (
               <button 
@@ -88,7 +84,7 @@ export function Sidebar() {
           <span className={`ml-3 whitespace-nowrap overflow-hidden transition-all duration-300 ${isCollapsed ? 'w-0 opacity-0' : 'opacity-100'}`}>SE 供貨追蹤</span>
         </a>
 
-        {currentUser?.role === 'ADMIN' && (
+        {currentRole === 'admin' && (
           <details className="group mt-2" open={!isCollapsed}>
             <summary className={`text-slate-400 font-bold text-xs uppercase tracking-wider cursor-pointer hover:bg-slate-800 rounded flex items-center list-none outline-none ${isCollapsed ? 'p-2 justify-center' : 'p-2 justify-between'}`} title="系統管理">
               <div className="flex items-center">

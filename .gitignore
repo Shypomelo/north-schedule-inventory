@@ -10,3 +10,7 @@ npm-debug.log
 # TypeScript cache
 tsconfig.tsbuildinfo
 *.tsbuildinfo
+
+.vercel/
+.codex-logs/
+scripts/diagnose-supabase.mjs
