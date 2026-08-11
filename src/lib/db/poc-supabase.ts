@@ -195,6 +195,96 @@ const fetchInventoryTransactionSerialsFromSupabase = async (): Promise<Inventory
   return (data || []).map(mapInventoryTransactionSerial);
 };
 
+const createInventorySerialInSupabase = async (
+  serial: Omit<InventorySerial, 'id' | 'created_at' | 'updated_at'>,
+): Promise<InventorySerial> => {
+  const payload = {
+    item_id: serial.item_id,
+    batch_id: serial.batch_id || null,
+    serial_number: serial.serial_number,
+    status: serial.status,
+    project_id: serial.project_id || null,
+    notes: serial.notes || null,
+  };
+
+  const { data, error } = await supabase
+    .from('inventory_serials')
+    .insert(payload)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error creating inventory_serial:', error);
+    throw error;
+  }
+
+  return mapInventorySerial(data);
+};
+
+const updateInventorySerialInSupabase = async (
+  id: string,
+  updates: Partial<Omit<InventorySerial, 'id' | 'created_at' | 'updated_at'>>,
+): Promise<InventorySerial> => {
+  const payload: Record<string, any> = {};
+  if (updates.item_id !== undefined) payload.item_id = updates.item_id;
+  if (updates.batch_id !== undefined) payload.batch_id = updates.batch_id || null;
+  if (updates.serial_number !== undefined) payload.serial_number = updates.serial_number;
+  if (updates.status !== undefined) payload.status = updates.status;
+  if (updates.project_id !== undefined) payload.project_id = updates.project_id || null;
+  if (updates.notes !== undefined) payload.notes = updates.notes || null;
+  payload.updated_at = new Date().toISOString();
+
+  const { data, error } = await supabase
+    .from('inventory_serials')
+    .update(payload)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error updating inventory_serial:', error);
+    throw error;
+  }
+
+  return mapInventorySerial(data);
+};
+
+const deleteInventorySerialFromSupabase = async (id: string): Promise<void> => {
+  const { error } = await supabase
+    .from('inventory_serials')
+    .delete()
+    .eq('id', id);
+
+  if (error) {
+    console.error('Error deleting inventory_serial:', error);
+    throw error;
+  }
+};
+
+const updateInventoryTransactionSerialInSupabase = async (
+  id: string,
+  updates: Partial<Omit<InventoryTransactionSerial, 'id' | 'transaction_id' | 'created_at'>>,
+): Promise<InventoryTransactionSerial> => {
+  const payload: Record<string, any> = {};
+  if (updates.serial_id !== undefined) payload.serial_id = updates.serial_id || null;
+  if (updates.serial_no !== undefined) payload.serial_no = updates.serial_no || null;
+  if (updates.is_pending !== undefined) payload.is_pending = updates.is_pending;
+
+  const { data, error } = await supabase
+    .from('inventory_transaction_serials')
+    .update(payload)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error updating inventory_transaction_serial:', error);
+    throw error;
+  }
+
+  return mapInventoryTransactionSerial(data);
+};
+
 const fetchInventoryBatchesFromSupabase = async (): Promise<InventoryBatch[]> => {
   const { data, error } = await supabase
     .from('inventory_batches')
@@ -873,6 +963,10 @@ export const pocSupabaseAdapter = {
   getInventoryTransactions: fetchInventoryTransactionsFromSupabase,
   getInventorySerials: fetchInventorySerialsFromSupabase,
   getInventoryTransactionSerials: fetchInventoryTransactionSerialsFromSupabase,
+  createInventorySerial: createInventorySerialInSupabase,
+  updateInventorySerial: updateInventorySerialInSupabase,
+  deleteInventorySerial: deleteInventorySerialFromSupabase,
+  updateInventoryTransactionSerial: updateInventoryTransactionSerialInSupabase,
   getInventoryBatches: fetchInventoryBatchesFromSupabase,
   getInventoryBalances: calculateInventoryBalancesFromSupabase,
   getMonthlyClosings: fetchInventoryMonthlyClosingsFromSupabase,
