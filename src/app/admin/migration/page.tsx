@@ -1,17 +1,374 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useUser } from '@/components/UserContext';
 import { dbAdapter } from '@/lib/db';
-import { Project, Contractor } from '@/lib/db/types';
-import { AlertTriangle, Check, Info, Server, SkipForward, HardDrive, RefreshCw } from 'lucide-react';
+import { supabase } from '@/lib/db/supabaseClient';
+import {
+  Contractor,
+  InventoryBatch,
+  InventoryItem,
+  InventoryMonthlyClosing,
+  InventoryMonthlyClosingItem,
+  InventorySerial,
+  InventoryTransaction,
+  InventoryTransactionSerial,
+  Project,
+} from '@/lib/db/types';
+import {
+  AlertTriangle,
+  Check,
+  Database,
+  HardDrive,
+  Info,
+  RefreshCw,
+  Server,
+  SkipForward,
+} from 'lucide-react';
+
+const MOCK_DB_KEY = 'schedule-inventory-mock-db-v7';
+const LEGACY_MOCK_DB_KEY = 'schedule-inventory-db';
+
+type MigrationAction = 'SKIP' | 'INSERT';
+type InventoryTableName =
+  | 'inventory_items'
+  | 'inventory_transactions'
+  | 'inventory_batches'
+  | 'inventory_serials'
+  | 'inventory_transaction_serials'
+  | 'inventory_monthly_closings'
+  | 'inventory_monthly_closing_items';
+
+type LocalMockDatabase = {
+  projects?: Project[];
+  contractors?: Contractor[];
+  inventory_items?: InventoryItem[];
+  inventory_transactions?: InventoryTransaction[];
+  inventory_batches?: InventoryBatch[];
+  inventory_serials?: InventorySerial[];
+  item_serials?: InventorySerial[];
+  inventory_transaction_serials?: InventoryTransactionSerial[];
+  inventory_monthly_closings?: InventoryMonthlyClosing[];
+  inventory_monthly_closing_items?: InventoryMonthlyClosingItem[];
+};
 
 interface MigrationPreviewItem<T> {
   local: T;
   supabaseMatch?: T | null;
   status: 'NEW' | 'DUPLICATE' | 'ERROR';
   reason?: string;
-  action: 'SKIP' | 'INSERT';
+  action: MigrationAction;
+}
+
+interface InventoryTableConfig {
+  table: InventoryTableName;
+  label: string;
+  sourceKeys: Array<keyof LocalMockDatabase>;
+}
+
+interface InventoryTablePreview extends InventoryTableConfig {
+  localCount: number;
+  existingCount: number;
+  duplicateIds: number;
+  readyToInsert: number;
+}
+
+interface InventoryTableImportResult {
+  table: InventoryTableName;
+  label: string;
+  added: number;
+  skippedDuplicateId: number;
+  skippedInvalidFk: number;
+  errors: string[];
+}
+
+interface InventoryImportContext {
+  projectIdMap: Map<string, string>;
+  projectIds: Set<string>;
+  itemIds: Set<string>;
+  transactionIds: Set<string>;
+  batchIds: Set<string>;
+  serialIds: Set<string>;
+  closingIds: Set<string>;
+}
+
+const INVENTORY_TABLES: InventoryTableConfig[] = [
+  { table: 'inventory_items', label: '庫存品項', sourceKeys: ['inventory_items'] },
+  { table: 'inventory_transactions', label: '庫存異動', sourceKeys: ['inventory_transactions'] },
+  { table: 'inventory_batches', label: '入庫批次', sourceKeys: ['inventory_batches'] },
+  { table: 'inventory_serials', label: '序號資料', sourceKeys: ['inventory_serials', 'item_serials'] },
+  { table: 'inventory_transaction_serials', label: '異動序號關聯', sourceKeys: ['inventory_transaction_serials'] },
+  { table: 'inventory_monthly_closings', label: '月結主檔', sourceKeys: ['inventory_monthly_closings'] },
+  { table: 'inventory_monthly_closing_items', label: '月結明細', sourceKeys: ['inventory_monthly_closing_items'] },
+];
+
+function readLocalDb(allowLegacyFallback: boolean): LocalMockDatabase {
+  const saved =
+    localStorage.getItem(MOCK_DB_KEY) ||
+    (allowLegacyFallback ? localStorage.getItem(LEGACY_MOCK_DB_KEY) : null);
+
+  if (!saved) {
+    const keys = allowLegacyFallback ? `${MOCK_DB_KEY} / ${LEGACY_MOCK_DB_KEY}` : MOCK_DB_KEY;
+    throw new Error(`找不到 localStorage 資料：${keys}`);
+  }
+
+  return JSON.parse(saved) as LocalMockDatabase;
+}
+
+function rowsFromLocalDb<T>(localDb: LocalMockDatabase, config: InventoryTableConfig): T[] {
+  for (const key of config.sourceKeys) {
+    const rows = localDb[key];
+    if (Array.isArray(rows)) return rows as T[];
+  }
+  return [];
+}
+
+async function fetchAllRows<T extends Record<string, any>>(
+  table: string,
+  columns: string,
+): Promise<T[]> {
+  const rows: T[] = [];
+  const pageSize = 1000;
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from(table)
+      .select(columns)
+      .range(from, from + pageSize - 1);
+
+    if (error) throw error;
+    rows.push(...((data || []) as unknown as T[]));
+    if (!data || data.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
+async function fetchExistingIds(table: InventoryTableName): Promise<Set<string>> {
+  const rows = await fetchAllRows<{ id: string }>(table, 'id');
+  return new Set(rows.map((row) => row.id));
+}
+
+function valueOrNull<T>(value: T | null | undefined): T | null {
+  return value === undefined ? null : value;
+}
+
+function numberOrZero(value: number | string | null | undefined): number {
+  if (value === null || value === undefined || value === '') return 0;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function boolOrFalse(value: boolean | null | undefined): boolean {
+  return value === true;
+}
+
+function boolOrTrue(value: boolean | null | undefined): boolean {
+  return value !== false;
+}
+
+function todayDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function dateOrToday(value: string | null | undefined): string {
+  return value || todayDate();
+}
+
+function dateTimeOrNow(value: string | null | undefined): string {
+  return value || nowIso();
+}
+
+function resolveProjectId(projectId: string | null | undefined, context: InventoryImportContext): string | null {
+  if (!projectId) return null;
+  const mappedProjectId = context.projectIdMap.get(projectId);
+  if (mappedProjectId) return mappedProjectId;
+  return context.projectIds.has(projectId) ? projectId : null;
+}
+
+function buildProjectIdMap(localProjects: Project[], supabaseProjects: Project[]) {
+  const projectIds = new Set(supabaseProjects.map((project) => project.id));
+  const byCode = new Map(supabaseProjects.filter((project) => project.project_code).map((project) => [project.project_code, project.id]));
+  const byName = new Map(supabaseProjects.filter((project) => project.name).map((project) => [project.name, project.id]));
+  const byShortName = new Map(
+    supabaseProjects
+      .filter((project) => project.short_name)
+      .map((project) => [project.short_name, project.id]),
+  );
+  const projectIdMap = new Map<string, string>();
+
+  for (const localProject of localProjects) {
+    const matchedId =
+      (localProject.project_code && byCode.get(localProject.project_code)) ||
+      (localProject.name && byName.get(localProject.name)) ||
+      (localProject.short_name && byShortName.get(localProject.short_name)) ||
+      null;
+
+    if (matchedId) projectIdMap.set(localProject.id, matchedId);
+  }
+
+  return { projectIds, projectIdMap };
+}
+
+function prepareInventoryRow(
+  table: InventoryTableName,
+  row: any,
+  context: InventoryImportContext,
+): { payload?: Record<string, any>; invalidFk?: string } {
+  switch (table) {
+    case 'inventory_items':
+      return {
+        payload: {
+          id: row.id,
+          code: row.code,
+          category: row.category || '',
+          item_category: valueOrNull(row.item_category),
+          name: row.name,
+          source_type: valueOrNull(row.source_type),
+          unit: row.unit || '',
+          opening_quantity: numberOrZero(row.opening_quantity),
+          low_stock_threshold: numberOrZero(row.low_stock_threshold),
+          requires_serial: boolOrFalse(row.requires_serial),
+          notes: valueOrNull(row.notes),
+          is_active: boolOrTrue(row.is_active),
+          created_at: dateTimeOrNow(row.created_at),
+          updated_at: dateTimeOrNow(row.updated_at),
+        },
+      };
+
+    case 'inventory_transactions':
+      if (!context.itemIds.has(row.item_id)) {
+        return { invalidFk: `item_id ${row.item_id || '(空白)'} 不存在` };
+      }
+      return {
+        payload: {
+          id: row.id,
+          item_id: row.item_id,
+          transaction_type: row.transaction_type,
+          transaction_date: dateOrToday(row.transaction_date),
+          quantity: numberOrZero(row.quantity),
+          unit: valueOrNull(row.unit),
+          project_id: resolveProjectId(row.project_id, context),
+          project_name: valueOrNull(row.project_name),
+          handler: valueOrNull(row.handler),
+          source: valueOrNull(row.source),
+          notes: valueOrNull(row.notes),
+          pending_serial_count: numberOrZero(row.pending_serial_count),
+          is_voided: boolOrFalse(row.is_voided),
+          voided_reason: valueOrNull(row.voided_reason),
+          voided_by: valueOrNull(row.voided_by),
+          voided_at: valueOrNull(row.voided_at),
+          created_at: dateTimeOrNow(row.created_at),
+          updated_at: dateTimeOrNow(row.updated_at),
+        },
+      };
+
+    case 'inventory_batches':
+      if (!context.itemIds.has(row.item_id)) {
+        return { invalidFk: `item_id ${row.item_id || '(空白)'} 不存在` };
+      }
+      return {
+        payload: {
+          id: row.id,
+          batch_number: row.batch_number,
+          item_id: row.item_id,
+          in_date: dateOrToday(row.in_date),
+          source: valueOrNull(row.source),
+          quantity: numberOrZero(row.quantity),
+          unit: valueOrNull(row.unit),
+          handler: valueOrNull(row.handler),
+          notes: valueOrNull(row.notes),
+          created_at: dateTimeOrNow(row.created_at),
+          updated_at: dateTimeOrNow(row.updated_at),
+        },
+      };
+
+    case 'inventory_serials':
+      if (!context.itemIds.has(row.item_id)) {
+        return { invalidFk: `item_id ${row.item_id || '(空白)'} 不存在` };
+      }
+      return {
+        payload: {
+          id: row.id,
+          item_id: row.item_id,
+          batch_id: row.batch_id && context.batchIds.has(row.batch_id) ? row.batch_id : null,
+          serial_number: row.serial_number,
+          status: row.status || '',
+          project_id: resolveProjectId(row.project_id, context),
+          notes: valueOrNull(row.notes),
+          created_at: dateTimeOrNow(row.created_at),
+          updated_at: dateTimeOrNow(row.updated_at),
+        },
+      };
+
+    case 'inventory_transaction_serials':
+      if (!context.transactionIds.has(row.transaction_id)) {
+        return { invalidFk: `transaction_id ${row.transaction_id || '(空白)'} 不存在` };
+      }
+      return {
+        payload: {
+          id: row.id,
+          transaction_id: row.transaction_id,
+          serial_id: row.serial_id && context.serialIds.has(row.serial_id) ? row.serial_id : null,
+          serial_no: valueOrNull(row.serial_no),
+          is_pending: boolOrFalse(row.is_pending),
+          created_at: dateTimeOrNow(row.created_at),
+        },
+      };
+
+    case 'inventory_monthly_closings':
+      return {
+        payload: {
+          id: row.id,
+          year: row.year || '',
+          month: row.month || '',
+          closed_at: dateTimeOrNow(row.closed_at),
+          closed_by: row.closed_by || 'system',
+          status: row.status || 'CLOSED',
+          notes: valueOrNull(row.notes),
+        },
+      };
+
+    case 'inventory_monthly_closing_items':
+      if (!context.closingIds.has(row.closing_id)) {
+        return { invalidFk: `closing_id ${row.closing_id || '(空白)'} 不存在` };
+      }
+      return {
+        payload: {
+          id: row.id,
+          closing_id: row.closing_id,
+          inventory_item_id: row.inventory_item_id && context.itemIds.has(row.inventory_item_id) ? row.inventory_item_id : null,
+          stock_category: row.stock_category || '',
+          source: row.source || '',
+          item_name: row.item_name || '',
+          item_type: row.item_type || '',
+          unit: row.unit || '',
+          opening_quantity: numberOrZero(row.opening_quantity),
+          monthly_in: numberOrZero(row.monthly_in),
+          monthly_out: numberOrZero(row.monthly_out),
+          monthly_return: numberOrZero(row.monthly_return),
+          monthly_adjust: numberOrZero(row.monthly_adjust),
+          closing_quantity: numberOrZero(row.closing_quantity),
+          usage_quantity: numberOrZero(row.usage_quantity),
+          status: row.status || '',
+          notes: valueOrNull(row.notes),
+        },
+      };
+  }
+}
+
+function addKnownId(table: InventoryTableName, id: string, context: InventoryImportContext) {
+  if (table === 'inventory_items') context.itemIds.add(id);
+  if (table === 'inventory_transactions') context.transactionIds.add(id);
+  if (table === 'inventory_batches') context.batchIds.add(id);
+  if (table === 'inventory_serials') context.serialIds.add(id);
+  if (table === 'inventory_monthly_closings') context.closingIds.add(id);
 }
 
 export default function MigrationPage() {
@@ -21,10 +378,14 @@ export default function MigrationPage() {
 
   const [contractorPreviews, setContractorPreviews] = useState<MigrationPreviewItem<Contractor>[]>([]);
   const [projectPreviews, setProjectPreviews] = useState<MigrationPreviewItem<Project>[]>([]);
+  const [inventoryPreviews, setInventoryPreviews] = useState<InventoryTablePreview[]>([]);
 
   const [migrating, setMigrating] = useState(false);
+  const [inventoryMigrating, setInventoryMigrating] = useState(false);
   const [migrationResult, setMigrationResult] = useState<any>(null);
+  const [inventoryResult, setInventoryResult] = useState<InventoryTableImportResult[] | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [showInventoryConfirm, setShowInventoryConfirm] = useState(false);
 
   useEffect(() => {
     if (userLoading) return;
@@ -40,65 +401,87 @@ export default function MigrationPage() {
       setLoading(true);
       setError(null);
 
-      // 1. Read localStorage
-      const saved = localStorage.getItem('schedule-inventory-mock-db-v7') || localStorage.getItem('schedule-inventory-db');
-      if (!saved) {
-        throw new Error('找不到 localStorage 中的舊資料 (schedule-inventory-mock-db-v7 / schedule-inventory-db)');
-      }
-      
-      const localDb = JSON.parse(saved);
+      const localDb = readLocalDb(true);
       const localProjects: Project[] = localDb.projects || [];
       const localContractors: Contractor[] = localDb.contractors || [];
 
-      // 2. Read Supabase current state
-      // (dbAdapter points to Supabase if env is set, which it should be here)
-      const supaProjects = await dbAdapter.getProjects();
-      const supaContractors = await dbAdapter.getContractors();
+      const [supaProjects, supaContractors] = await Promise.all([
+        dbAdapter.getProjects(),
+        dbAdapter.getContractors(),
+      ]);
 
-      // 3. Match Contractors
-      const cPreviews: MigrationPreviewItem<Contractor>[] = localContractors.map(lc => {
-        const match = supaContractors.find(sc => sc.name === lc.name);
+      const cPreviews: MigrationPreviewItem<Contractor>[] = localContractors.map((localContractor) => {
+        const match = supaContractors.find((supaContractor) => supaContractor.name === localContractor.name);
         if (match) {
-          return { local: lc, supabaseMatch: match, status: 'DUPLICATE', reason: `名稱 "${lc.name}" 已存在`, action: 'SKIP' };
+          return {
+            local: localContractor,
+            supabaseMatch: match,
+            status: 'DUPLICATE',
+            reason: `名稱「${localContractor.name}」已存在`,
+            action: 'SKIP',
+          };
         }
-        return { local: lc, supabaseMatch: null, status: 'NEW', action: 'SKIP' }; // Default to skip, user can select INSERT
+        return { local: localContractor, supabaseMatch: null, status: 'NEW', action: 'SKIP' };
       });
 
-      // 4. Match Projects
-      const pPreviews: MigrationPreviewItem<Project>[] = localProjects.map(lp => {
-        const match = supaProjects.find(sp => 
-          (lp.project_code && lp.project_code === sp.project_code) ||
-          (lp.name && lp.name === sp.name) ||
-          (lp.short_name && lp.short_name === sp.short_name)
+      const pPreviews: MigrationPreviewItem<Project>[] = localProjects.map((localProject) => {
+        const match = supaProjects.find(
+          (supaProject) =>
+            (localProject.project_code && localProject.project_code === supaProject.project_code) ||
+            (localProject.name && localProject.name === supaProject.name) ||
+            (localProject.short_name && localProject.short_name === supaProject.short_name),
         );
 
         if (match) {
-          const reason = [];
-          if (lp.project_code === match.project_code) reason.push('案場代碼相同');
-          if (lp.name === match.name) reason.push('全名相同');
-          if (lp.short_name === match.short_name) reason.push('簡稱相同');
-          return { local: lp, supabaseMatch: match, status: 'DUPLICATE', reason: reason.join(' / '), action: 'SKIP' };
+          const reasons = [];
+          if (localProject.project_code === match.project_code) reasons.push('案場編號相同');
+          if (localProject.name === match.name) reasons.push('名稱相同');
+          if (localProject.short_name === match.short_name) reasons.push('簡稱相同');
+          return {
+            local: localProject,
+            supabaseMatch: match,
+            status: 'DUPLICATE',
+            reason: reasons.join(' / '),
+            action: 'SKIP',
+          };
         }
-        return { local: lp, supabaseMatch: null, status: 'NEW', action: 'SKIP' };
+        return { local: localProject, supabaseMatch: null, status: 'NEW', action: 'SKIP' };
       });
+
+      const inventoryPreviewRows: InventoryTablePreview[] = [];
+      const v7LocalDb = localStorage.getItem(MOCK_DB_KEY) ? readLocalDb(false) : null;
+      for (const config of INVENTORY_TABLES) {
+        const localRows = v7LocalDb ? rowsFromLocalDb<{ id?: string }>(v7LocalDb, config) : [];
+        const existingIds = await fetchExistingIds(config.table);
+        const duplicateIds = localRows.filter((row) => row.id && existingIds.has(row.id)).length;
+
+        inventoryPreviewRows.push({
+          ...config,
+          localCount: localRows.length,
+          existingCount: existingIds.size,
+          duplicateIds,
+          readyToInsert: localRows.length - duplicateIds,
+        });
+      }
 
       setContractorPreviews(cPreviews);
       setProjectPreviews(pPreviews);
+      setInventoryPreviews(inventoryPreviewRows);
     } catch (err: any) {
       console.error(err);
-      setError(err.message || '預覽載入失敗');
+      setError(err.message || '載入 migration 預覽失敗');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleContractorAction = (idx: number, action: 'SKIP' | 'INSERT') => {
+  const handleContractorAction = (idx: number, action: MigrationAction) => {
     const next = [...contractorPreviews];
     next[idx].action = action;
     setContractorPreviews(next);
   };
 
-  const handleProjectAction = (idx: number, action: 'SKIP' | 'INSERT') => {
+  const handleProjectAction = (idx: number, action: MigrationAction) => {
     const next = [...projectPreviews];
     next[idx].action = action;
     setProjectPreviews(next);
@@ -117,99 +500,89 @@ export default function MigrationPage() {
         projectsSkipped: 0,
         progressAdded: 0,
         errors: 0,
-        errorMsgs: [] as string[]
+        errorMsgs: [] as string[],
       };
 
-      // 1. Insert Contractors
-      const contractorIdMap = new Map<string, string>(); // Map old ID to new ID
+      const contractorIdMap = new Map<string, string>();
       for (const cp of contractorPreviews) {
         if (cp.action === 'INSERT') {
           try {
-            const newC = await dbAdapter.createContractor({
+            const newContractor = await dbAdapter.createContractor({
               name: cp.local.name,
               contractor_type: cp.local.contractor_type,
               contact_person: cp.local.contact_person,
               phone: cp.local.phone,
               notes: cp.local.notes,
-              is_active: cp.local.is_active
+              is_active: cp.local.is_active,
             });
-            contractorIdMap.set(cp.local.id, newC.id);
+            contractorIdMap.set(cp.local.id, newContractor.id);
             result.contractorsAdded++;
           } catch (err: any) {
             result.errors++;
-            result.errorMsgs.push(`包商 ${cp.local.name} 失敗: ${err.message}`);
+            result.errorMsgs.push(`包商 ${cp.local.name} 匯入失敗：${err.message}`);
           }
         } else {
           result.contractorsSkipped++;
-          // If duplicate, try to map to existing Supabase ID so projects can use it
-          if (cp.supabaseMatch) {
-             contractorIdMap.set(cp.local.id, cp.supabaseMatch.id);
-          }
+          if (cp.supabaseMatch) contractorIdMap.set(cp.local.id, cp.supabaseMatch.id);
         }
       }
 
-      // 2. Insert Projects & Progress
       for (const pp of projectPreviews) {
         if (pp.action === 'INSERT') {
           try {
-            const lp = pp.local;
-            
-            // Map the expected dates and contractor names/ids for progress
+            const localProject = pp.local;
             const workTypes = ['racking', 'electrical', 'steel', 'roof_cover', 'civil', 'other'];
             const mappedProject: Partial<Project> = {
-              name: lp.name,
-              short_name: lp.short_name,
-              project_code: lp.project_code,
-              capacity: lp.capacity,
-              address: lp.address,
-              region: lp.region,
-              manager: lp.manager,
-              status: lp.status,
-              meter_expected_date: lp.meter_expected_date,
-              notes: lp.notes,
+              name: localProject.name,
+              short_name: localProject.short_name,
+              project_code: localProject.project_code,
+              capacity: localProject.capacity,
+              address: localProject.address,
+              region: localProject.region,
+              manager: localProject.manager,
+              status: localProject.status,
+              meter_expected_date: localProject.meter_expected_date,
+              notes: localProject.notes,
             };
 
-            // Process progress fields
             let hasProgress = false;
-            for (const t of workTypes) {
-              const cidKey = `${t}_contractor_id` as keyof Project;
-              const sDateKey = `${t}_expected_start_date` as keyof Project;
-              const eDateKey = `${t}_completion_date` as keyof Project;
-              const statusKey = `${t}_status` as keyof Project;
-              const notesKey = `${t}_notes` as keyof Project;
-              // New field for historical cache
-              const cNameKey = `${t}_contractor_name` as keyof Project;
+            for (const workType of workTypes) {
+              const cidKey = `${workType}_contractor_id` as keyof Project;
+              const sDateKey = `${workType}_expected_start_date` as keyof Project;
+              const eDateKey = `${workType}_completion_date` as keyof Project;
+              const statusKey = `${workType}_status` as keyof Project;
+              const notesKey = `${workType}_notes` as keyof Project;
+              const cNameKey = `${workType}_contractor_name` as keyof Project;
 
-              const oldCid = lp[cidKey] as string;
-              if (oldCid || lp[sDateKey] || lp[eDateKey] || lp[statusKey] || lp[notesKey]) {
+              const oldContractorId = localProject[cidKey] as string;
+              if (
+                oldContractorId ||
+                localProject[sDateKey] ||
+                localProject[eDateKey] ||
+                localProject[statusKey] ||
+                localProject[notesKey]
+              ) {
                 hasProgress = true;
-                
-                // Try to find the new ID
-                let newCid = oldCid ? contractorIdMap.get(oldCid) : null;
-                // Try to find the old name directly from local preview if not in map
-                let oldName = lp[cNameKey] as string | null;
-                if (!oldName && oldCid) {
-                   const oldC = contractorPreviews.find(c => c.local.id === oldCid);
-                   if (oldC) oldName = oldC.local.name;
+                let oldContractorName = localProject[cNameKey] as string | null;
+                if (!oldContractorName && oldContractorId) {
+                  oldContractorName = contractorPreviews.find((c) => c.local.id === oldContractorId)?.local.name || null;
                 }
 
-                (mappedProject as any)[cidKey] = newCid || null;
-                (mappedProject as any)[cNameKey] = oldName || null;
-                (mappedProject as any)[sDateKey] = lp[sDateKey] || null;
-                (mappedProject as any)[eDateKey] = lp[eDateKey] || null;
-                (mappedProject as any)[statusKey] = lp[statusKey] || null;
-                (mappedProject as any)[notesKey] = lp[notesKey] || null;
+                (mappedProject as any)[cidKey] = oldContractorId ? contractorIdMap.get(oldContractorId) || null : null;
+                (mappedProject as any)[cNameKey] = oldContractorName || null;
+                (mappedProject as any)[sDateKey] = localProject[sDateKey] || null;
+                (mappedProject as any)[eDateKey] = localProject[eDateKey] || null;
+                (mappedProject as any)[statusKey] = localProject[statusKey] || null;
+                (mappedProject as any)[notesKey] = localProject[notesKey] || null;
               }
             }
 
             await dbAdapter.createProject(mappedProject as any);
             result.projectsAdded++;
-            if (hasProgress) {
-              result.progressAdded++; // roughly counting 1 per project that had progress
-            }
+            if (hasProgress) result.progressAdded++;
           } catch (err: any) {
             result.errors++;
-            result.errorMsgs.push(`案場 ${pp.local.name} 失敗: ${err.message}`);
+            result.errorMsgs.push(`案場 ${pp.local.name} 匯入失敗：${err.message}`);
           }
         } else {
           result.projectsSkipped++;
@@ -217,15 +590,91 @@ export default function MigrationPage() {
       }
 
       setMigrationResult(result);
-      
-      // Refresh previews after migration
       await loadPreview();
-      
     } catch (err: any) {
       console.error(err);
-      setError(err.message || '匯入發生錯誤');
+      setError(err.message || '匯入失敗');
     } finally {
       setMigrating(false);
+    }
+  };
+
+  const executeInventoryMigration = async () => {
+    try {
+      setShowInventoryConfirm(false);
+      setInventoryMigrating(true);
+      setInventoryResult(null);
+      setError(null);
+
+      const localDb = readLocalDb(false);
+      const supaProjects = await dbAdapter.getProjects();
+      const { projectIds, projectIdMap } = buildProjectIdMap(localDb.projects || [], supaProjects);
+
+      const context: InventoryImportContext = {
+        projectIdMap,
+        projectIds,
+        itemIds: await fetchExistingIds('inventory_items'),
+        transactionIds: await fetchExistingIds('inventory_transactions'),
+        batchIds: await fetchExistingIds('inventory_batches'),
+        serialIds: await fetchExistingIds('inventory_serials'),
+        closingIds: await fetchExistingIds('inventory_monthly_closings'),
+      };
+
+      const results: InventoryTableImportResult[] = [];
+
+      for (const config of INVENTORY_TABLES) {
+        const localRows = rowsFromLocalDb<{ id?: string }>(localDb, config);
+        const existingIds = await fetchExistingIds(config.table);
+        const tableResult: InventoryTableImportResult = {
+          table: config.table,
+          label: config.label,
+          added: 0,
+          skippedDuplicateId: 0,
+          skippedInvalidFk: 0,
+          errors: [],
+        };
+
+        for (const localRow of localRows) {
+          if (!localRow.id) {
+            tableResult.skippedInvalidFk++;
+            tableResult.errors.push(`${config.table}: 略過缺少 id 的資料列`);
+            continue;
+          }
+
+          if (existingIds.has(localRow.id)) {
+            tableResult.skippedDuplicateId++;
+            addKnownId(config.table, localRow.id, context);
+            continue;
+          }
+
+          const prepared = prepareInventoryRow(config.table, localRow, context);
+          if (!prepared.payload) {
+            tableResult.skippedInvalidFk++;
+            tableResult.errors.push(`${config.table} ${localRow.id}: ${prepared.invalidFk || '關聯資料不存在'}`);
+            continue;
+          }
+
+          const { error: insertError } = await supabase.from(config.table).insert(prepared.payload);
+          if (insertError) {
+            tableResult.errors.push(`${config.table} ${localRow.id}: ${insertError.message}`);
+            continue;
+          }
+
+          tableResult.added++;
+          existingIds.add(localRow.id);
+          addKnownId(config.table, localRow.id, context);
+        }
+
+        results.push(tableResult);
+      }
+
+      setInventoryResult(results);
+      await loadPreview();
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || '庫存資料匯入失敗');
+    } finally {
+      setInventoryMigrating(false);
     }
   };
 
@@ -238,44 +687,52 @@ export default function MigrationPage() {
       <div className="p-8 flex flex-col items-center justify-center h-full text-slate-400">
         <AlertTriangle size={48} className="text-orange-500 mb-4" />
         <h2 className="text-2xl font-bold text-white mb-2">權限不足</h2>
-        <p>只有系統管理員可以執行舊資料遷移。</p>
+        <p>只有管理員可以使用資料匯入工具。</p>
       </div>
     );
   }
+
+  const selectedContractors = contractorPreviews.filter((c) => c.action === 'INSERT').length;
+  const selectedProjects = projectPreviews.filter((p) => p.action === 'INSERT').length;
+  const inventoryReadyCount = inventoryPreviews.reduce((sum, item) => sum + item.readyToInsert, 0);
 
   return (
     <div className="p-6 max-w-7xl mx-auto text-slate-200">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-white mb-2 flex items-center gap-3">
           <HardDrive className="text-blue-400" />
-          舊資料匯入與遷移工具
+          資料匯入工具
         </h1>
-        <p className="text-slate-400">從本機 localStorage (`schedule-inventory-db`) 安全匯入資料至 Supabase。</p>
+        <p className="text-slate-400">
+          從 localStorage 匯入資料到 Supabase。庫存匯入固定讀取 {MOCK_DB_KEY}。
+        </p>
       </div>
 
       {error && (
-        <div className="bg-rose-500/10 border border-rose-500/30 text-rose-400 p-4 rounded-xl mb-6 flex items-start gap-3">
+        <div className="bg-rose-500/10 border border-rose-500/30 text-rose-300 p-4 rounded-lg mb-6 flex items-start gap-3">
           <AlertTriangle className="shrink-0 mt-0.5" />
           <p>{error}</p>
         </div>
       )}
 
       {migrationResult && (
-        <div className="bg-emerald-500/10 border border-emerald-500/30 p-6 rounded-xl mb-8">
-          <h3 className="text-emerald-400 font-bold text-xl mb-4 flex items-center gap-2">
-            <Check /> 匯入報告
+        <div className="bg-emerald-500/10 border border-emerald-500/30 p-6 rounded-lg mb-8">
+          <h3 className="text-emerald-300 font-bold text-xl mb-4 flex items-center gap-2">
+            <Check /> 包商 / 案場匯入結果
           </h3>
           <ul className="space-y-2 text-slate-300">
-            <li>✅ 成功新增包商：{migrationResult.contractorsAdded} 筆</li>
-            <li>⏭️ 略過包商：{migrationResult.contractorsSkipped} 筆</li>
-            <li>✅ 成功新增案場：{migrationResult.projectsAdded} 筆</li>
-            <li>⏭️ 略過案場：{migrationResult.projectsSkipped} 筆</li>
-            <li>✅ 成功寫入施工進度 (案場數)：{migrationResult.progressAdded} 筆</li>
+            <li>成功新增包商：{migrationResult.contractorsAdded} 筆</li>
+            <li>略過包商：{migrationResult.contractorsSkipped} 筆</li>
+            <li>成功新增案場：{migrationResult.projectsAdded} 筆</li>
+            <li>略過案場：{migrationResult.projectsSkipped} 筆</li>
+            <li>成功寫入施工進度案場數：{migrationResult.progressAdded} 筆</li>
             {migrationResult.errors > 0 && (
-              <li className="text-rose-400 font-bold mt-4">
-                ❌ 錯誤：{migrationResult.errors} 筆
+              <li className="text-rose-300 font-bold mt-4">
+                錯誤：{migrationResult.errors} 筆
                 <ul className="text-sm font-normal mt-2 ml-4 list-disc space-y-1">
-                  {migrationResult.errorMsgs.map((msg: string, i: number) => <li key={i}>{msg}</li>)}
+                  {migrationResult.errorMsgs.map((msg: string, i: number) => (
+                    <li key={i}>{msg}</li>
+                  ))}
                 </ul>
               </li>
             )}
@@ -283,165 +740,314 @@ export default function MigrationPage() {
         </div>
       )}
 
-      {/* Action Bar */}
-      <div className="flex justify-between items-center mb-6 bg-slate-800 p-4 rounded-xl shadow-lg border border-slate-700">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded-full bg-emerald-500"></span>
-            <span className="text-sm">新資料</span>
+      {inventoryResult && (
+        <div className="bg-sky-500/10 border border-sky-500/30 p-6 rounded-lg mb-8">
+          <h3 className="text-sky-300 font-bold text-xl mb-4 flex items-center gap-2">
+            <Database /> 庫存資料匯入結果
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-slate-400 border-b border-slate-700">
+                <tr>
+                  <th className="text-left py-2 pr-4">資料表</th>
+                  <th className="text-right py-2 px-4">成功新增</th>
+                  <th className="text-right py-2 px-4">重複 id 略過</th>
+                  <th className="text-right py-2 px-4">關聯不足略過</th>
+                  <th className="text-right py-2 pl-4">錯誤</th>
+                </tr>
+              </thead>
+              <tbody>
+                {inventoryResult.map((result) => (
+                  <tr key={result.table} className="border-b border-slate-800">
+                    <td className="py-2 pr-4">
+                      <div className="font-semibold text-white">{result.table}</div>
+                      <div className="text-xs text-slate-500">{result.label}</div>
+                    </td>
+                    <td className="text-right py-2 px-4 text-emerald-300 font-semibold">{result.added}</td>
+                    <td className="text-right py-2 px-4">{result.skippedDuplicateId}</td>
+                    <td className="text-right py-2 px-4">{result.skippedInvalidFk}</td>
+                    <td className="text-right py-2 pl-4 text-rose-300">{result.errors.length}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded-full bg-orange-500"></span>
-            <span className="text-sm">疑似重複</span>
-          </div>
+          {inventoryResult.some((result) => result.errors.length > 0) && (
+            <div className="mt-4 max-h-48 overflow-y-auto text-sm text-rose-300 bg-slate-950/50 border border-slate-800 rounded-lg p-3">
+              {inventoryResult.flatMap((result) => result.errors).map((msg, index) => (
+                <div key={`${msg}-${index}`}>{msg}</div>
+              ))}
+            </div>
+          )}
         </div>
-        <div className="flex items-center gap-3">
-          <button 
-            onClick={loadPreview}
-            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm transition-colors flex items-center gap-2"
-          >
-            <RefreshCw size={16} /> 重新掃描
-          </button>
-          <button 
-            onClick={() => setShowConfirm(true)}
-            disabled={migrating || (contractorPreviews.every(c => c.action === 'SKIP') && projectPreviews.every(p => p.action === 'SKIP'))}
-            className="px-6 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 rounded-lg font-bold transition-colors shadow-lg shadow-blue-500/20"
-          >
-            確認並匯入所選資料
-          </button>
-        </div>
-      </div>
+      )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-        {/* Contractors */}
-        <div className="bg-slate-900/50 rounded-xl border border-slate-700/50 overflow-hidden flex flex-col h-[600px]">
-          <div className="p-4 bg-slate-800/80 border-b border-slate-700/50 font-bold flex justify-between items-center">
-            <span>包商預覽 ({contractorPreviews.length} 筆)</span>
-            <button 
-              onClick={() => {
-                const next = contractorPreviews.map(c => ({...c, action: c.status === 'NEW' ? 'INSERT' : 'SKIP'} as const));
-                setContractorPreviews(next);
-              }}
-              className="text-xs px-2 py-1 bg-slate-700 rounded hover:bg-slate-600"
+      <section className="mb-8">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-4 bg-slate-800 p-4 rounded-lg border border-slate-700">
+          <div>
+            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+              <Server className="text-blue-400" />
+              包商 / 案場 migration
+            </h2>
+            <p className="text-sm text-slate-400 mt-1">
+              保留原本選擇新增流程，重複資料預設略過。
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={loadPreview}
+              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm transition-colors flex items-center gap-2"
             >
-              全選新資料
+              <RefreshCw size={16} /> 重新整理
+            </button>
+            <button
+              onClick={() => setShowConfirm(true)}
+              disabled={migrating || (selectedContractors === 0 && selectedProjects === 0)}
+              className="px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 rounded-lg font-bold transition-colors"
+            >
+              開始匯入選取資料
             </button>
           </div>
-          <div className="overflow-y-auto flex-1 p-2">
-            {contractorPreviews.length === 0 ? (
-              <div className="p-8 text-center text-slate-500">無舊資料</div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {contractorPreviews.map((cp, i) => (
-                  <div key={i} className={`p-3 rounded-lg border ${cp.status === 'DUPLICATE' ? 'bg-orange-500/10 border-orange-500/30' : 'bg-slate-800 border-slate-700'} flex items-center justify-between`}>
-                    <div className="flex-1 min-w-0 pr-4">
-                      <div className="font-bold truncate text-white">{cp.local.name}</div>
-                      <div className="text-xs text-slate-400 mt-1 flex gap-2">
-                        <span className="bg-slate-700 px-1.5 py-0.5 rounded">{cp.local.contractor_type}</span>
-                        {cp.reason && <span className="text-orange-400">⚠️ {cp.reason}</span>}
-                      </div>
-                    </div>
-                    <div className="shrink-0 flex items-center">
-                      <select 
-                        value={cp.action} 
-                        onChange={(e) => handleContractorAction(i, e.target.value as 'SKIP' | 'INSERT')}
-                        className={`text-sm rounded border-none py-1 pl-2 pr-6 outline-none focus:ring-2 focus:ring-blue-500 ${cp.action === 'INSERT' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300'}`}
-                      >
-                        <option value="SKIP">⏭️ 略過</option>
-                        <option value="INSERT">✅ 新增</option>
-                        <option value="UPDATE" disabled>🔄 覆蓋 (不支援)</option>
-                      </select>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
         </div>
 
-        {/* Projects */}
-        <div className="bg-slate-900/50 rounded-xl border border-slate-700/50 overflow-hidden flex flex-col h-[600px]">
-          <div className="p-4 bg-slate-800/80 border-b border-slate-700/50 font-bold flex justify-between items-center">
-            <span>案場預覽 ({projectPreviews.length} 筆)</span>
-            <button 
-              onClick={() => {
-                const next = projectPreviews.map(p => ({...p, action: p.status === 'NEW' ? 'INSERT' : 'SKIP'} as const));
-                setProjectPreviews(next);
-              }}
-              className="text-xs px-2 py-1 bg-slate-700 rounded hover:bg-slate-600"
-            >
-              全選新資料
-            </button>
-          </div>
-          <div className="overflow-y-auto flex-1 p-2">
-            {projectPreviews.length === 0 ? (
-              <div className="p-8 text-center text-slate-500">無舊資料</div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {projectPreviews.map((pp, i) => (
-                  <div key={i} className={`p-3 rounded-lg border ${pp.status === 'DUPLICATE' ? 'bg-orange-500/10 border-orange-500/30' : 'bg-slate-800 border-slate-700'} flex items-center justify-between`}>
-                    <div className="flex-1 min-w-0 pr-4">
-                      <div className="font-bold truncate text-white">{pp.local.name}</div>
-                      <div className="text-xs text-slate-400 mt-1 flex flex-wrap gap-2">
-                        {pp.local.project_code && <span className="bg-slate-700 px-1.5 py-0.5 rounded">{pp.local.project_code}</span>}
-                        <span className={`px-1.5 py-0.5 rounded ${pp.local.status === '已結案' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-blue-500/20 text-blue-400'}`}>
-                          {pp.local.status || '未知狀態'}
-                        </span>
-                        {pp.reason && <span className="text-orange-400 truncate">⚠️ {pp.reason}</span>}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+          <div className="bg-slate-900/50 rounded-lg border border-slate-700/50 overflow-hidden flex flex-col h-[600px]">
+            <div className="p-4 bg-slate-800/80 border-b border-slate-700/50 font-bold flex justify-between items-center">
+              <span>包商預覽 ({contractorPreviews.length} 筆)</span>
+              <button
+                onClick={() => {
+                  const next = contractorPreviews.map(
+                    (c) => ({ ...c, action: c.status === 'NEW' ? 'INSERT' : 'SKIP' }) as const,
+                  );
+                  setContractorPreviews(next);
+                }}
+                className="text-xs px-2 py-1 bg-slate-700 rounded hover:bg-slate-600 flex items-center gap-1"
+              >
+                <Check size={14} /> 選取新資料
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-2">
+              {contractorPreviews.length === 0 ? (
+                <div className="p-8 text-center text-slate-500">沒有包商資料</div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {contractorPreviews.map((cp, i) => (
+                    <div
+                      key={cp.local.id || i}
+                      className={`p-3 rounded-lg border ${
+                        cp.status === 'DUPLICATE'
+                          ? 'bg-orange-500/10 border-orange-500/30'
+                          : 'bg-slate-800 border-slate-700'
+                      } flex items-center justify-between`}
+                    >
+                      <div className="flex-1 min-w-0 pr-4">
+                        <div className="font-bold truncate text-white">{cp.local.name}</div>
+                        <div className="text-xs text-slate-400 mt-1 flex gap-2">
+                          <span className="bg-slate-700 px-1.5 py-0.5 rounded">{cp.local.contractor_type}</span>
+                          {cp.reason && <span className="text-orange-300">{cp.reason}</span>}
+                        </div>
                       </div>
-                    </div>
-                    <div className="shrink-0 flex items-center">
-                      <select 
-                        value={pp.action} 
-                        onChange={(e) => handleProjectAction(i, e.target.value as 'SKIP' | 'INSERT')}
-                        className={`text-sm rounded border-none py-1 pl-2 pr-6 outline-none focus:ring-2 focus:ring-blue-500 ${pp.action === 'INSERT' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300'}`}
+                      <select
+                        value={cp.action}
+                        onChange={(e) => handleContractorAction(i, e.target.value as MigrationAction)}
+                        className={`text-sm rounded border-none py-1 pl-2 pr-6 outline-none focus:ring-2 focus:ring-blue-500 ${
+                          cp.action === 'INSERT' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300'
+                        }`}
                       >
-                        <option value="SKIP">⏭️ 略過</option>
-                        <option value="INSERT">✅ 新增</option>
-                        <option value="UPDATE" disabled>🔄 覆蓋 (不支援)</option>
+                        <option value="SKIP">略過</option>
+                        <option value="INSERT">新增</option>
                       </select>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-slate-900/50 rounded-lg border border-slate-700/50 overflow-hidden flex flex-col h-[600px]">
+            <div className="p-4 bg-slate-800/80 border-b border-slate-700/50 font-bold flex justify-between items-center">
+              <span>案場預覽 ({projectPreviews.length} 筆)</span>
+              <button
+                onClick={() => {
+                  const next = projectPreviews.map(
+                    (p) => ({ ...p, action: p.status === 'NEW' ? 'INSERT' : 'SKIP' }) as const,
+                  );
+                  setProjectPreviews(next);
+                }}
+                className="text-xs px-2 py-1 bg-slate-700 rounded hover:bg-slate-600 flex items-center gap-1"
+              >
+                <Check size={14} /> 選取新資料
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-2">
+              {projectPreviews.length === 0 ? (
+                <div className="p-8 text-center text-slate-500">沒有案場資料</div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {projectPreviews.map((pp, i) => (
+                    <div
+                      key={pp.local.id || i}
+                      className={`p-3 rounded-lg border ${
+                        pp.status === 'DUPLICATE'
+                          ? 'bg-orange-500/10 border-orange-500/30'
+                          : 'bg-slate-800 border-slate-700'
+                      } flex items-center justify-between`}
+                    >
+                      <div className="flex-1 min-w-0 pr-4">
+                        <div className="font-bold truncate text-white">{pp.local.name}</div>
+                        <div className="text-xs text-slate-400 mt-1 flex flex-wrap gap-2">
+                          {pp.local.project_code && (
+                            <span className="bg-slate-700 px-1.5 py-0.5 rounded">{pp.local.project_code}</span>
+                          )}
+                          <span className="bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded">
+                            {pp.local.status || '未設定'}
+                          </span>
+                          {pp.reason && <span className="text-orange-300 truncate">{pp.reason}</span>}
+                        </div>
+                      </div>
+                      <select
+                        value={pp.action}
+                        onChange={(e) => handleProjectAction(i, e.target.value as MigrationAction)}
+                        className={`text-sm rounded border-none py-1 pl-2 pr-6 outline-none focus:ring-2 focus:ring-blue-500 ${
+                          pp.action === 'INSERT' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300'
+                        }`}
+                      >
+                        <option value="SKIP">略過</option>
+                        <option value="INSERT">新增</option>
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      </section>
 
-      {/* Confirmation Modal */}
+      <section className="mb-8">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-4 bg-slate-800 p-4 rounded-lg border border-slate-700">
+          <div>
+            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+              <Database className="text-sky-400" />
+              庫存資料匯入
+            </h2>
+            <p className="text-sm text-slate-400 mt-1">
+              依 FK 順序匯入七張庫存表；既有 id 不覆蓋，直接略過。
+            </p>
+          </div>
+          <button
+            onClick={() => setShowInventoryConfirm(true)}
+            disabled={inventoryMigrating || inventoryReadyCount === 0}
+            className="px-5 py-2 bg-sky-600 hover:bg-sky-500 disabled:bg-slate-700 disabled:text-slate-500 rounded-lg font-bold transition-colors flex items-center gap-2"
+          >
+            <Database size={18} /> 匯入庫存資料
+          </button>
+        </div>
+
+        <div className="bg-slate-900/50 rounded-lg border border-slate-700/50 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-800/80 text-slate-400 border-b border-slate-700/50">
+              <tr>
+                <th className="text-left py-3 px-4">匯入順序 / 資料表</th>
+                <th className="text-right py-3 px-4">localStorage</th>
+                <th className="text-right py-3 px-4">Supabase 既有</th>
+                <th className="text-right py-3 px-4">重複 id</th>
+                <th className="text-right py-3 px-4">預計新增</th>
+              </tr>
+            </thead>
+            <tbody>
+              {inventoryPreviews.map((preview, index) => (
+                <tr key={preview.table} className="border-b border-slate-800">
+                  <td className="py-3 px-4">
+                    <div className="font-semibold text-white">
+                      {index + 1}. {preview.table}
+                    </div>
+                    <div className="text-xs text-slate-500">{preview.label}</div>
+                  </td>
+                  <td className="text-right py-3 px-4">{preview.localCount}</td>
+                  <td className="text-right py-3 px-4">{preview.existingCount}</td>
+                  <td className="text-right py-3 px-4 text-orange-300">{preview.duplicateIds}</td>
+                  <td className="text-right py-3 px-4 text-emerald-300 font-semibold">{preview.readyToInsert}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       {showConfirm && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl">
+          <div className="bg-slate-800 border border-slate-700 rounded-lg max-w-md w-full p-6 shadow-2xl">
             <h3 className="text-2xl font-bold text-white mb-4 flex items-center gap-3">
-              <Server className="text-blue-500" /> 二次確認
+              <Server className="text-blue-500" /> 確認匯入
             </h3>
             <p className="text-slate-300 mb-6">
-              您即將將所選資料寫入 Supabase 資料庫。<br/><br/>
-              - 選擇新增的包商：<strong className="text-white">{contractorPreviews.filter(c => c.action === 'INSERT').length}</strong> 筆<br/>
-              - 選擇新增的案場：<strong className="text-white">{projectPreviews.filter(p => p.action === 'INSERT').length}</strong> 筆<br/><br/>
-              <span className="text-orange-400 flex items-center gap-2 text-sm"><AlertTriangle size={16}/> 既有資料不會被覆蓋，硬刪除功能未啟用。</span>
+              即將匯入選取的包商與案場資料到 Supabase。
+              <br />
+              <br />
+              新增包商：<strong className="text-white">{selectedContractors}</strong> 筆
+              <br />
+              新增案場：<strong className="text-white">{selectedProjects}</strong> 筆
             </p>
             <div className="flex gap-4 justify-end">
-              <button 
+              <button
                 onClick={() => setShowConfirm(false)}
                 disabled={migrating}
-                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-white font-medium"
+                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-white font-medium flex items-center gap-2"
               >
-                取消
+                <SkipForward size={16} /> 取消
               </button>
-              <button 
+              <button
                 onClick={executeMigration}
                 disabled={migrating}
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-white font-bold flex items-center gap-2"
               >
-                {migrating ? '匯入中...' : '確認執行匯入'}
+                {migrating ? '匯入中...' : '確認匯入'}
               </button>
             </div>
           </div>
         </div>
       )}
 
+      {showInventoryConfirm && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 border border-slate-700 rounded-lg max-w-lg w-full p-6 shadow-2xl">
+            <h3 className="text-2xl font-bold text-white mb-4 flex items-center gap-3">
+              <Database className="text-sky-400" /> 確認庫存匯入
+            </h3>
+            <div className="text-slate-300 mb-6 space-y-4">
+              <p>
+                將從 <code className="bg-slate-900 px-1.5 py-0.5 rounded">{MOCK_DB_KEY}</code> 依指定順序匯入庫存資料。
+              </p>
+              <div className="bg-slate-900/60 border border-slate-700 rounded-lg p-3 text-sm flex gap-2">
+                <Info size={16} className="text-sky-300 shrink-0 mt-0.5" />
+                <span>
+                  重複 id 會略過，不會覆蓋 Supabase 既有資料。案場關聯會優先用名稱、簡稱或案號對應到 Supabase 案場。
+                </span>
+              </div>
+              <p>
+                預計新增：<strong className="text-white">{inventoryReadyCount}</strong> 筆
+              </p>
+            </div>
+            <div className="flex gap-4 justify-end">
+              <button
+                onClick={() => setShowInventoryConfirm(false)}
+                disabled={inventoryMigrating}
+                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-white font-medium flex items-center gap-2"
+              >
+                <SkipForward size={16} /> 取消
+              </button>
+              <button
+                onClick={executeInventoryMigration}
+                disabled={inventoryMigrating}
+                className="px-4 py-2 bg-sky-600 hover:bg-sky-500 rounded-lg text-white font-bold flex items-center gap-2"
+              >
+                {inventoryMigrating ? '匯入中...' : '確認匯入庫存'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -26,4 +26,16 @@ export const dbAdapter = {
   createProject: hasSupabase ? pocSupabaseAdapter.createProject : mockDbAdapter.createProject,
   updateProject: hasSupabase ? pocSupabaseAdapter.updateProject : mockDbAdapter.updateProject,
   deleteProject: hasSupabase ? pocSupabaseAdapter.deleteProject : mockDbAdapter.deleteProject,
+
+  // Inventory reads only. Mutations stay on the existing adapter until the write flow is migrated.
+  getInventoryItems: hasSupabase ? pocSupabaseAdapter.getInventoryItems : mockDbAdapter.getInventoryItems,
+  getInventoryTransactions: hasSupabase ? pocSupabaseAdapter.getInventoryTransactions : mockDbAdapter.getInventoryTransactions,
+  getInventorySerials: hasSupabase ? pocSupabaseAdapter.getInventorySerials : mockDbAdapter.getInventorySerials,
+  getInventoryTransactionSerials: hasSupabase ? pocSupabaseAdapter.getInventoryTransactionSerials : mockDbAdapter.getInventoryTransactionSerials,
+  getInventoryBatches: hasSupabase ? pocSupabaseAdapter.getInventoryBatches : mockDbAdapter.getInventoryBatches,
+  getInventoryBalances: hasSupabase ? pocSupabaseAdapter.getInventoryBalances : mockDbAdapter.getInventoryBalances,
+  getMonthlyClosings: hasSupabase ? pocSupabaseAdapter.getMonthlyClosings : mockDbAdapter.getMonthlyClosings,
+  getMonthlyClosingItems: hasSupabase ? pocSupabaseAdapter.getMonthlyClosingItems : mockDbAdapter.getMonthlyClosingItems,
+  getInventoryMonthlyClosings: hasSupabase ? pocSupabaseAdapter.getInventoryMonthlyClosings : mockDbAdapter.getMonthlyClosings,
+  getInventoryMonthlyClosingItems: hasSupabase ? pocSupabaseAdapter.getInventoryMonthlyClosingItems : mockDbAdapter.getMonthlyClosingItems,
 };

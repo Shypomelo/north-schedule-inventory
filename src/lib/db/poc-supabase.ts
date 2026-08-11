@@ -1,5 +1,18 @@
 import { supabase } from './supabaseClient';
-import { ScheduleTask, User, UserRole, Contractor, Project } from './types';
+import {
+  ScheduleTask,
+  User,
+  UserRole,
+  Contractor,
+  Project,
+  InventoryItem,
+  InventoryTransaction,
+  InventorySerial,
+  InventoryTransactionSerial,
+  InventoryBatch,
+  InventoryMonthlyClosing,
+  InventoryMonthlyClosingItem,
+} from './types';
 import { throwMissingCoreTablesErrorIfNeeded } from './supabase-errors';
 
 const mapUser = (row: any): User => ({
@@ -15,6 +28,252 @@ const mapUser = (row: any): User => ({
   created_at: row.created_at || new Date().toISOString(),
   updated_at: row.updated_at || new Date().toISOString(),
 });
+
+const toNumber = (value: number | string | null | undefined): number => {
+  if (value === null || value === undefined || value === '') return 0;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const mapInventoryItem = (row: any): InventoryItem => ({
+  id: row.id,
+  code: row.code || '',
+  category: row.category || '',
+  item_category: row.item_category || null,
+  name: row.name || '',
+  source_type: row.source_type || null,
+  unit: row.unit || '',
+  opening_quantity: toNumber(row.opening_quantity),
+  low_stock_threshold: toNumber(row.low_stock_threshold),
+  requires_serial: !!row.requires_serial,
+  notes: row.notes || null,
+  is_active: row.is_active ?? true,
+  created_at: row.created_at || new Date().toISOString(),
+  updated_at: row.updated_at || new Date().toISOString(),
+});
+
+const mapInventoryTransaction = (row: any): InventoryTransaction => ({
+  id: row.id,
+  item_id: row.item_id,
+  transaction_type: row.transaction_type,
+  transaction_date: row.transaction_date,
+  quantity: toNumber(row.quantity),
+  unit: row.unit || null,
+  project_id: row.project_id || null,
+  project_name: row.project_name || null,
+  handler: row.handler || null,
+  source: row.source || null,
+  notes: row.notes || null,
+  pending_serial_count: toNumber(row.pending_serial_count),
+  is_voided: !!row.is_voided,
+  voided_reason: row.voided_reason || null,
+  voided_by: row.voided_by || null,
+  voided_at: row.voided_at || null,
+  created_at: row.created_at || new Date().toISOString(),
+  updated_at: row.updated_at || new Date().toISOString(),
+});
+
+const mapInventoryBatch = (row: any): InventoryBatch => ({
+  id: row.id,
+  batch_number: row.batch_number || '',
+  item_id: row.item_id,
+  in_date: row.in_date,
+  source: row.source || null,
+  quantity: toNumber(row.quantity),
+  unit: row.unit || null,
+  handler: row.handler || null,
+  notes: row.notes || null,
+  created_at: row.created_at || new Date().toISOString(),
+  updated_at: row.updated_at || new Date().toISOString(),
+});
+
+const mapInventorySerial = (row: any): InventorySerial => ({
+  id: row.id,
+  item_id: row.item_id,
+  batch_id: row.batch_id || null,
+  serial_number: row.serial_number || '',
+  status: row.status || '',
+  project_id: row.project_id || null,
+  notes: row.notes || null,
+  created_at: row.created_at || new Date().toISOString(),
+  updated_at: row.updated_at || new Date().toISOString(),
+});
+
+const mapInventoryTransactionSerial = (row: any): InventoryTransactionSerial => ({
+  id: row.id,
+  transaction_id: row.transaction_id,
+  serial_id: row.serial_id || null,
+  serial_no: row.serial_no || null,
+  is_pending: !!row.is_pending,
+  created_at: row.created_at || new Date().toISOString(),
+});
+
+const mapInventoryMonthlyClosing = (row: any): InventoryMonthlyClosing => ({
+  id: row.id,
+  year: row.year || '',
+  month: row.month || '',
+  closed_at: row.closed_at || new Date().toISOString(),
+  closed_by: row.closed_by || '',
+  status: row.status || '',
+  notes: row.notes || null,
+});
+
+const mapInventoryMonthlyClosingItem = (row: any): InventoryMonthlyClosingItem => ({
+  id: row.id,
+  closing_id: row.closing_id,
+  inventory_item_id: row.inventory_item_id || '',
+  stock_category: row.stock_category || '',
+  source: row.source || '',
+  item_name: row.item_name || '',
+  item_type: row.item_type || '',
+  unit: row.unit || '',
+  opening_quantity: toNumber(row.opening_quantity),
+  monthly_in: toNumber(row.monthly_in),
+  monthly_out: toNumber(row.monthly_out),
+  monthly_return: toNumber(row.monthly_return),
+  monthly_adjust: toNumber(row.monthly_adjust),
+  closing_quantity: toNumber(row.closing_quantity),
+  usage_quantity: toNumber(row.usage_quantity),
+  status: row.status || '',
+  notes: row.notes || null,
+});
+
+const fetchInventoryItemsFromSupabase = async (): Promise<InventoryItem[]> => {
+  const { data, error } = await supabase
+    .from('inventory_items')
+    .select('*')
+    .order('name', { ascending: true });
+
+  if (error) {
+    console.error('Error fetching inventory_items:', error);
+    throw error;
+  }
+
+  return (data || []).map(mapInventoryItem);
+};
+
+const fetchInventoryTransactionsFromSupabase = async (): Promise<InventoryTransaction[]> => {
+  const { data, error } = await supabase
+    .from('inventory_transactions')
+    .select('*')
+    .order('transaction_date', { ascending: false })
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching inventory_transactions:', error);
+    throw error;
+  }
+
+  return (data || []).map(mapInventoryTransaction);
+};
+
+const fetchInventorySerialsFromSupabase = async (): Promise<InventorySerial[]> => {
+  const { data, error } = await supabase
+    .from('inventory_serials')
+    .select('*')
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    console.error('Error fetching inventory_serials:', error);
+    throw error;
+  }
+
+  return (data || []).map(mapInventorySerial);
+};
+
+const fetchInventoryTransactionSerialsFromSupabase = async (): Promise<InventoryTransactionSerial[]> => {
+  const { data, error } = await supabase
+    .from('inventory_transaction_serials')
+    .select('*')
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    console.error('Error fetching inventory_transaction_serials:', error);
+    throw error;
+  }
+
+  return (data || []).map(mapInventoryTransactionSerial);
+};
+
+const fetchInventoryBatchesFromSupabase = async (): Promise<InventoryBatch[]> => {
+  const { data, error } = await supabase
+    .from('inventory_batches')
+    .select('*')
+    .order('in_date', { ascending: false })
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching inventory_batches:', error);
+    throw error;
+  }
+
+  return (data || []).map(mapInventoryBatch);
+};
+
+const fetchInventoryMonthlyClosingsFromSupabase = async (): Promise<InventoryMonthlyClosing[]> => {
+  const { data, error } = await supabase
+    .from('inventory_monthly_closings')
+    .select('*')
+    .order('year', { ascending: false })
+    .order('month', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching inventory_monthly_closings:', error);
+    throw error;
+  }
+
+  return (data || []).map(mapInventoryMonthlyClosing);
+};
+
+const fetchInventoryMonthlyClosingItemsFromSupabase = async (
+  closingId: string,
+): Promise<InventoryMonthlyClosingItem[]> => {
+  const { data, error } = await supabase
+    .from('inventory_monthly_closing_items')
+    .select('*')
+    .eq('closing_id', closingId)
+    .order('item_name', { ascending: true });
+
+  if (error) {
+    console.error('Error fetching inventory_monthly_closing_items:', error);
+    throw error;
+  }
+
+  return (data || []).map(mapInventoryMonthlyClosingItem);
+};
+
+const calculateInventoryBalancesFromSupabase = async (): Promise<{ item_id: string; balance: number }[]> => {
+  const [items, transactions] = await Promise.all([
+    fetchInventoryItemsFromSupabase(),
+    fetchInventoryTransactionsFromSupabase(),
+  ]);
+
+  const balances: Record<string, { in: number; out: number; return: number; adjust: number; opening: number }> = {};
+
+  items.forEach((item) => {
+    balances[item.id] = { in: 0, out: 0, return: 0, adjust: 0, opening: item.opening_quantity || 0 };
+  });
+
+  transactions.forEach((tx) => {
+    if (tx.is_voided) return;
+
+    const key = tx.item_id;
+    if (!balances[key]) balances[key] = { in: 0, out: 0, return: 0, adjust: 0, opening: 0 };
+
+    if (tx.transaction_type === 'IN') balances[key].in += tx.quantity;
+    else if (tx.transaction_type === 'OUT') balances[key].out += tx.quantity;
+    else if (tx.transaction_type === 'RETURN') balances[key].return += tx.quantity;
+    else if (tx.transaction_type === 'ADJUST') balances[key].adjust += tx.quantity;
+  });
+
+  return Object.keys(balances).map((item_id) => {
+    const balance = balances[item_id];
+    return {
+      item_id,
+      balance: balance.opening + balance.in - balance.out + balance.return + balance.adjust,
+    };
+  });
+};
 
 const syncProjectProgress = async (projectId: string, p: Partial<Project>) => {
   const workTypes = ['racking', 'electrical', 'steel', 'roof_cover', 'civil', 'other'];
@@ -607,5 +866,17 @@ export const pocSupabaseAdapter = {
       throwMissingCoreTablesErrorIfNeeded(error);
       throw error;
     }
-  }
+  },
+
+  // --- Inventory Reads ---
+  getInventoryItems: fetchInventoryItemsFromSupabase,
+  getInventoryTransactions: fetchInventoryTransactionsFromSupabase,
+  getInventorySerials: fetchInventorySerialsFromSupabase,
+  getInventoryTransactionSerials: fetchInventoryTransactionSerialsFromSupabase,
+  getInventoryBatches: fetchInventoryBatchesFromSupabase,
+  getInventoryBalances: calculateInventoryBalancesFromSupabase,
+  getMonthlyClosings: fetchInventoryMonthlyClosingsFromSupabase,
+  getMonthlyClosingItems: fetchInventoryMonthlyClosingItemsFromSupabase,
+  getInventoryMonthlyClosings: fetchInventoryMonthlyClosingsFromSupabase,
+  getInventoryMonthlyClosingItems: fetchInventoryMonthlyClosingItemsFromSupabase,
 };
