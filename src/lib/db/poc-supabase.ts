@@ -12,6 +12,7 @@ import {
   InventoryBatch,
   InventoryMonthlyClosing,
   InventoryMonthlyClosingItem,
+  ActivityLog,
 } from './types';
 import { throwMissingCoreTablesErrorIfNeeded } from './supabase-errors';
 
@@ -34,6 +35,10 @@ const toNumber = (value: number | string | null | undefined): number => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
 };
+
+const SERIAL_STATUS_IN_STOCK = '在庫';
+const SERIAL_STATUS_OUT = '已出庫';
+const SERIAL_STATUS_RETURNED = '已退回';
 
 const mapInventoryItem = (row: any): InventoryItem => ({
   id: row.id,
@@ -137,6 +142,61 @@ const mapInventoryMonthlyClosingItem = (row: any): InventoryMonthlyClosingItem =
   status: row.status || '',
   notes: row.notes || null,
 });
+
+const mapActivityLog = (row: any): ActivityLog => ({
+  id: String(row.id),
+  actor_user_id: row.actor_user_id || row.user_id || 'system',
+  actor_name: row.actor_name || row.user_name || 'system',
+  action_type: row.action_type || row.action,
+  target_type: row.target_type,
+  target_id: row.target_id,
+  target_label: row.target_label || row.description || '',
+  project_id: row.project_id || null,
+  project_name: row.project_name || null,
+  before_value: row.before_value || (row.changes?.before ? JSON.stringify(row.changes.before) : null),
+  after_value: row.after_value || (row.changes?.after ? JSON.stringify(row.changes.after) : null),
+  message: row.message || row.description || null,
+  created_at: row.created_at || new Date().toISOString(),
+});
+
+const buildActivityLogPayload = (log: Omit<ActivityLog, 'id' | 'created_at'>): Record<string, any> => {
+  let beforeJson: any = null;
+  let afterJson: any = null;
+
+  try {
+    beforeJson = log.before_value ? JSON.parse(log.before_value) : null;
+  } catch {
+    beforeJson = log.before_value;
+  }
+
+  try {
+    afterJson = log.after_value ? JSON.parse(log.after_value) : null;
+  } catch {
+    afterJson = log.after_value;
+  }
+
+  return {
+    action: log.action_type,
+    target_type: log.target_type,
+    target_id: log.target_id,
+    description: log.message || log.target_label || null,
+    changes: {
+      before: beforeJson,
+      after: afterJson,
+    },
+    user_id: log.actor_user_id || 'system',
+    user_name: log.actor_name || 'system',
+    actor_user_id: log.actor_user_id || 'system',
+    actor_name: log.actor_name || 'system',
+    action_type: log.action_type,
+    target_label: log.target_label || '',
+    project_id: log.project_id || null,
+    project_name: log.project_name || null,
+    before_value: log.before_value || null,
+    after_value: log.after_value || null,
+    message: log.message || null,
+  };
+};
 
 const fetchInventoryItemsFromSupabase = async (): Promise<InventoryItem[]> => {
   const { data, error } = await supabase
@@ -285,6 +345,419 @@ const updateInventoryTransactionSerialInSupabase = async (
   return mapInventoryTransactionSerial(data);
 };
 
+const buildInventoryTransactionPayload = (
+  transaction: Partial<InventoryTransaction>,
+  options: { isNew?: boolean } = {},
+): Record<string, any> => {
+  const payload: Record<string, any> = {};
+
+  if (transaction.item_id !== undefined) payload.item_id = transaction.item_id;
+  if (transaction.transaction_type !== undefined) payload.transaction_type = transaction.transaction_type;
+  if (transaction.transaction_date !== undefined) payload.transaction_date = transaction.transaction_date;
+  if (transaction.quantity !== undefined) payload.quantity = transaction.quantity;
+  if (transaction.unit !== undefined) payload.unit = transaction.unit || null;
+  if (transaction.project_id !== undefined) payload.project_id = transaction.project_id || null;
+  if (transaction.project_name !== undefined) payload.project_name = transaction.project_name || null;
+  if (transaction.handler !== undefined) payload.handler = transaction.handler || null;
+  if (transaction.source !== undefined) payload.source = transaction.source || null;
+  if (transaction.notes !== undefined) payload.notes = transaction.notes || null;
+  if (transaction.pending_serial_count !== undefined) {
+    payload.pending_serial_count = toNumber(transaction.pending_serial_count);
+  }
+  if (transaction.is_voided !== undefined) payload.is_voided = !!transaction.is_voided;
+  if (transaction.voided_reason !== undefined) payload.voided_reason = transaction.voided_reason || null;
+  if (transaction.voided_by !== undefined) payload.voided_by = transaction.voided_by || null;
+  if (transaction.voided_at !== undefined) payload.voided_at = transaction.voided_at || null;
+
+  if (options.isNew) {
+    payload.is_voided = false;
+  } else {
+    payload.updated_at = new Date().toISOString();
+  }
+
+  return payload;
+};
+
+const createInventoryBatchForTransaction = async (
+  transaction: InventoryTransaction | Omit<InventoryTransaction, 'id' | 'created_at' | 'updated_at'>,
+  user: string,
+): Promise<InventoryBatch | null> => {
+  if (transaction.transaction_type !== 'IN' && transaction.transaction_type !== 'RETURN') return null;
+
+  const ymd = transaction.transaction_date.replace(/-/g, '');
+  const prefix = `IN-${ymd}-`;
+
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const { count, error: countError } = await supabase
+      .from('inventory_batches')
+      .select('id', { count: 'exact', head: true })
+      .like('batch_number', `${prefix}%`);
+
+    if (countError) {
+      console.error('Error counting inventory_batches:', countError);
+      throw countError;
+    }
+
+    const batchNumber = `${prefix}${String((count || 0) + 1 + attempt).padStart(3, '0')}`;
+    const payload = {
+      batch_number: batchNumber,
+      item_id: transaction.item_id,
+      in_date: transaction.transaction_date,
+      source: transaction.source || (transaction.transaction_type === 'RETURN' ? '退料' : null),
+      quantity: transaction.quantity,
+      unit: transaction.unit || null,
+      handler: transaction.handler || user,
+      notes: transaction.notes || null,
+    };
+
+    const { data, error } = await supabase
+      .from('inventory_batches')
+      .insert(payload)
+      .select()
+      .single();
+
+    if (!error) return mapInventoryBatch(data);
+    if (error.code !== '23505') {
+      console.error('Error creating inventory_batch:', error);
+      throw error;
+    }
+  }
+
+  throw new Error('Unable to create a unique inventory batch number');
+};
+
+const resolveInventorySerial = async (
+  serial: Partial<InventoryTransactionSerial>,
+  itemId: string,
+): Promise<InventorySerial | null> => {
+  if (serial.serial_id) {
+    const { data, error } = await supabase
+      .from('inventory_serials')
+      .select('*')
+      .eq('id', serial.serial_id)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Error resolving inventory_serial by id:', error);
+      throw error;
+    }
+    if (data) return mapInventorySerial(data);
+  }
+
+  if (serial.serial_no) {
+    const { data, error } = await supabase
+      .from('inventory_serials')
+      .select('*')
+      .eq('item_id', itemId)
+      .eq('serial_number', serial.serial_no)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Error resolving inventory_serial by serial_no:', error);
+      throw error;
+    }
+    if (data) return mapInventorySerial(data);
+  }
+
+  return null;
+};
+
+const getSerialUpdateForTransaction = (
+  transactionType: InventoryTransaction['transaction_type'],
+  projectId: string | null | undefined,
+  batchId?: string | null,
+): Record<string, any> | null => {
+  const payload: Record<string, any> = { updated_at: new Date().toISOString() };
+  if (batchId) payload.batch_id = batchId;
+
+  if (transactionType === 'IN') {
+    payload.status = SERIAL_STATUS_IN_STOCK;
+  } else if (transactionType === 'OUT') {
+    payload.status = SERIAL_STATUS_OUT;
+    payload.project_id = projectId || null;
+  } else if (transactionType === 'RETURN') {
+    payload.status = SERIAL_STATUS_RETURNED;
+  } else {
+    return batchId ? payload : null;
+  }
+
+  return payload;
+};
+
+const updateSerialForTransaction = async (
+  serialId: string,
+  transactionType: InventoryTransaction['transaction_type'],
+  projectId: string | null | undefined,
+  batchId?: string | null,
+) => {
+  const payload = getSerialUpdateForTransaction(transactionType, projectId, batchId);
+  if (!payload) return;
+
+  const { error } = await supabase
+    .from('inventory_serials')
+    .update(payload)
+    .eq('id', serialId);
+
+  if (error) {
+    console.error('Error syncing inventory_serial for transaction:', error);
+    throw error;
+  }
+};
+
+const insertTransactionSerialLinks = async (
+  transaction: InventoryTransaction,
+  serialsData: Omit<InventoryTransactionSerial, 'id' | 'transaction_id' | 'created_at'>[] = [],
+  batchIdToLink: string | null = null,
+) => {
+  for (const serialData of serialsData) {
+    const serial = await resolveInventorySerial(serialData, transaction.item_id);
+    const serialId = serial?.id || null;
+    const serialNo = serialData.serial_no || serial?.serial_number || null;
+
+    if (serialId) {
+      await updateSerialForTransaction(serialId, transaction.transaction_type, transaction.project_id, batchIdToLink);
+    }
+
+    const payload = {
+      transaction_id: transaction.id,
+      serial_id: serialId,
+      serial_no: serialNo,
+      is_pending: !!serialData.is_pending,
+    };
+
+    const { error } = await supabase
+      .from('inventory_transaction_serials')
+      .insert(payload);
+
+    if (error) {
+      console.error('Error creating inventory_transaction_serial:', error);
+      throw error;
+    }
+  }
+};
+
+const revertSerialsForTransaction = async (transaction: InventoryTransaction) => {
+  const { data, error } = await supabase
+    .from('inventory_transaction_serials')
+    .select('*')
+    .eq('transaction_id', transaction.id);
+
+  if (error) {
+    console.error('Error fetching transaction serial links:', error);
+    throw error;
+  }
+
+  const txSerials = (data || []).map(mapInventoryTransactionSerial);
+
+  if (transaction.transaction_type === 'IN') {
+    for (const txSerial of txSerials) {
+      if (!txSerial.serial_id) continue;
+      const { data: serialData, error: serialError } = await supabase
+        .from('inventory_serials')
+        .select('*')
+        .eq('id', txSerial.serial_id)
+        .maybeSingle();
+
+      if (serialError) {
+        console.error('Error checking inventory_serial before IN revert:', serialError);
+        throw serialError;
+      }
+
+      if (serialData && serialData.status !== SERIAL_STATUS_IN_STOCK) {
+        throw new Error('Cannot void or edit an IN transaction after its serial has already left stock');
+      }
+    }
+  }
+
+  for (const txSerial of txSerials) {
+    if (!txSerial.serial_id) continue;
+
+    if (transaction.transaction_type === 'OUT') {
+      await updateInventorySerialInSupabase(txSerial.serial_id, { status: SERIAL_STATUS_IN_STOCK });
+    } else if (transaction.transaction_type === 'RETURN') {
+      await updateInventorySerialInSupabase(txSerial.serial_id, { status: SERIAL_STATUS_OUT });
+    } else if (transaction.transaction_type === 'IN') {
+      await deleteInventorySerialFromSupabase(txSerial.serial_id);
+    }
+  }
+
+  return txSerials;
+};
+
+const createInventoryTransactionInSupabase = async (
+  transaction: Omit<InventoryTransaction, 'id' | 'created_at' | 'updated_at'>,
+  serialsData: Omit<InventoryTransactionSerial, 'id' | 'transaction_id' | 'created_at'>[] = [],
+  user: string = 'system',
+): Promise<InventoryTransaction> => {
+  const payload = buildInventoryTransactionPayload(transaction, { isNew: true });
+
+  const { data, error } = await supabase
+    .from('inventory_transactions')
+    .insert(payload)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error creating inventory_transaction:', error);
+    throw error;
+  }
+
+  const createdTransaction = mapInventoryTransaction(data);
+  const batch = await createInventoryBatchForTransaction(createdTransaction, user);
+  await insertTransactionSerialLinks(createdTransaction, serialsData, batch?.id || null);
+  await logActivityInSupabase({
+    actor_user_id: 'system',
+    actor_name: user,
+    action_type: 'CREATE_TRANSACTION',
+    target_type: 'INVENTORY_TRANSACTION',
+    target_id: createdTransaction.id,
+    target_label: '建立異動紀錄',
+    project_id: createdTransaction.project_id,
+    project_name: createdTransaction.project_name,
+    before_value: null,
+    after_value: JSON.stringify(createdTransaction),
+    message: null,
+  });
+
+  return createdTransaction;
+};
+
+const updateInventoryTransactionInSupabase = async (
+  id: string,
+  updates: Partial<Omit<InventoryTransaction, 'id' | 'created_at' | 'updated_at'>>,
+  serialsData: Omit<InventoryTransactionSerial, 'id' | 'transaction_id' | 'created_at'>[] = [],
+  reason: string,
+  user: string,
+): Promise<InventoryTransaction> => {
+  const { data: existingData, error: existingError } = await supabase
+    .from('inventory_transactions')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (existingError) {
+    console.error('Error fetching inventory_transaction before update:', existingError);
+    throw existingError;
+  }
+
+  const existingTransaction = mapInventoryTransaction(existingData);
+  if (existingTransaction.is_voided) {
+    throw new Error('Cannot update a voided inventory transaction');
+  }
+
+  await revertSerialsForTransaction(existingTransaction);
+
+  const payload = buildInventoryTransactionPayload(updates);
+  if (reason) payload.notes = updates.notes !== undefined ? updates.notes : existingTransaction.notes;
+
+  const { data, error } = await supabase
+    .from('inventory_transactions')
+    .update(payload)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error updating inventory_transaction:', error);
+    throw error;
+  }
+
+  const updatedTransaction = mapInventoryTransaction(data);
+
+  const { error: deleteLinksError } = await supabase
+    .from('inventory_transaction_serials')
+    .delete()
+    .eq('transaction_id', id);
+
+  if (deleteLinksError) {
+    console.error('Error deleting old inventory_transaction_serials:', deleteLinksError);
+    throw deleteLinksError;
+  }
+
+  const shouldCreateBatch =
+    (updatedTransaction.transaction_type === 'IN' || updatedTransaction.transaction_type === 'RETURN') &&
+    existingTransaction.transaction_type !== updatedTransaction.transaction_type;
+  const batch = shouldCreateBatch ? await createInventoryBatchForTransaction(updatedTransaction, user) : null;
+  await insertTransactionSerialLinks(updatedTransaction, serialsData, batch?.id || null);
+  await logActivityInSupabase({
+    actor_user_id: 'system',
+    actor_name: user,
+    action_type: 'UPDATE_TRANSACTION',
+    target_type: 'INVENTORY_TRANSACTION',
+    target_id: updatedTransaction.id,
+    target_label: '編輯異動紀錄',
+    project_id: updatedTransaction.project_id,
+    project_name: updatedTransaction.project_name,
+    before_value: JSON.stringify(existingTransaction),
+    after_value: JSON.stringify(updatedTransaction),
+    message: reason,
+  });
+
+  return updatedTransaction;
+};
+
+const voidInventoryTransactionInSupabase = async (
+  id: string,
+  reason: string,
+  user: string,
+): Promise<void> => {
+  const { data, error: fetchError } = await supabase
+    .from('inventory_transactions')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (fetchError) {
+    console.error('Error fetching inventory_transaction before void:', fetchError);
+    throw fetchError;
+  }
+
+  const transaction = mapInventoryTransaction(data);
+  if (transaction.is_voided) {
+    throw new Error('Inventory transaction is already voided');
+  }
+
+  await revertSerialsForTransaction(transaction);
+
+  const { error } = await supabase
+    .from('inventory_transactions')
+    .update({
+      is_voided: true,
+      voided_reason: reason,
+      voided_by: user,
+      voided_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id);
+
+  if (error) {
+    console.error('Error voiding inventory_transaction:', error);
+    throw error;
+  }
+
+  const voidedTransaction: InventoryTransaction = {
+    ...transaction,
+    is_voided: true,
+    voided_reason: reason,
+    voided_by: user,
+    voided_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  await logActivityInSupabase({
+    actor_user_id: 'system',
+    actor_name: user,
+    action_type: 'VOID_TRANSACTION',
+    target_type: 'INVENTORY_TRANSACTION',
+    target_id: transaction.id,
+    target_label: '作廢異動紀錄',
+    project_id: transaction.project_id,
+    project_name: transaction.project_name,
+    before_value: JSON.stringify(transaction),
+    after_value: JSON.stringify(voidedTransaction),
+    message: reason,
+  });
+};
+
 const fetchInventoryBatchesFromSupabase = async (): Promise<InventoryBatch[]> => {
   const { data, error } = await supabase
     .from('inventory_batches')
@@ -330,6 +803,37 @@ const fetchInventoryMonthlyClosingItemsFromSupabase = async (
   }
 
   return (data || []).map(mapInventoryMonthlyClosingItem);
+};
+
+const fetchActivityLogsFromSupabase = async (): Promise<ActivityLog[]> => {
+  const { data, error } = await supabase
+    .from('activity_logs')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching activity_logs:', error);
+    throw error;
+  }
+
+  return (data || []).map(mapActivityLog);
+};
+
+const logActivityInSupabase = async (
+  log: Omit<ActivityLog, 'id' | 'created_at'>,
+): Promise<ActivityLog> => {
+  const { data, error } = await supabase
+    .from('activity_logs')
+    .insert(buildActivityLogPayload(log))
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error creating activity_log:', error);
+    throw error;
+  }
+
+  return mapActivityLog(data);
 };
 
 const calculateInventoryBalancesFromSupabase = async (): Promise<{ item_id: string; balance: number }[]> => {
@@ -961,6 +1465,9 @@ export const pocSupabaseAdapter = {
   // --- Inventory Reads ---
   getInventoryItems: fetchInventoryItemsFromSupabase,
   getInventoryTransactions: fetchInventoryTransactionsFromSupabase,
+  createInventoryTransaction: createInventoryTransactionInSupabase,
+  updateInventoryTransaction: updateInventoryTransactionInSupabase,
+  voidInventoryTransaction: voidInventoryTransactionInSupabase,
   getInventorySerials: fetchInventorySerialsFromSupabase,
   getInventoryTransactionSerials: fetchInventoryTransactionSerialsFromSupabase,
   createInventorySerial: createInventorySerialInSupabase,
@@ -973,4 +1480,6 @@ export const pocSupabaseAdapter = {
   getMonthlyClosingItems: fetchInventoryMonthlyClosingItemsFromSupabase,
   getInventoryMonthlyClosings: fetchInventoryMonthlyClosingsFromSupabase,
   getInventoryMonthlyClosingItems: fetchInventoryMonthlyClosingItemsFromSupabase,
+  getActivityLogs: fetchActivityLogsFromSupabase,
+  logActivity: logActivityInSupabase,
 };

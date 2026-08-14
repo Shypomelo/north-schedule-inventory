@@ -11,6 +11,13 @@ interface TransactionSubmitData extends Omit<InventoryTransaction, 'id' | 'creat
   category: string;
 }
 
+interface TransactionInitialData extends Partial<InventoryTransaction> {
+  category?: string;
+  source?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
 interface TransactionFormProps {
   items: InventoryItem[];
   projects: Project[];
@@ -20,7 +27,7 @@ interface TransactionFormProps {
   onSubmit: (data: TransactionSubmitData, serialsInput: string, isPendingSerial: boolean, editReason?: string) => Promise<void>;
   onCancel: () => void;
   isSubmitting: boolean;
-  initialData?: Partial<InventoryTransaction> & { created_at?: string, updated_at?: string };
+  initialData?: TransactionInitialData;
   initialSerials?: string[];
   onAddNewItem?: () => void;
 }
@@ -32,11 +39,11 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
     transaction_type: initialData?.transaction_type || 'OUT' as TransactionType,
     item_id: initialData?.item_id || '',
     quantity: 1,
-    unit: '',
+    unit: initialData?.unit || '',
     project_name: '',
     handler: currentUser?.name || '',
-    category: '',
-    source: '',
+    category: initialData?.category || '',
+    source: initialData?.source || '',
     transaction_date: format(new Date(), 'yyyy-MM-dd'),
     notes: '',
   });

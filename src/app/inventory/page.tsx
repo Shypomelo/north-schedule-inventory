@@ -70,7 +70,7 @@ export default function InventoryBalancePage() {
       let balance = item.opening_quantity || 0;
       let mtd_in = 0, mtd_out = 0, mtd_return = 0, mtd_adjust = 0;
 
-      const itemTxs = txs.filter(t => t.item_id === item.id);
+      const itemTxs = txs.filter(t => t.item_id === item.id && !t.is_voided);
       
       itemTxs.forEach(tx => {
         const txMonth = tx.transaction_date.substring(0, 7);
@@ -139,10 +139,14 @@ export default function InventoryBalancePage() {
     setIsSubmittingTx(true);
     try {
       const serialsList = serialsInput.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
-      let item = items.find(i => i.id === data.item_id);
+      const isExistingItemContext = !!txModal.itemId;
+      let item = items.find(i => i.id === (isExistingItemContext ? txModal.itemId : data.item_id));
+      if (isExistingItemContext) {
+        data.item_id = txModal.itemId!;
+      }
       
       // 動態分列邏輯 (IN)
-      if (data.transaction_type === 'IN' && item) {
+      if (!isExistingItemContext && data.transaction_type === 'IN' && item) {
          if (item.source_type !== data.source || item.category !== data.category) {
             let existingItem = items.find(i => i.name === item!.name && i.source_type === data.source && i.category === data.category);
             if (!existingItem) {
@@ -223,6 +227,7 @@ export default function InventoryBalancePage() {
   };
 
   const simpleBalances = balances.map(b => ({ item_id: b.item_id, balance: b.balance }));
+  const txModalItem = txModal.itemId ? items.find(item => item.id === txModal.itemId) : undefined;
 
   return (
     <div className="max-w-7xl mx-auto flex flex-col h-full relative">
@@ -407,7 +412,13 @@ export default function InventoryBalancePage() {
               onSubmit={handleCreateTx}
               onCancel={() => setTxModal({ visible: false, type: 'IN', itemId: null })}
               isSubmitting={isSubmittingTx}
-              initialData={{ transaction_type: txModal.type, item_id: txModal.itemId || '' }}
+              initialData={{
+                transaction_type: txModal.type,
+                item_id: txModal.itemId || '',
+                unit: txModalItem?.unit || '',
+                category: txModalItem?.category || '',
+                source: txModalItem?.source_type || '',
+              }}
               onAddNewItem={() => {
                 setTxModal({ visible: false, type: 'IN', itemId: null });
                 setDetailItemId('NEW');
