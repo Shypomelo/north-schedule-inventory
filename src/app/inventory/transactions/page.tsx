@@ -9,7 +9,7 @@ import { useUser } from '@/components/UserContext';
 import { Plus, Search } from 'lucide-react';
 import { format } from 'date-fns';
 
-const INVENTORY_TRANSACTIONS_DIAGNOSTIC_BUILD = 'show-supabase-transactions-v2';
+const INVENTORY_TRANSACTIONS_DIAGNOSTIC_BUILD = 'd9bb4f-always-visible';
 
 type InventoryTransactionsDiagnostics = {
   hostname: string;
@@ -20,6 +20,7 @@ type InventoryTransactionsDiagnostics = {
   batchCount: number | null;
   serialCount: number | null;
   transactionSerialCount: number | null;
+  fetchStatus: 'idle' | 'loading' | 'success' | 'partial' | 'error';
   enteredCatch: boolean;
   errorMessage: string | null;
 };
@@ -33,6 +34,7 @@ const createDiagnostics = (): InventoryTransactionsDiagnostics => ({
   batchCount: null,
   serialCount: null,
   transactionSerialCount: null,
+  fetchStatus: 'idle',
   enteredCatch: false,
   errorMessage: null,
 });
@@ -71,7 +73,12 @@ export default function TransactionsPage() {
     setIsLoading(true);
     setLoadError(null);
     setLoadWarning(null);
-    let nextDiagnostics = createDiagnostics();
+    const loadingDiagnostics: InventoryTransactionsDiagnostics = {
+      ...createDiagnostics(),
+      fetchStatus: 'loading',
+    };
+    setDiagnostics(loadingDiagnostics);
+    let nextDiagnostics = loadingDiagnostics;
 
     try {
       const results = await Promise.allSettled([
@@ -125,7 +132,13 @@ export default function TransactionsPage() {
         setLoadWarning(warningMessage);
         nextDiagnostics = {
           ...nextDiagnostics,
+          fetchStatus: 'partial',
           errorMessage: warningMessage,
+        };
+      } else {
+        nextDiagnostics = {
+          ...nextDiagnostics,
+          fetchStatus: 'success',
         };
       }
 
@@ -143,6 +156,7 @@ export default function TransactionsPage() {
       setLoadError(errorMessage);
       nextDiagnostics = {
         ...nextDiagnostics,
+        fetchStatus: 'error',
         enteredCatch: true,
         errorMessage,
       };
@@ -315,10 +329,10 @@ export default function TransactionsPage() {
     setIsModalOpen(true);
   };
 
+  const normalizedSearchTerm = searchTerm.trim().toLowerCase();
   const filteredTx = transactions.filter(t => {
     const item = items.find(i => i.id === t.item_id);
-    const search = searchTerm.trim().toLowerCase();
-    if (!search) return true;
+    if (!normalizedSearchTerm) return true;
 
     return [
       item?.name,
@@ -329,10 +343,34 @@ export default function TransactionsPage() {
       t.handler,
       t.source,
       t.notes,
-    ].some(value => String(value || '').toLowerCase().includes(search));
+    ].some(value => String(value || '').toLowerCase().includes(normalizedSearchTerm));
   });
 
+  const missingItemCount = transactions.filter(t => !items.some(i => i.id === t.item_id)).length;
+  const filteredReason = (() => {
+    if (isLoading) return 'loading';
+    if (loadError) return 'load_error';
+    if (!normalizedSearchTerm) return 'no_search_filter';
+    if (filteredTx.length === 0) return `search_filter_no_match: ${searchTerm.trim()}`;
+    return `search_filter_match: ${searchTerm.trim()}`;
+  })();
+  const hasFilteredOutAllTransactions = !isLoading && !loadError && transactions.length > 0 && filteredTx.length === 0;
+
   const diagnosticRows: [string, string | number | boolean | null][] = [
+    ['INVENTORY_DIAGNOSTIC_VISIBLE', true],
+    ['build/version', diagnostics.build],
+    ['hostname', diagnostics.hostname],
+    ['pathname', diagnostics.pathname],
+    ['transactions count', transactions.length],
+    ['items count', items.length],
+    ['batches count', batches.length],
+    ['serials count', allSerials.length],
+    ['transaction serial mappings count', txSerialsMapping.length],
+    ['filtered count', filteredTx.length],
+    ['filtered reason', filteredReason],
+    ['missing item mappings count', missingItemCount],
+    ['fetch status', diagnostics.fetchStatus],
+    ['error message', loadError || diagnostics.errorMessage || loadWarning],
     ['location.hostname', diagnostics.hostname],
     ['location.pathname', diagnostics.pathname],
     ['build/version', diagnostics.build],
@@ -346,7 +384,8 @@ export default function TransactionsPage() {
   ];
 
   const diagnosticsPanel = (
-    <div className="mt-5 w-full max-w-3xl rounded-lg border border-amber-500/40 bg-amber-950/30 p-4 text-left text-xs text-amber-100">
+    <div className="mb-6 w-full rounded-lg border border-amber-400/60 bg-amber-950/40 p-4 text-left text-xs text-amber-100 shadow-lg shadow-amber-950/20">
+      <div className="mb-3 font-mono text-sm font-semibold text-amber-200">INVENTORY_DIAGNOSTIC_VISIBLE</div>
       <div className="mb-3 font-semibold text-amber-200">臨時診斷資訊</div>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-[240px_1fr]">
         {diagnosticRows.map(([label, value]) => (
@@ -377,6 +416,14 @@ export default function TransactionsPage() {
         </button>
       </div>
 
+      {diagnosticsPanel}
+
+      {hasFilteredOutAllTransactions && (
+        <div className="mb-4 rounded-lg border border-red-500/60 bg-red-950/40 px-4 py-3 text-sm font-semibold text-red-100">
+          Supabase 有交易資料，但前端篩選後為 0。
+        </div>
+      )}
+
       <div className="bg-slate-800/50 border border-slate-700 p-4 rounded-xl mb-6 flex items-center gap-3">
         <Search className="text-slate-400" size={20} />
         <input 
@@ -402,12 +449,10 @@ export default function TransactionsPage() {
           <div className="absolute inset-0 flex flex-col items-center justify-center text-red-300 text-center px-6">
             <div className="font-semibold mb-2">Inventory transactions failed to load.</div>
             <div className="text-sm text-red-200/80 max-w-2xl break-words">{loadError}</div>
-            {diagnosticsPanel}
           </div>
         ) : filteredTx.length === 0 ? (
            <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500">
              目前無異動紀錄
-             {diagnosticsPanel}
            </div>
         ) : (
           <table className="w-full text-left border-collapse">
