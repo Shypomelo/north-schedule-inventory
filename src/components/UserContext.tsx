@@ -26,6 +26,27 @@ const getSafeNextPath = (value?: string | null) => {
   return value;
 };
 
+const getBrowserAuthSnapshot = () => {
+  if (typeof window === 'undefined') {
+    return {
+      href: 'SSR',
+      queryNext: null,
+      storedNext: null,
+    };
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  return {
+    href: window.location.href,
+    queryNext: params.get('next'),
+    storedNext: sessionStorage.getItem(INTENDED_PATH_STORAGE_KEY),
+  };
+};
+
+const logAuthRedirect = (message: string, details: Record<string, unknown>) => {
+  console.info('[auth-redirect]', { source: 'UserContext', message, ...details });
+};
+
 const getCanonicalSiteOrigin = () => {
   const configuredSiteUrl =
     process.env.NEXT_PUBLIC_SITE_URL ||
@@ -60,9 +81,12 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const canonicalOrigin = getCanonicalSiteOrigin();
     if (canonicalOrigin && shouldRedirectToCanonicalOrigin(canonicalOrigin)) {
-      window.location.replace(
-        `${canonicalOrigin}${window.location.pathname}${window.location.search}${window.location.hash}`
-      );
+      const targetUrl = `${canonicalOrigin}${window.location.pathname}${window.location.search}${window.location.hash}`;
+      logAuthRedirect('window.location.replace before canonical origin redirect', {
+        ...getBrowserAuthSnapshot(),
+        targetUrl,
+      });
+      window.location.replace(targetUrl);
       return;
     }
 
@@ -70,6 +94,11 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
     async function loadUsersAndHandleSession(session: any) {
       try {
+        logAuthRedirect('loadUsersAndHandleSession start', {
+          ...getBrowserAuthSnapshot(),
+          hasSession: Boolean(session),
+          sessionEmail: session?.user?.email || null,
+        });
         const users = await dbAdapter.getUsers();
         if (mounted) {
           setAllUsers(users);
@@ -86,6 +115,10 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
             } else {
               setAuthError(null);
               setCurrentUser(foundUser);
+              logAuthRedirect('currentUser restored', {
+                ...getBrowserAuthSnapshot(),
+                currentUser: { id: foundUser.id, email: foundUser.email, name: foundUser.name },
+              });
             }
           } else {
             setCurrentUser(null);
@@ -100,6 +133,11 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
     // Initial check
     supabase.auth.getSession().then(({ data: { session } }) => {
+      logAuthRedirect('getSession resolved', {
+        ...getBrowserAuthSnapshot(),
+        hasSession: Boolean(session),
+        sessionEmail: session?.user?.email || null,
+      });
       if (mounted) loadUsersAndHandleSession(session);
     }).catch((err) => {
       console.error("Auth init error:", err);
@@ -108,6 +146,12 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (!mounted) return;
+      logAuthRedirect('onAuthStateChange', {
+        ...getBrowserAuthSnapshot(),
+        event,
+        hasSession: Boolean(session),
+        sessionEmail: session?.user?.email || null,
+      });
       
       if (event === 'SIGNED_IN') {
         setIsLoading(true);
@@ -135,10 +179,16 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       const redirectOrigin = getCanonicalSiteOrigin() || window.location.origin;
       const safeNextPath = getSafeNextPath(nextPath);
       sessionStorage.setItem(INTENDED_PATH_STORAGE_KEY, safeNextPath);
+      const redirectTo = `${redirectOrigin}/login?next=${encodeURIComponent(safeNextPath)}`;
+      logAuthRedirect('signInWithOAuth before redirect', {
+        ...getBrowserAuthSnapshot(),
+        safeNextPath,
+        redirectTo,
+      });
       await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${redirectOrigin}/login?next=${encodeURIComponent(safeNextPath)}`,
+          redirectTo,
         },
       });
     } catch (error) {

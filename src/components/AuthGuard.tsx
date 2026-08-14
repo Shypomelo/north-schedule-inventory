@@ -5,6 +5,10 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useUser } from '@/components/UserContext';
 import { Loader2 } from 'lucide-react';
 
+const logAuthRedirect = (message: string, details: Record<string, unknown>) => {
+  console.info('[auth-redirect]', { source: 'AuthGuard', message, ...details });
+};
+
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const { currentUser, isLoading } = useUser();
   const router = useRouter();
@@ -15,7 +19,16 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       const currentPath = typeof window !== 'undefined'
         ? `${window.location.pathname}${window.location.search}`
         : pathname;
-      router.replace(`/login?next=${encodeURIComponent(currentPath)}`);
+      const targetPath = `/login?next=${encodeURIComponent(currentPath)}`;
+      logAuthRedirect('router.replace before unauthenticated redirect', {
+        href: typeof window !== 'undefined' ? window.location.href : 'SSR',
+        pathname,
+        currentPath,
+        targetPath,
+        currentUser,
+        isLoading,
+      });
+      router.replace(targetPath);
     }
   }, [isLoading, currentUser, pathname, router]);
 

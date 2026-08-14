@@ -14,6 +14,24 @@ const getSafeNextPath = (value?: string | null) => {
   return value;
 };
 
+const getLoginRedirectSnapshot = () => {
+  const params = new URLSearchParams(window.location.search);
+  const queryNext = getSafeNextPath(params.get('next'));
+  const storedNext = getSafeNextPath(sessionStorage.getItem(INTENDED_PATH_STORAGE_KEY));
+  const redirectTo = queryNext !== '/' ? queryNext : storedNext;
+
+  return {
+    href: window.location.href,
+    queryNext,
+    storedNext,
+    redirectTo,
+  };
+};
+
+const logAuthRedirect = (message: string, details: Record<string, unknown>) => {
+  console.info('[auth-redirect]', { source: 'LoginPage', message, ...details });
+};
+
 export default function LoginPage() {
   const { currentUser, loginWithGoogle, authError, isLoading } = useUser();
   const router = useRouter();
@@ -21,23 +39,34 @@ export default function LoginPage() {
   const [nextReady, setNextReady] = React.useState(false);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const queryNext = getSafeNextPath(params.get('next'));
-    const storedNext = getSafeNextPath(sessionStorage.getItem(INTENDED_PATH_STORAGE_KEY));
-    setNextPath(queryNext !== '/' ? queryNext : storedNext);
+    const snapshot = getLoginRedirectSnapshot();
+    sessionStorage.setItem(INTENDED_PATH_STORAGE_KEY, snapshot.redirectTo);
+    setNextPath(snapshot.redirectTo);
     setNextReady(true);
+    logAuthRedirect('callback/mount snapshot', snapshot);
   }, []);
 
   useEffect(() => {
     if (currentUser && !isLoading && nextReady) {
-      const targetPath = getSafeNextPath(nextPath);
+      const snapshot = getLoginRedirectSnapshot();
+      const targetPath = snapshot.redirectTo;
+      logAuthRedirect('router.replace before login success redirect', {
+        ...snapshot,
+        stateNextPath: nextPath,
+        targetPath,
+        currentUser: { id: currentUser.id, email: currentUser.email, name: currentUser.name },
+      });
       sessionStorage.removeItem(INTENDED_PATH_STORAGE_KEY);
       router.replace(targetPath);
     }
   }, [currentUser, isLoading, nextPath, nextReady, router]);
 
   const handleGoogleLogin = () => {
-    loginWithGoogle(nextPath);
+    const snapshot = getLoginRedirectSnapshot();
+    sessionStorage.setItem(INTENDED_PATH_STORAGE_KEY, snapshot.redirectTo);
+    setNextPath(snapshot.redirectTo);
+    logAuthRedirect('Google login click', snapshot);
+    loginWithGoogle(snapshot.redirectTo);
   };
 
   return (
