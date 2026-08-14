@@ -1,10 +1,87 @@
 import { mockDbAdapter } from './mock';
-import { supabaseDbAdapter } from './supabase';
 import { pocSupabaseAdapter } from './poc-supabase';
 
 const hasSupabase = !!process.env.NEXT_PUBLIC_SUPABASE_URL && !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const isProduction = process.env.NODE_ENV === 'production';
 
-// Use mock for everything except schedule tasks (which go to POC adapter if enabled)
+const requireInventorySupabase = (methodName: string) => async () => {
+  throw new Error(
+    `Supabase is required for inventory in production. Refusing mock/localStorage fallback for ${methodName}.`
+  );
+};
+
+const inventoryAdapter = hasSupabase
+  ? {
+      getInventoryItems: pocSupabaseAdapter.getInventoryItems,
+      createInventoryItem: pocSupabaseAdapter.createInventoryItem,
+      updateInventoryItem: pocSupabaseAdapter.updateInventoryItem,
+      deleteInventoryItem: pocSupabaseAdapter.deleteInventoryItem,
+      getInventoryTransactions: pocSupabaseAdapter.getInventoryTransactions,
+      createInventoryTransaction: pocSupabaseAdapter.createInventoryTransaction,
+      updateInventoryTransaction: pocSupabaseAdapter.updateInventoryTransaction,
+      voidInventoryTransaction: pocSupabaseAdapter.voidInventoryTransaction,
+      getInventorySerials: pocSupabaseAdapter.getInventorySerials,
+      getInventoryTransactionSerials: pocSupabaseAdapter.getInventoryTransactionSerials,
+      createInventorySerial: pocSupabaseAdapter.createInventorySerial,
+      updateInventorySerial: pocSupabaseAdapter.updateInventorySerial,
+      deleteInventorySerial: pocSupabaseAdapter.deleteInventorySerial,
+      updateInventoryTransactionSerial: pocSupabaseAdapter.updateInventoryTransactionSerial,
+      getInventoryBatches: pocSupabaseAdapter.getInventoryBatches,
+      getInventoryBalances: pocSupabaseAdapter.getInventoryBalances,
+      getMonthlyClosings: pocSupabaseAdapter.getMonthlyClosings,
+      getMonthlyClosingItems: pocSupabaseAdapter.getMonthlyClosingItems,
+      createMonthlyClosing: pocSupabaseAdapter.createMonthlyClosing,
+      getInventoryMonthlyClosings: pocSupabaseAdapter.getInventoryMonthlyClosings,
+      getInventoryMonthlyClosingItems: pocSupabaseAdapter.getInventoryMonthlyClosingItems,
+    }
+  : isProduction
+    ? {
+        getInventoryItems: requireInventorySupabase('getInventoryItems'),
+        createInventoryItem: requireInventorySupabase('createInventoryItem'),
+        updateInventoryItem: requireInventorySupabase('updateInventoryItem'),
+        deleteInventoryItem: requireInventorySupabase('deleteInventoryItem'),
+        getInventoryTransactions: requireInventorySupabase('getInventoryTransactions'),
+        createInventoryTransaction: requireInventorySupabase('createInventoryTransaction'),
+        updateInventoryTransaction: requireInventorySupabase('updateInventoryTransaction'),
+        voidInventoryTransaction: requireInventorySupabase('voidInventoryTransaction'),
+        getInventorySerials: requireInventorySupabase('getInventorySerials'),
+        getInventoryTransactionSerials: requireInventorySupabase('getInventoryTransactionSerials'),
+        createInventorySerial: requireInventorySupabase('createInventorySerial'),
+        updateInventorySerial: requireInventorySupabase('updateInventorySerial'),
+        deleteInventorySerial: requireInventorySupabase('deleteInventorySerial'),
+        updateInventoryTransactionSerial: requireInventorySupabase('updateInventoryTransactionSerial'),
+        getInventoryBatches: requireInventorySupabase('getInventoryBatches'),
+        getInventoryBalances: requireInventorySupabase('getInventoryBalances'),
+        getMonthlyClosings: requireInventorySupabase('getMonthlyClosings'),
+        getMonthlyClosingItems: requireInventorySupabase('getMonthlyClosingItems'),
+        createMonthlyClosing: requireInventorySupabase('createMonthlyClosing'),
+        getInventoryMonthlyClosings: requireInventorySupabase('getInventoryMonthlyClosings'),
+        getInventoryMonthlyClosingItems: requireInventorySupabase('getInventoryMonthlyClosingItems'),
+      }
+    : {
+        getInventoryItems: mockDbAdapter.getInventoryItems,
+        createInventoryItem: mockDbAdapter.createInventoryItem,
+        updateInventoryItem: mockDbAdapter.updateInventoryItem,
+        deleteInventoryItem: mockDbAdapter.deleteInventoryItem,
+        getInventoryTransactions: mockDbAdapter.getInventoryTransactions,
+        createInventoryTransaction: mockDbAdapter.createInventoryTransaction,
+        updateInventoryTransaction: mockDbAdapter.updateInventoryTransaction,
+        voidInventoryTransaction: mockDbAdapter.voidInventoryTransaction,
+        getInventorySerials: mockDbAdapter.getInventorySerials,
+        getInventoryTransactionSerials: mockDbAdapter.getInventoryTransactionSerials,
+        createInventorySerial: mockDbAdapter.createInventorySerial,
+        updateInventorySerial: mockDbAdapter.updateInventorySerial,
+        deleteInventorySerial: mockDbAdapter.deleteInventorySerial,
+        updateInventoryTransactionSerial: mockDbAdapter.updateInventoryTransactionSerial,
+        getInventoryBatches: mockDbAdapter.getInventoryBatches,
+        getInventoryBalances: mockDbAdapter.getInventoryBalances,
+        getMonthlyClosings: mockDbAdapter.getMonthlyClosings,
+        getMonthlyClosingItems: mockDbAdapter.getMonthlyClosingItems,
+        createMonthlyClosing: mockDbAdapter.createMonthlyClosing,
+        getInventoryMonthlyClosings: mockDbAdapter.getMonthlyClosings,
+        getInventoryMonthlyClosingItems: mockDbAdapter.getMonthlyClosingItems,
+      };
+
 export const dbAdapter = {
   ...mockDbAdapter,
   getUsers: hasSupabase ? pocSupabaseAdapter.getUsers : mockDbAdapter.getUsers,
@@ -27,24 +104,7 @@ export const dbAdapter = {
   updateProject: hasSupabase ? pocSupabaseAdapter.updateProject : mockDbAdapter.updateProject,
   deleteProject: hasSupabase ? pocSupabaseAdapter.deleteProject : mockDbAdapter.deleteProject,
 
-  // Inventory reads only. Mutations stay on the existing adapter until the write flow is migrated.
-  getInventoryItems: hasSupabase ? pocSupabaseAdapter.getInventoryItems : mockDbAdapter.getInventoryItems,
-  getInventoryTransactions: hasSupabase ? pocSupabaseAdapter.getInventoryTransactions : mockDbAdapter.getInventoryTransactions,
-  createInventoryTransaction: hasSupabase ? pocSupabaseAdapter.createInventoryTransaction : mockDbAdapter.createInventoryTransaction,
-  updateInventoryTransaction: hasSupabase ? pocSupabaseAdapter.updateInventoryTransaction : mockDbAdapter.updateInventoryTransaction,
-  voidInventoryTransaction: hasSupabase ? pocSupabaseAdapter.voidInventoryTransaction : mockDbAdapter.voidInventoryTransaction,
-  getInventorySerials: hasSupabase ? pocSupabaseAdapter.getInventorySerials : mockDbAdapter.getInventorySerials,
-  getInventoryTransactionSerials: hasSupabase ? pocSupabaseAdapter.getInventoryTransactionSerials : mockDbAdapter.getInventoryTransactionSerials,
-  createInventorySerial: hasSupabase ? pocSupabaseAdapter.createInventorySerial : mockDbAdapter.createInventorySerial,
-  updateInventorySerial: hasSupabase ? pocSupabaseAdapter.updateInventorySerial : mockDbAdapter.updateInventorySerial,
-  deleteInventorySerial: hasSupabase ? pocSupabaseAdapter.deleteInventorySerial : mockDbAdapter.deleteInventorySerial,
-  updateInventoryTransactionSerial: hasSupabase ? pocSupabaseAdapter.updateInventoryTransactionSerial : mockDbAdapter.updateInventoryTransactionSerial,
-  getInventoryBatches: hasSupabase ? pocSupabaseAdapter.getInventoryBatches : mockDbAdapter.getInventoryBatches,
-  getInventoryBalances: hasSupabase ? pocSupabaseAdapter.getInventoryBalances : mockDbAdapter.getInventoryBalances,
-  getMonthlyClosings: hasSupabase ? pocSupabaseAdapter.getMonthlyClosings : mockDbAdapter.getMonthlyClosings,
-  getMonthlyClosingItems: hasSupabase ? pocSupabaseAdapter.getMonthlyClosingItems : mockDbAdapter.getMonthlyClosingItems,
-  getInventoryMonthlyClosings: hasSupabase ? pocSupabaseAdapter.getInventoryMonthlyClosings : mockDbAdapter.getMonthlyClosings,
-  getInventoryMonthlyClosingItems: hasSupabase ? pocSupabaseAdapter.getInventoryMonthlyClosingItems : mockDbAdapter.getMonthlyClosingItems,
+  ...inventoryAdapter,
   getActivityLogs: hasSupabase ? pocSupabaseAdapter.getActivityLogs : mockDbAdapter.getActivityLogs,
   logActivity: hasSupabase ? pocSupabaseAdapter.logActivity : mockDbAdapter.logActivity,
 };

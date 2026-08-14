@@ -26,27 +26,36 @@ export default function TransactionsPage() {
   const [historyTxId, setHistoryTxId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const fetchData = async () => {
     setIsLoading(true);
-    const [txs, itms, projs, bals, srls, txSrls, bths] = await Promise.all([
-      dbAdapter.getInventoryTransactions(),
-      dbAdapter.getInventoryItems(),
-      dbAdapter.getProjects(),
-      dbAdapter.getInventoryBalances(),
-      dbAdapter.getInventorySerials(),
-      dbAdapter.getInventoryTransactionSerials(),
-      // @ts-ignore
-      dbAdapter.getInventoryBatches ? dbAdapter.getInventoryBatches() : Promise.resolve([])
-    ]);
-    setTransactions(txs.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
-    setItems(itms);
-    setProjects(projs);
-    setBalances(bals);
-    setAllSerials(srls);
-    setTxSerialsMapping(txSrls);
-    setBatches(bths);
-    setIsLoading(false);
+    setLoadError(null);
+    try {
+      const [txs, itms, projs, bals, srls, txSrls, bths] = await Promise.all([
+        dbAdapter.getInventoryTransactions(),
+        dbAdapter.getInventoryItems(),
+        dbAdapter.getProjects(),
+        dbAdapter.getInventoryBalances(),
+        dbAdapter.getInventorySerials(),
+        dbAdapter.getInventoryTransactionSerials(),
+        // @ts-ignore
+        dbAdapter.getInventoryBatches ? dbAdapter.getInventoryBatches() : Promise.resolve([])
+      ]);
+      setTransactions(txs.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+      setItems(itms);
+      setProjects(projs);
+      setBalances(bals);
+      setAllSerials(srls);
+      setTxSerialsMapping(txSrls);
+      setBatches(bths);
+    } catch (error: any) {
+      console.error('Error loading inventory transactions:', error);
+      setTransactions([]);
+      setLoadError(error?.message || 'Failed to load inventory transactions.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -250,6 +259,11 @@ export default function TransactionsPage() {
       <div className="flex-1 overflow-auto bg-slate-800/30 border border-slate-700 rounded-xl relative">
         {isLoading ? (
           <div className="absolute inset-0 flex items-center justify-center text-slate-400">載入中...</div>
+        ) : loadError ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-red-300 text-center px-6">
+            <div className="font-semibold mb-2">Inventory transactions failed to load.</div>
+            <div className="text-sm text-red-200/80 max-w-2xl break-words">{loadError}</div>
+          </div>
         ) : filteredTx.length === 0 ? (
            <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500">
              目前無異動紀錄

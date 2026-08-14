@@ -57,6 +57,63 @@ const mapInventoryItem = (row: any): InventoryItem => ({
   updated_at: row.updated_at || new Date().toISOString(),
 });
 
+const buildInventoryItemPayload = (
+  item: Partial<Omit<InventoryItem, 'id' | 'created_at' | 'updated_at'>>,
+  options: { isNew?: boolean } = {},
+): Record<string, any> => {
+  const payload: Record<string, any> = {};
+
+  if (item.code !== undefined) payload.code = item.code;
+  if (item.category !== undefined) payload.category = item.category;
+  if (item.item_category !== undefined) payload.item_category = item.item_category || null;
+  if (item.name !== undefined) payload.name = item.name;
+  if (item.source_type !== undefined) payload.source_type = item.source_type || null;
+  if (item.unit !== undefined) payload.unit = item.unit;
+  if (item.opening_quantity !== undefined) payload.opening_quantity = toNumber(item.opening_quantity);
+  if (item.low_stock_threshold !== undefined) payload.low_stock_threshold = toNumber(item.low_stock_threshold);
+  if (item.requires_serial !== undefined) payload.requires_serial = !!item.requires_serial;
+  if (item.notes !== undefined) payload.notes = item.notes || null;
+  if (item.is_active !== undefined) payload.is_active = !!item.is_active;
+
+  if (options.isNew) {
+    payload.code = payload.code || `ITEM-${Date.now()}`;
+    payload.category = payload.category || '';
+    payload.name = payload.name || '';
+    payload.unit = payload.unit || '';
+    payload.opening_quantity = payload.opening_quantity ?? 0;
+    payload.low_stock_threshold = payload.low_stock_threshold ?? 0;
+    payload.requires_serial = payload.requires_serial ?? false;
+    payload.is_active = payload.is_active ?? true;
+  } else {
+    payload.updated_at = new Date().toISOString();
+  }
+
+  return payload;
+};
+
+const resolveUniqueInventoryItemCode = async (baseCode: string): Promise<string> => {
+  const normalizedBaseCode = baseCode.trim() || `ITEM-${Date.now()}`;
+  let candidate = normalizedBaseCode;
+
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const { data, error } = await supabase
+      .from('inventory_items')
+      .select('id')
+      .eq('code', candidate)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Error checking inventory_item code:', error);
+      throw error;
+    }
+
+    if (!data) return candidate;
+    candidate = `${normalizedBaseCode}-${attempt + 2}`;
+  }
+
+  return `${normalizedBaseCode}-${Date.now()}`;
+};
+
 const mapInventoryTransaction = (row: any): InventoryTransaction => ({
   id: row.id,
   item_id: row.item_id,
@@ -210,6 +267,57 @@ const fetchInventoryItemsFromSupabase = async (): Promise<InventoryItem[]> => {
   }
 
   return (data || []).map(mapInventoryItem);
+};
+
+const createInventoryItemInSupabase = async (
+  item: Omit<InventoryItem, 'id' | 'created_at' | 'updated_at'>,
+): Promise<InventoryItem> => {
+  const payload = buildInventoryItemPayload(item, { isNew: true });
+  payload.code = await resolveUniqueInventoryItemCode(String(payload.code || ''));
+
+  const { data, error } = await supabase
+    .from('inventory_items')
+    .insert(payload)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error creating inventory_item:', error);
+    throw error;
+  }
+
+  return mapInventoryItem(data);
+};
+
+const updateInventoryItemInSupabase = async (
+  id: string,
+  updates: Partial<Omit<InventoryItem, 'id' | 'created_at' | 'updated_at'>>,
+): Promise<InventoryItem> => {
+  const { data, error } = await supabase
+    .from('inventory_items')
+    .update(buildInventoryItemPayload(updates))
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error updating inventory_item:', error);
+    throw error;
+  }
+
+  return mapInventoryItem(data);
+};
+
+const deleteInventoryItemFromSupabase = async (id: string): Promise<void> => {
+  const { error } = await supabase
+    .from('inventory_items')
+    .update({ is_active: false, updated_at: new Date().toISOString() })
+    .eq('id', id);
+
+  if (error) {
+    console.error('Error deleting inventory_item:', error);
+    throw error;
+  }
 };
 
 const fetchInventoryTransactionsFromSupabase = async (): Promise<InventoryTransaction[]> => {
@@ -803,6 +911,86 @@ const fetchInventoryMonthlyClosingItemsFromSupabase = async (
   }
 
   return (data || []).map(mapInventoryMonthlyClosingItem);
+};
+
+const createMonthlyClosingInSupabase = async (
+  closing: Omit<InventoryMonthlyClosing, 'id'>,
+  items: Omit<InventoryMonthlyClosingItem, 'id' | 'closing_id'>[],
+): Promise<InventoryMonthlyClosing> => {
+  const { data: existingClosing, error: existingError } = await supabase
+    .from('inventory_monthly_closings')
+    .select('id')
+    .eq('year', closing.year)
+    .eq('month', closing.month)
+    .maybeSingle();
+
+  if (existingError) {
+    console.error('Error checking inventory_monthly_closings:', existingError);
+    throw existingError;
+  }
+
+  if (existingClosing) {
+    const { error: deleteError } = await supabase
+      .from('inventory_monthly_closings')
+      .delete()
+      .eq('id', existingClosing.id);
+
+    if (deleteError) {
+      console.error('Error replacing inventory_monthly_closing:', deleteError);
+      throw deleteError;
+    }
+  }
+
+  const { data, error } = await supabase
+    .from('inventory_monthly_closings')
+    .insert({
+      year: closing.year,
+      month: closing.month,
+      closed_at: closing.closed_at,
+      closed_by: closing.closed_by,
+      status: closing.status,
+      notes: closing.notes || null,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error creating inventory_monthly_closing:', error);
+    throw error;
+  }
+
+  const createdClosing = mapInventoryMonthlyClosing(data);
+  if (items.length > 0) {
+    const itemPayloads = items.map((item) => ({
+      closing_id: createdClosing.id,
+      inventory_item_id: item.inventory_item_id || null,
+      stock_category: item.stock_category,
+      source: item.source,
+      item_name: item.item_name,
+      item_type: item.item_type,
+      unit: item.unit,
+      opening_quantity: item.opening_quantity,
+      monthly_in: item.monthly_in,
+      monthly_out: item.monthly_out,
+      monthly_return: item.monthly_return,
+      monthly_adjust: item.monthly_adjust,
+      closing_quantity: item.closing_quantity,
+      usage_quantity: item.usage_quantity,
+      status: item.status,
+      notes: item.notes || null,
+    }));
+
+    const { error: itemsError } = await supabase
+      .from('inventory_monthly_closing_items')
+      .insert(itemPayloads);
+
+    if (itemsError) {
+      console.error('Error creating inventory_monthly_closing_items:', itemsError);
+      throw itemsError;
+    }
+  }
+
+  return createdClosing;
 };
 
 const fetchActivityLogsFromSupabase = async (): Promise<ActivityLog[]> => {
@@ -1464,6 +1652,9 @@ export const pocSupabaseAdapter = {
 
   // --- Inventory Reads ---
   getInventoryItems: fetchInventoryItemsFromSupabase,
+  createInventoryItem: createInventoryItemInSupabase,
+  updateInventoryItem: updateInventoryItemInSupabase,
+  deleteInventoryItem: deleteInventoryItemFromSupabase,
   getInventoryTransactions: fetchInventoryTransactionsFromSupabase,
   createInventoryTransaction: createInventoryTransactionInSupabase,
   updateInventoryTransaction: updateInventoryTransactionInSupabase,
@@ -1478,6 +1669,7 @@ export const pocSupabaseAdapter = {
   getInventoryBalances: calculateInventoryBalancesFromSupabase,
   getMonthlyClosings: fetchInventoryMonthlyClosingsFromSupabase,
   getMonthlyClosingItems: fetchInventoryMonthlyClosingItemsFromSupabase,
+  createMonthlyClosing: createMonthlyClosingInSupabase,
   getInventoryMonthlyClosings: fetchInventoryMonthlyClosingsFromSupabase,
   getInventoryMonthlyClosingItems: fetchInventoryMonthlyClosingItemsFromSupabase,
   getActivityLogs: fetchActivityLogsFromSupabase,
