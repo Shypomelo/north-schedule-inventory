@@ -5,15 +5,40 @@ import { useRouter } from 'next/navigation';
 import { useUser } from '@/components/UserContext';
 import { LogIn, AlertCircle } from 'lucide-react';
 
+const INTENDED_PATH_STORAGE_KEY = 'north-schedule-intended-path';
+
+const getSafeNextPath = (value?: string | null) => {
+  if (!value) return '/';
+  if (!value.startsWith('/') || value.startsWith('//')) return '/';
+  if (value === '/login' || value.startsWith('/login?')) return '/';
+  return value;
+};
+
 export default function LoginPage() {
   const { currentUser, loginWithGoogle, authError, isLoading } = useUser();
   const router = useRouter();
+  const [nextPath, setNextPath] = React.useState('/');
+  const [nextReady, setNextReady] = React.useState(false);
 
   useEffect(() => {
-    if (currentUser && !isLoading) {
-      router.push('/');
+    const params = new URLSearchParams(window.location.search);
+    const queryNext = getSafeNextPath(params.get('next'));
+    const storedNext = getSafeNextPath(sessionStorage.getItem(INTENDED_PATH_STORAGE_KEY));
+    setNextPath(queryNext !== '/' ? queryNext : storedNext);
+    setNextReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (currentUser && !isLoading && nextReady) {
+      const targetPath = getSafeNextPath(nextPath);
+      sessionStorage.removeItem(INTENDED_PATH_STORAGE_KEY);
+      router.replace(targetPath);
     }
-  }, [currentUser, isLoading, router]);
+  }, [currentUser, isLoading, nextPath, nextReady, router]);
+
+  const handleGoogleLogin = () => {
+    loginWithGoogle(nextPath);
+  };
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-slate-900 text-slate-50 w-full">
@@ -31,7 +56,7 @@ export default function LoginPage() {
         )}
 
         <button
-          onClick={loginWithGoogle}
+          onClick={handleGoogleLogin}
           disabled={isLoading}
           className="w-full flex items-center justify-center gap-3 bg-white hover:bg-slate-100 text-slate-900 font-medium py-3 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >

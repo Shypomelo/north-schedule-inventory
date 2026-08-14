@@ -11,12 +11,20 @@ interface UserContextType {
   setCurrentUser: (user: User | null) => void;
   isLoading: boolean;
   authError: string | null;
-  loginWithGoogle: () => Promise<void>;
+  loginWithGoogle: (nextPath?: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
 const DEFAULT_PRODUCTION_SITE_URL = 'https://north-schedule-inventory.vercel.app';
+const INTENDED_PATH_STORAGE_KEY = 'north-schedule-intended-path';
+
+const getSafeNextPath = (value?: string | null) => {
+  if (!value) return '/';
+  if (!value.startsWith('/') || value.startsWith('//')) return '/';
+  if (value === '/login' || value.startsWith('/login?')) return '/';
+  return value;
+};
 
 const getCanonicalSiteOrigin = () => {
   const configuredSiteUrl =
@@ -120,15 +128,17 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Run only on mount
 
-  const loginWithGoogle = async () => {
+  const loginWithGoogle = async (nextPath?: string) => {
     setIsLoading(true);
     setAuthError(null);
     try {
       const redirectOrigin = getCanonicalSiteOrigin() || window.location.origin;
+      const safeNextPath = getSafeNextPath(nextPath);
+      sessionStorage.setItem(INTENDED_PATH_STORAGE_KEY, safeNextPath);
       await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${redirectOrigin}/`,
+          redirectTo: `${redirectOrigin}/login?next=${encodeURIComponent(safeNextPath)}`,
         },
       });
     } catch (error) {
