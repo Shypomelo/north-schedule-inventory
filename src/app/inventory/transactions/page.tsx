@@ -9,6 +9,43 @@ import { useUser } from '@/components/UserContext';
 import { Plus, Search } from 'lucide-react';
 import { format } from 'date-fns';
 
+const INVENTORY_TRANSACTIONS_DIAGNOSTIC_BUILD = 'fa3af69';
+
+type InventoryTransactionsDiagnostics = {
+  hostname: string;
+  pathname: string;
+  build: string;
+  transactionCount: number | null;
+  itemCount: number | null;
+  batchCount: number | null;
+  serialCount: number | null;
+  transactionSerialCount: number | null;
+  enteredCatch: boolean;
+  errorMessage: string | null;
+};
+
+const createDiagnostics = (): InventoryTransactionsDiagnostics => ({
+  hostname: typeof window !== 'undefined' ? window.location.hostname : 'SSR',
+  pathname: typeof window !== 'undefined' ? window.location.pathname : 'SSR',
+  build: INVENTORY_TRANSACTIONS_DIAGNOSTIC_BUILD,
+  transactionCount: null,
+  itemCount: null,
+  batchCount: null,
+  serialCount: null,
+  transactionSerialCount: null,
+  enteredCatch: false,
+  errorMessage: null,
+});
+
+const getSettledCount = (result: PromiseSettledResult<unknown>): number | null => {
+  return result.status === 'fulfilled' && Array.isArray(result.value) ? result.value.length : null;
+};
+
+const unwrapSettled = <T,>(result: PromiseSettledResult<T>): T => {
+  if (result.status === 'rejected') throw result.reason;
+  return result.value;
+};
+
 export default function TransactionsPage() {
   const { currentUser } = useUser();
   const [transactions, setTransactions] = useState<InventoryTransaction[]>([]);
@@ -27,12 +64,15 @@ export default function TransactionsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<InventoryTransactionsDiagnostics>(() => createDiagnostics());
 
   const fetchData = async () => {
     setIsLoading(true);
     setLoadError(null);
+    let nextDiagnostics = createDiagnostics();
+
     try {
-      const [txs, itms, projs, bals, srls, txSrls, bths] = await Promise.all([
+      const results = await Promise.allSettled([
         dbAdapter.getInventoryTransactions(),
         dbAdapter.getInventoryItems(),
         dbAdapter.getProjects(),
@@ -42,6 +82,28 @@ export default function TransactionsPage() {
         // @ts-ignore
         dbAdapter.getInventoryBatches ? dbAdapter.getInventoryBatches() : Promise.resolve([])
       ]);
+
+      const [txsResult, itmsResult, projsResult, balsResult, srlsResult, txSrlsResult, bthsResult] = results;
+      nextDiagnostics = {
+        ...nextDiagnostics,
+        transactionCount: getSettledCount(txsResult),
+        itemCount: getSettledCount(itmsResult),
+        batchCount: getSettledCount(bthsResult),
+        serialCount: getSettledCount(srlsResult),
+        transactionSerialCount: getSettledCount(txSrlsResult),
+      };
+
+      const rejected = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+      if (rejected) throw rejected.reason;
+
+      const txs = unwrapSettled(txsResult) as InventoryTransaction[];
+      const itms = unwrapSettled(itmsResult) as InventoryItem[];
+      const projs = unwrapSettled(projsResult) as Project[];
+      const bals = unwrapSettled(balsResult) as { item_id: string; balance: number }[];
+      const srls = unwrapSettled(srlsResult) as InventorySerial[];
+      const txSrls = unwrapSettled(txSrlsResult) as any[];
+      const bths = unwrapSettled(bthsResult) as any[];
+
       setTransactions(txs.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
       setItems(itms);
       setProjects(projs);
@@ -51,9 +113,16 @@ export default function TransactionsPage() {
       setBatches(bths);
     } catch (error: any) {
       console.error('Error loading inventory transactions:', error);
+      const errorMessage = error?.message || 'Failed to load inventory transactions.';
       setTransactions([]);
-      setLoadError(error?.message || 'Failed to load inventory transactions.');
+      setLoadError(errorMessage);
+      nextDiagnostics = {
+        ...nextDiagnostics,
+        enteredCatch: true,
+        errorMessage,
+      };
     } finally {
+      setDiagnostics(nextDiagnostics);
       setIsLoading(false);
     }
   };
@@ -227,6 +296,33 @@ export default function TransactionsPage() {
     return item?.name.toLowerCase().includes(search) || item?.code.toLowerCase().includes(search) || t.transaction_type.toLowerCase().includes(search);
   });
 
+  const diagnosticRows: [string, string | number | boolean | null][] = [
+    ['location.hostname', diagnostics.hostname],
+    ['location.pathname', diagnostics.pathname],
+    ['build/version', diagnostics.build],
+    ['getInventoryTransactions 回傳筆數', diagnostics.transactionCount],
+    ['getInventoryItems 回傳筆數', diagnostics.itemCount],
+    ['getInventoryBatches 回傳筆數', diagnostics.batchCount],
+    ['getInventorySerials 回傳筆數', diagnostics.serialCount],
+    ['getInventoryTransactionSerials 回傳筆數', diagnostics.transactionSerialCount],
+    ['fetchData 是否進入 catch', diagnostics.enteredCatch],
+    ['catch error message', diagnostics.errorMessage],
+  ];
+
+  const diagnosticsPanel = (
+    <div className="mt-5 w-full max-w-3xl rounded-lg border border-amber-500/40 bg-amber-950/30 p-4 text-left text-xs text-amber-100">
+      <div className="mb-3 font-semibold text-amber-200">臨時診斷資訊</div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-[240px_1fr]">
+        {diagnosticRows.map(([label, value]) => (
+          <React.Fragment key={label}>
+            <div className="text-amber-300">{label}</div>
+            <div className="break-all font-mono text-amber-50">{value === null || value === '' ? '-' : String(value)}</div>
+          </React.Fragment>
+        ))}
+      </div>
+    </div>
+  );
+
   return (
     <div className="max-w-7xl mx-auto flex flex-col h-full">
       <div className="flex justify-between items-center mb-8">
@@ -263,10 +359,12 @@ export default function TransactionsPage() {
           <div className="absolute inset-0 flex flex-col items-center justify-center text-red-300 text-center px-6">
             <div className="font-semibold mb-2">Inventory transactions failed to load.</div>
             <div className="text-sm text-red-200/80 max-w-2xl break-words">{loadError}</div>
+            {diagnosticsPanel}
           </div>
         ) : filteredTx.length === 0 ? (
            <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500">
              目前無異動紀錄
+             {diagnosticsPanel}
            </div>
         ) : (
           <table className="w-full text-left border-collapse">
