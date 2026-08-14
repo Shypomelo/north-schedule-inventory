@@ -9,7 +9,7 @@ import { useUser } from '@/components/UserContext';
 import { Plus, Search } from 'lucide-react';
 import { format } from 'date-fns';
 
-const INVENTORY_TRANSACTIONS_DIAGNOSTIC_BUILD = 'fa3af69';
+const INVENTORY_TRANSACTIONS_DIAGNOSTIC_BUILD = 'show-supabase-transactions-v2';
 
 type InventoryTransactionsDiagnostics = {
   hostname: string;
@@ -64,11 +64,13 @@ export default function TransactionsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadWarning, setLoadWarning] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<InventoryTransactionsDiagnostics>(() => createDiagnostics());
 
   const fetchData = async () => {
     setIsLoading(true);
     setLoadError(null);
+    setLoadWarning(null);
     let nextDiagnostics = createDiagnostics();
 
     try {
@@ -93,16 +95,39 @@ export default function TransactionsPage() {
         transactionSerialCount: getSettledCount(txSrlsResult),
       };
 
-      const rejected = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
-      if (rejected) throw rejected.reason;
+      if (txsResult.status === 'rejected') throw txsResult.reason;
 
       const txs = unwrapSettled(txsResult) as InventoryTransaction[];
-      const itms = unwrapSettled(itmsResult) as InventoryItem[];
-      const projs = unwrapSettled(projsResult) as Project[];
-      const bals = unwrapSettled(balsResult) as { item_id: string; balance: number }[];
-      const srls = unwrapSettled(srlsResult) as InventorySerial[];
-      const txSrls = unwrapSettled(txSrlsResult) as any[];
-      const bths = unwrapSettled(bthsResult) as any[];
+      const relatedResults = [
+        ['getInventoryItems', itmsResult],
+        ['getProjects', projsResult],
+        ['getInventoryBalances', balsResult],
+        ['getInventorySerials', srlsResult],
+        ['getInventoryTransactionSerials', txSrlsResult],
+        ['getInventoryBatches', bthsResult],
+      ] as const;
+      const relatedFailures = relatedResults
+        .filter(([, result]) => result.status === 'rejected')
+        .map(([name, result]) => {
+          const reason = result.status === 'rejected' ? result.reason : null;
+          return `${name}: ${reason?.message || String(reason || 'unknown error')}`;
+        });
+
+      const itms = itmsResult.status === 'fulfilled' ? itmsResult.value as InventoryItem[] : [];
+      const projs = projsResult.status === 'fulfilled' ? projsResult.value as Project[] : [];
+      const bals = balsResult.status === 'fulfilled' ? balsResult.value as { item_id: string; balance: number }[] : [];
+      const srls = srlsResult.status === 'fulfilled' ? srlsResult.value as InventorySerial[] : [];
+      const txSrls = txSrlsResult.status === 'fulfilled' ? txSrlsResult.value as any[] : [];
+      const bths = bthsResult.status === 'fulfilled' ? bthsResult.value as any[] : [];
+
+      if (relatedFailures.length > 0) {
+        const warningMessage = relatedFailures.join(' | ');
+        setLoadWarning(warningMessage);
+        nextDiagnostics = {
+          ...nextDiagnostics,
+          errorMessage: warningMessage,
+        };
+      }
 
       setTransactions(txs.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
       setItems(itms);
@@ -292,8 +317,19 @@ export default function TransactionsPage() {
 
   const filteredTx = transactions.filter(t => {
     const item = items.find(i => i.id === t.item_id);
-    const search = searchTerm.toLowerCase();
-    return item?.name.toLowerCase().includes(search) || item?.code.toLowerCase().includes(search) || t.transaction_type.toLowerCase().includes(search);
+    const search = searchTerm.trim().toLowerCase();
+    if (!search) return true;
+
+    return [
+      item?.name,
+      item?.code,
+      t.item_id,
+      t.transaction_type,
+      t.project_name,
+      t.handler,
+      t.source,
+      t.notes,
+    ].some(value => String(value || '').toLowerCase().includes(search));
   });
 
   const diagnosticRows: [string, string | number | boolean | null][] = [
@@ -352,6 +388,13 @@ export default function TransactionsPage() {
         />
       </div>
 
+      {loadWarning && !loadError && (
+        <div className="mb-4 rounded-lg border border-amber-500/40 bg-amber-950/30 px-4 py-3 text-sm text-amber-100">
+          <div className="font-semibold text-amber-200">部分關聯資料讀取失敗，已先顯示交易主資料。</div>
+          <div className="mt-1 break-words text-xs text-amber-100/80">{loadWarning}</div>
+        </div>
+      )}
+
       <div className="flex-1 overflow-auto bg-slate-800/30 border border-slate-700 rounded-xl relative">
         {isLoading ? (
           <div className="absolute inset-0 flex items-center justify-center text-slate-400">載入中...</div>
@@ -387,6 +430,7 @@ export default function TransactionsPage() {
                 const item = items.find(i => i.id === tx.item_id);
                 const proj = projects.find(p => p.id === tx.project_id);
                 const isPositive = tx.transaction_type === 'IN' || tx.transaction_type === 'RETURN' || (tx.transaction_type === 'ADJUST' && tx.quantity > 0);
+                const itemLabel = item?.name || `未知品項 (${tx.item_id})`;
                 
                 return (
                   <tr key={tx.id} className={`transition-colors ${tx.is_voided ? 'bg-slate-900/50 opacity-60' : 'hover:bg-slate-700/30'}`}>
@@ -405,7 +449,7 @@ export default function TransactionsPage() {
                          {tx.is_voided && ' (已作廢)'}
                       </span>
                     </td>
-                    <td className={`p-4 font-medium ${tx.is_voided ? 'text-slate-500 line-through' : 'text-slate-100'}`}>{item?.name}</td>
+                    <td className={`p-4 font-medium ${tx.is_voided ? 'text-slate-500 line-through' : 'text-slate-100'}`} title={item ? item.name : tx.item_id}>{itemLabel}</td>
                     <td className={`p-4 text-right font-bold text-lg ${tx.is_voided ? 'text-slate-500 line-through' : isPositive ? 'text-emerald-400' : 'text-red-400'}`}>
                       {isPositive ? '+' : tx.transaction_type === 'ADJUST' ? '' : '-'}{Math.abs(tx.quantity)}
                     </td>
