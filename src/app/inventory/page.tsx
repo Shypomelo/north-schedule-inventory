@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { ItemDetailModal } from '@/components/ItemDetailModal';
 import { TransactionForm } from '@/components/TransactionForm';
 import { format } from 'date-fns';
+import { getInventoryTransactionQuantityDelta } from '@/lib/db/inventory-stock';
 
 interface BalanceDisplay {
   item_id: string;
@@ -75,10 +76,7 @@ export default function InventoryBalancePage() {
       itemTxs.forEach(tx => {
         const txMonth = tx.transaction_date.substring(0, 7);
         
-        if (tx.transaction_type === 'IN') balance += tx.quantity;
-        if (tx.transaction_type === 'OUT') balance -= tx.quantity;
-        if (tx.transaction_type === 'RETURN') balance += tx.quantity;
-        if (tx.transaction_type === 'ADJUST') balance += tx.quantity;
+        balance += getInventoryTransactionQuantityDelta(tx.transaction_type, tx.quantity);
 
         if (txMonth === currentMonth) {
           if (tx.transaction_type === 'IN') mtd_in += tx.quantity;

@@ -7,6 +7,7 @@ import { dbAdapter } from '@/lib/db';
 import { format, subMonths } from 'date-fns';
 import { FileSpreadsheet, Lock, Unlock, AlertTriangle, CheckCircle, Info } from 'lucide-react';
 import { exportMonthlyReport } from '@/lib/utils/export-excel';
+import { calculateInventoryStockQuantity, getInventoryTransactionQuantityDelta } from '@/lib/db/inventory-stock';
 
 export default function MonthlyReportPage() {
   const [viewMode, setViewMode] = useState<'MONTHLY' | 'ANNUAL'>('MONTHLY');
@@ -92,10 +93,7 @@ export default function MonthlyReportPage() {
       if (!r) return; // Item deleted? skip
 
       if (isBefore) {
-        if (tx.transaction_type === 'IN') r.opening_quantity += tx.quantity;
-        if (tx.transaction_type === 'OUT') r.opening_quantity -= tx.quantity;
-        if (tx.transaction_type === 'RETURN') r.opening_quantity += tx.quantity;
-        if (tx.transaction_type === 'ADJUST') r.opening_quantity += tx.quantity;
+        r.opening_quantity += getInventoryTransactionQuantityDelta(tx.transaction_type, tx.quantity);
       } else if (isCurrent) {
         if (tx.transaction_type === 'IN') r.monthly_in += tx.quantity;
         if (tx.transaction_type === 'OUT') {
@@ -108,7 +106,13 @@ export default function MonthlyReportPage() {
     });
 
     return Object.values(rows).map(r => {
-      r.closing_quantity = r.opening_quantity + r.monthly_in - r.monthly_out + r.monthly_return + r.monthly_adjust;
+      r.closing_quantity = calculateInventoryStockQuantity({
+        opening: r.opening_quantity,
+        inQuantity: r.monthly_in,
+        outQuantity: r.monthly_out,
+        returnQuantity: r.monthly_return,
+        adjustQuantity: r.monthly_adjust,
+      });
       return r;
     }).filter(r => r.opening_quantity !== 0 || r.monthly_in !== 0 || r.monthly_out !== 0 || r.monthly_return !== 0 || r.monthly_adjust !== 0 || r.closing_quantity !== 0)
       .sort((a, b) => a.item_name.localeCompare(b.item_name));
@@ -168,10 +172,7 @@ export default function MonthlyReportPage() {
       const r = rows[tx.item_id];
       if (!r) return;
 
-      if (tx.transaction_type === 'IN') r.currentStock += tx.quantity;
-      if (tx.transaction_type === 'OUT') r.currentStock -= tx.quantity;
-      if (tx.transaction_type === 'RETURN') r.currentStock += tx.quantity;
-      if (tx.transaction_type === 'ADJUST') r.currentStock += tx.quantity;
+      r.currentStock += getInventoryTransactionQuantityDelta(tx.transaction_type, tx.quantity);
 
       const txYear = tx.transaction_date.substring(0, 4);
       const txMonth = parseInt(tx.transaction_date.substring(5, 7), 10);

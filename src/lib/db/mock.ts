@@ -1,4 +1,5 @@
 import { User, Project, ScheduleTask, ScheduleTaskMember, Todo, InventoryItem, InventoryTransaction, InventorySerial, InventoryTransactionSerial, InventoryMonthlyClosing, InventoryMonthlyClosingItem, StockCategory, ActivityLog, Contractor, InventoryBatch, SESupplyRecord } from './types';
+import { getInventoryTransactionQuantityDelta } from './inventory-stock';
 
 import mockProjectsData from './mock-projects.json';
 import mockActiveProjectsData from './mock-active-projects.json';
@@ -742,29 +743,25 @@ export const mockDbAdapter = {
 
   // --- Balances ---
   getInventoryBalances: async () => {
-    const balances: Record<string, { in: number, out: number, return: number, adjust: number, opening: number }> = {};
+    const balances: Record<string, number> = {};
     
     db.inventory_items.forEach(item => {
-      balances[item.id] = { in: 0, out: 0, return: 0, adjust: 0, opening: item.opening_quantity || 0 };
+      balances[item.id] = item.opening_quantity || 0;
     });
 
     db.inventory_transactions.forEach(tx => {
       if (tx.is_voided) return; // Exclude voided transactions
 
       const key = tx.item_id;
-      if (!balances[key]) balances[key] = { in: 0, out: 0, return: 0, adjust: 0, opening: 0 };
+      if (balances[key] === undefined) balances[key] = 0;
       
-      if (tx.transaction_type === 'IN') balances[key].in += tx.quantity;
-      else if (tx.transaction_type === 'OUT') balances[key].out += tx.quantity;
-      else if (tx.transaction_type === 'RETURN') balances[key].return += tx.quantity;
-      else if (tx.transaction_type === 'ADJUST') balances[key].adjust += tx.quantity; // adjust can be negative
+      balances[key] += getInventoryTransactionQuantityDelta(tx.transaction_type, tx.quantity);
     });
 
     return Object.keys(balances).map(item_id => {
-      const b = balances[item_id];
       return {
         item_id,
-        balance: b.opening + b.in - b.out + b.return + b.adjust
+        balance: balances[item_id]
       };
     });
   },

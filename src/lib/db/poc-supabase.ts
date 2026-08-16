@@ -15,6 +15,7 @@ import {
   ActivityLog,
 } from './types';
 import { throwMissingCoreTablesErrorIfNeeded } from './supabase-errors';
+import { getInventoryTransactionQuantityDelta } from './inventory-stock';
 
 const mapUser = (row: any): User => ({
   id: row.id,
@@ -1030,29 +1031,25 @@ const calculateInventoryBalancesFromSupabase = async (): Promise<{ item_id: stri
     fetchInventoryTransactionsFromSupabase(),
   ]);
 
-  const balances: Record<string, { in: number; out: number; return: number; adjust: number; opening: number }> = {};
+  const balances: Record<string, number> = {};
 
   items.forEach((item) => {
-    balances[item.id] = { in: 0, out: 0, return: 0, adjust: 0, opening: item.opening_quantity || 0 };
+    balances[item.id] = item.opening_quantity || 0;
   });
 
   transactions.forEach((tx) => {
     if (tx.is_voided) return;
 
     const key = tx.item_id;
-    if (!balances[key]) balances[key] = { in: 0, out: 0, return: 0, adjust: 0, opening: 0 };
+    if (balances[key] === undefined) balances[key] = 0;
 
-    if (tx.transaction_type === 'IN') balances[key].in += tx.quantity;
-    else if (tx.transaction_type === 'OUT') balances[key].out += tx.quantity;
-    else if (tx.transaction_type === 'RETURN') balances[key].return += tx.quantity;
-    else if (tx.transaction_type === 'ADJUST') balances[key].adjust += tx.quantity;
+    balances[key] += getInventoryTransactionQuantityDelta(tx.transaction_type, tx.quantity);
   });
 
   return Object.keys(balances).map((item_id) => {
-    const balance = balances[item_id];
     return {
       item_id,
-      balance: balance.opening + balance.in - balance.out + balance.return + balance.adjust,
+      balance: balances[item_id],
     };
   });
 };
