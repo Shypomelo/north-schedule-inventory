@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { InventoryItem, InventoryTransaction, InventorySerial, Project, InventoryBatch } from '@/lib/db/types';
+import { InventoryItem, InventoryTransaction, InventorySerial, Project, InventoryBatch, InventoryTransactionSerial } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { X, Box, History, List, ChevronDown, ChevronUp } from 'lucide-react';
 import { format } from 'date-fns';
@@ -22,6 +22,7 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
   const [transactions, setTransactions] = useState<InventoryTransaction[]>([]);
   const [batches, setBatches] = useState<InventoryBatch[]>([]);
   const [serials, setSerials] = useState<InventorySerial[]>([]);
+  const [transactionSerials, setTransactionSerials] = useState<InventoryTransactionSerial[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -34,10 +35,11 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
     async function load() {
       if (!itemId) return;
       setIsLoading(true);
-      const [itms, txs, srls, projs, allBatches] = await Promise.all([
+      const [itms, txs, srls, txSrls, projs, allBatches] = await Promise.all([
         dbAdapter.getInventoryItems(),
         dbAdapter.getInventoryTransactions(),
         dbAdapter.getInventorySerials(),
+        dbAdapter.getInventoryTransactionSerials(),
         dbAdapter.getProjects(),
         // @ts-ignore
         dbAdapter.getInventoryBatches ? dbAdapter.getInventoryBatches() : Promise.resolve([])
@@ -45,8 +47,9 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
       const found = itms.find(i => i.id === itemId);
       setItem(found || null);
       
-      setTransactions(txs.filter(t => t.item_id === itemId && !t.is_voided).sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+      setTransactions(txs.filter(t => t.item_id === itemId).sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
       setSerials(srls.filter(s => s.item_id === itemId));
+      setTransactionSerials(txSrls);
       setProjects(projs);
       setBatches(allBatches.filter((b: InventoryBatch) => b.item_id === itemId).sort((a: InventoryBatch, b: InventoryBatch) => new Date(b.in_date).getTime() - new Date(a.in_date).getTime()));
       setIsLoading(false);
@@ -71,13 +74,14 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
 
   let opening = item?.opening_quantity || 0;
   let currentBalance = opening;
+  const activeTransactions = transactions.filter(tx => !tx.is_voided);
   
   const now = new Date();
   const currentMonthPrefix = format(now, 'yyyy-MM');
   let monthIn = 0;
   let monthOut = 0;
 
-  transactions.forEach(tx => {
+  activeTransactions.forEach(tx => {
     currentBalance += getInventoryTransactionQuantityDelta(tx.transaction_type, tx.quantity);
 
     if (tx.transaction_date.startsWith(currentMonthPrefix)) {
@@ -90,6 +94,38 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
 
   const registered_serials = serials.filter(s => s.status === '在庫').length;
   const pending_serials = item?.requires_serial ? Math.max(0, currentBalance - registered_serials) : 0;
+
+  const normalizeText = (value: string | null | undefined) => value || null;
+  const getBatchSourceForTransaction = (tx: InventoryTransaction) => {
+    return normalizeText(tx.source || (tx.transaction_type === 'RETURN' ? '退料' : null));
+  };
+  const getBatchSourceTransaction = (batch: InventoryBatch) => {
+    const batchSerialIds = new Set(serials.filter(s => s.batch_id === batch.id).map(s => s.id));
+    const linkedTransactionIds = new Set(
+      transactionSerials
+        .filter(ts => ts.serial_id && batchSerialIds.has(ts.serial_id))
+        .map(ts => ts.transaction_id)
+    );
+    const linkedTransactions = transactions.filter(tx =>
+      linkedTransactionIds.has(tx.id) &&
+      (tx.transaction_type === 'IN' || tx.transaction_type === 'RETURN')
+    );
+
+    if (linkedTransactions.length === 1) return linkedTransactions[0];
+
+    const matchingTransactions = transactions.filter(tx =>
+      (tx.transaction_type === 'IN' || tx.transaction_type === 'RETURN') &&
+      tx.item_id === batch.item_id &&
+      tx.transaction_date === batch.in_date &&
+      tx.quantity === batch.quantity &&
+      normalizeText(tx.unit) === normalizeText(batch.unit) &&
+      normalizeText(tx.handler) === normalizeText(batch.handler) &&
+      normalizeText(tx.notes) === normalizeText(batch.notes) &&
+      getBatchSourceForTransaction(tx) === normalizeText(batch.source)
+    );
+
+    return matchingTransactions.length === 1 ? matchingTransactions[0] : undefined;
+  };
 
   const handleManualRegisterSerial = async (e: React.FormEvent, batchId: string) => {
     e.preventDefault();
@@ -306,29 +342,31 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
                         const registeredBatchSerials = batchSerials.filter(s => s.status === '在庫').length;
                         const pendingBatchSerials = Math.max(0, batch.quantity - batchSerials.length);
                         const isExpanded = expandedBatchId === batch.id;
+                        const sourceTransaction = getBatchSourceTransaction(batch);
+                        const isBatchVoided = !!sourceTransaction?.is_voided;
 
                         return (
-                          <div key={batch.id} className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
+                          <div key={batch.id} className={`bg-slate-800 border rounded-lg overflow-hidden ${isBatchVoided ? 'border-slate-700/50 opacity-60' : 'border-slate-700'}`}>
                             <div 
-                              className={`flex items-center justify-between p-4 cursor-pointer hover:bg-slate-700/50 transition ${isExpanded ? 'bg-slate-700/50' : ''}`}
+                              className={`flex items-center justify-between p-4 cursor-pointer transition ${isBatchVoided ? 'bg-slate-900/40 hover:bg-slate-800/60' : 'hover:bg-slate-700/50'} ${isExpanded ? 'bg-slate-700/50' : ''}`}
                               onClick={() => setExpandedBatchId(isExpanded ? null : batch.id)}
                             >
                               <div className="flex items-center gap-6 flex-1">
                                 <div>
                                   <div className="text-sm text-slate-400">批次號</div>
-                                  <div className="font-mono text-indigo-400 font-semibold">{batch.batch_number}</div>
+                                  <div className={`font-mono font-semibold ${isBatchVoided ? 'text-slate-500 line-through' : 'text-indigo-400'}`}>{batch.batch_number}</div>
                                 </div>
                                 <div>
                                   <div className="text-sm text-slate-400">入庫日期</div>
-                                  <div className="text-slate-200">{batch.in_date}</div>
+                                  <div className={isBatchVoided ? 'text-slate-500 line-through' : 'text-slate-200'}>{batch.in_date}</div>
                                 </div>
                                 <div>
                                   <div className="text-sm text-slate-400">來源</div>
-                                  <div className="text-slate-200">{batch.source || '-'}</div>
+                                  <div className={isBatchVoided ? 'text-slate-500 line-through' : 'text-slate-200'}>{batch.source || '-'}</div>
                                 </div>
                                 <div>
                                   <div className="text-sm text-slate-400">數量</div>
-                                  <div className="text-slate-200 font-bold text-lg">{batch.quantity}</div>
+                                  <div className={`font-bold text-lg ${isBatchVoided ? 'text-slate-500 line-through' : 'text-slate-200'}`}>{batch.quantity}</div>
                                 </div>
                                 {item?.requires_serial && (
                                   <>
@@ -344,6 +382,11 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
                                 )}
                               </div>
                               <div className="text-slate-400 flex items-center gap-2">
+                                {isBatchVoided && (
+                                  <span className="text-sm bg-slate-700/70 text-slate-300 px-3 py-1 rounded-full font-semibold">
+                                    已作廢
+                                  </span>
+                                )}
                                 {item?.requires_serial && (
                                   <span className="text-sm bg-indigo-600/30 text-indigo-300 px-3 py-1 rounded-full">
                                     {isExpanded ? '收合序號' : '查看/補登序號'}
@@ -458,10 +501,11 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
                         </thead>
                         <tbody className="divide-y divide-slate-700/50">
                           {transactions.slice(0, 100).map(tx => (
-                            <tr key={tx.id} className="hover:bg-slate-800/50">
-                              <td className="p-3 text-slate-400">{tx.transaction_date}</td>
+                            <tr key={tx.id} className={`hover:bg-slate-800/50 ${tx.is_voided ? 'bg-slate-900/50 opacity-60' : ''}`}>
+                              <td className={`p-3 text-slate-400 ${tx.is_voided ? 'line-through' : ''}`}>{tx.transaction_date}</td>
                               <td className="p-3">
                                 <span className={`px-2 py-1 rounded-full text-[10px] font-semibold ${
+                                  tx.is_voided ? 'bg-slate-800 text-slate-500' :
                                   tx.transaction_type === 'IN' ? 'bg-emerald-900/50 text-emerald-400' :
                                   tx.transaction_type === 'OUT' ? 'bg-red-900/50 text-red-400' :
                                   tx.transaction_type === 'RETURN' ? 'bg-indigo-900/50 text-indigo-400' :
@@ -470,18 +514,19 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
                                   {tx.transaction_type === 'IN' ? '入庫' :
                                    tx.transaction_type === 'OUT' ? '出庫' :
                                    tx.transaction_type === 'RETURN' ? '退料' : '調整'}
+                                  {tx.is_voided && ' (已作廢)'}
                                 </span>
                               </td>
-                              <td className={`p-3 text-right font-bold ${
+                              <td className={`p-3 text-right font-bold ${tx.is_voided ? 'text-slate-500 line-through' :
                                 tx.transaction_type === 'IN' || tx.transaction_type === 'RETURN' ? 'text-emerald-400' :
                                 tx.transaction_type === 'OUT' ? 'text-red-400' :
                                 tx.quantity < 0 ? 'text-red-400' : 'text-amber-400'
                               }`}>
                                 {tx.transaction_type === 'IN' || tx.transaction_type === 'RETURN' || (tx.transaction_type === 'ADJUST' && tx.quantity > 0) ? '+' : ''}{tx.quantity}
                               </td>
-                              <td className="p-3 text-slate-300">{tx.transaction_type === 'IN' ? tx.source : tx.project_name || '-'}</td>
-                              <td className="p-3 text-slate-400">{tx.handler || '-'}</td>
-                              <td className="p-3 text-slate-400 max-w-[150px] truncate" title={tx.notes || ''}>{tx.notes || '-'}</td>
+                              <td className={`p-3 ${tx.is_voided ? 'text-slate-500 line-through' : 'text-slate-300'}`}>{tx.transaction_type === 'IN' ? tx.source : tx.project_name || '-'}</td>
+                              <td className={`p-3 ${tx.is_voided ? 'text-slate-500 line-through' : 'text-slate-400'}`}>{tx.handler || '-'}</td>
+                              <td className={`p-3 max-w-[150px] truncate ${tx.is_voided ? 'text-slate-500 line-through' : 'text-slate-400'}`} title={tx.notes || ''}>{tx.notes || '-'}</td>
                             </tr>
                           ))}
                         </tbody>
