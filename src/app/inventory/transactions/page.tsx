@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { InventoryTransaction, InventoryItem, Project, InventorySerial } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { TransactionForm } from '@/components/TransactionForm';
@@ -8,40 +8,6 @@ import { TransactionHistoryModal } from '@/components/TransactionHistoryModal';
 import { useUser } from '@/components/UserContext';
 import { Plus, Search } from 'lucide-react';
 import { format } from 'date-fns';
-
-const INVENTORY_TRANSACTIONS_DIAGNOSTIC_BUILD = 'd9bb4f-always-visible';
-
-type InventoryTransactionsDiagnostics = {
-  hostname: string;
-  pathname: string;
-  build: string;
-  transactionCount: number | null;
-  itemCount: number | null;
-  batchCount: number | null;
-  serialCount: number | null;
-  transactionSerialCount: number | null;
-  fetchStatus: 'idle' | 'loading' | 'success' | 'partial' | 'error';
-  enteredCatch: boolean;
-  errorMessage: string | null;
-};
-
-const createDiagnostics = (): InventoryTransactionsDiagnostics => ({
-  hostname: typeof window !== 'undefined' ? window.location.hostname : 'SSR',
-  pathname: typeof window !== 'undefined' ? window.location.pathname : 'SSR',
-  build: INVENTORY_TRANSACTIONS_DIAGNOSTIC_BUILD,
-  transactionCount: null,
-  itemCount: null,
-  batchCount: null,
-  serialCount: null,
-  transactionSerialCount: null,
-  fetchStatus: 'idle',
-  enteredCatch: false,
-  errorMessage: null,
-});
-
-const getSettledCount = (result: PromiseSettledResult<unknown>): number | null => {
-  return result.status === 'fulfilled' && Array.isArray(result.value) ? result.value.length : null;
-};
 
 const unwrapSettled = <T,>(result: PromiseSettledResult<T>): T => {
   if (result.status === 'rejected') throw result.reason;
@@ -67,18 +33,11 @@ export default function TransactionsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadWarning, setLoadWarning] = useState<string | null>(null);
-  const [diagnostics, setDiagnostics] = useState<InventoryTransactionsDiagnostics>(() => createDiagnostics());
 
   const fetchData = async () => {
     setIsLoading(true);
     setLoadError(null);
     setLoadWarning(null);
-    const loadingDiagnostics: InventoryTransactionsDiagnostics = {
-      ...createDiagnostics(),
-      fetchStatus: 'loading',
-    };
-    setDiagnostics(loadingDiagnostics);
-    let nextDiagnostics = loadingDiagnostics;
 
     try {
       const results = await Promise.allSettled([
@@ -93,14 +52,6 @@ export default function TransactionsPage() {
       ]);
 
       const [txsResult, itmsResult, projsResult, balsResult, srlsResult, txSrlsResult, bthsResult] = results;
-      nextDiagnostics = {
-        ...nextDiagnostics,
-        transactionCount: getSettledCount(txsResult),
-        itemCount: getSettledCount(itmsResult),
-        batchCount: getSettledCount(bthsResult),
-        serialCount: getSettledCount(srlsResult),
-        transactionSerialCount: getSettledCount(txSrlsResult),
-      };
 
       if (txsResult.status === 'rejected') throw txsResult.reason;
 
@@ -130,16 +81,6 @@ export default function TransactionsPage() {
       if (relatedFailures.length > 0) {
         const warningMessage = relatedFailures.join(' | ');
         setLoadWarning(warningMessage);
-        nextDiagnostics = {
-          ...nextDiagnostics,
-          fetchStatus: 'partial',
-          errorMessage: warningMessage,
-        };
-      } else {
-        nextDiagnostics = {
-          ...nextDiagnostics,
-          fetchStatus: 'success',
-        };
       }
 
       setTransactions(txs.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
@@ -154,14 +95,7 @@ export default function TransactionsPage() {
       const errorMessage = error?.message || 'Failed to load inventory transactions.';
       setTransactions([]);
       setLoadError(errorMessage);
-      nextDiagnostics = {
-        ...nextDiagnostics,
-        fetchStatus: 'error',
-        enteredCatch: true,
-        errorMessage,
-      };
     } finally {
-      setDiagnostics(nextDiagnostics);
       setIsLoading(false);
     }
   };
@@ -346,58 +280,6 @@ export default function TransactionsPage() {
     ].some(value => String(value || '').toLowerCase().includes(normalizedSearchTerm));
   });
 
-  const missingItemCount = transactions.filter(t => !items.some(i => i.id === t.item_id)).length;
-  const filteredReason = (() => {
-    if (isLoading) return 'loading';
-    if (loadError) return 'load_error';
-    if (!normalizedSearchTerm) return 'no_search_filter';
-    if (filteredTx.length === 0) return `search_filter_no_match: ${searchTerm.trim()}`;
-    return `search_filter_match: ${searchTerm.trim()}`;
-  })();
-  const hasFilteredOutAllTransactions = !isLoading && !loadError && transactions.length > 0 && filteredTx.length === 0;
-
-  const diagnosticRows: [string, string | number | boolean | null][] = [
-    ['INVENTORY_DIAGNOSTIC_VISIBLE', true],
-    ['build/version', diagnostics.build],
-    ['hostname', diagnostics.hostname],
-    ['pathname', diagnostics.pathname],
-    ['transactions count', transactions.length],
-    ['items count', items.length],
-    ['batches count', batches.length],
-    ['serials count', allSerials.length],
-    ['transaction serial mappings count', txSerialsMapping.length],
-    ['filtered count', filteredTx.length],
-    ['filtered reason', filteredReason],
-    ['missing item mappings count', missingItemCount],
-    ['fetch status', diagnostics.fetchStatus],
-    ['error message', loadError || diagnostics.errorMessage || loadWarning],
-    ['location.hostname', diagnostics.hostname],
-    ['location.pathname', diagnostics.pathname],
-    ['build/version', diagnostics.build],
-    ['getInventoryTransactions 回傳筆數', diagnostics.transactionCount],
-    ['getInventoryItems 回傳筆數', diagnostics.itemCount],
-    ['getInventoryBatches 回傳筆數', diagnostics.batchCount],
-    ['getInventorySerials 回傳筆數', diagnostics.serialCount],
-    ['getInventoryTransactionSerials 回傳筆數', diagnostics.transactionSerialCount],
-    ['fetchData 是否進入 catch', diagnostics.enteredCatch],
-    ['catch error message', diagnostics.errorMessage],
-  ];
-
-  const diagnosticsPanel = (
-    <div className="mb-6 w-full rounded-lg border border-amber-400/60 bg-amber-950/40 p-4 text-left text-xs text-amber-100 shadow-lg shadow-amber-950/20">
-      <div className="mb-3 font-mono text-sm font-semibold text-amber-200">INVENTORY_DIAGNOSTIC_VISIBLE</div>
-      <div className="mb-3 font-semibold text-amber-200">臨時診斷資訊</div>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-[240px_1fr]">
-        {diagnosticRows.map(([label, value]) => (
-          <React.Fragment key={label}>
-            <div className="text-amber-300">{label}</div>
-            <div className="break-all font-mono text-amber-50">{value === null || value === '' ? '-' : String(value)}</div>
-          </React.Fragment>
-        ))}
-      </div>
-    </div>
-  );
-
   return (
     <div className="max-w-7xl mx-auto flex flex-col h-full">
       <div className="flex justify-between items-center mb-8">
@@ -415,14 +297,6 @@ export default function TransactionsPage() {
           新增異動 (IN/OUT/RETURN/ADJUST)
         </button>
       </div>
-
-      {diagnosticsPanel}
-
-      {hasFilteredOutAllTransactions && (
-        <div className="mb-4 rounded-lg border border-red-500/60 bg-red-950/40 px-4 py-3 text-sm font-semibold text-red-100">
-          Supabase 有交易資料，但前端篩選後為 0。
-        </div>
-      )}
 
       <div className="bg-slate-800/50 border border-slate-700 p-4 rounded-xl mb-6 flex items-center gap-3">
         <Search className="text-slate-400" size={20} />

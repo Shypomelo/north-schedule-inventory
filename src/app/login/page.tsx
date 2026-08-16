@@ -28,10 +28,6 @@ const getLoginRedirectSnapshot = () => {
   };
 };
 
-const logAuthRedirect = (message: string, details: Record<string, unknown>) => {
-  console.info('[auth-redirect]', { source: 'LoginPage', message, ...details });
-};
-
 export default function LoginPage() {
   const { currentUser, loginWithGoogle, authError, isLoading } = useUser();
   const router = useRouter();
@@ -43,19 +39,12 @@ export default function LoginPage() {
     sessionStorage.setItem(INTENDED_PATH_STORAGE_KEY, snapshot.redirectTo);
     setNextPath(snapshot.redirectTo);
     setNextReady(true);
-    logAuthRedirect('callback/mount snapshot', snapshot);
   }, []);
 
   useEffect(() => {
     if (currentUser && !isLoading && nextReady) {
       const snapshot = getLoginRedirectSnapshot();
       const targetPath = snapshot.redirectTo;
-      logAuthRedirect('router.replace before login success redirect', {
-        ...snapshot,
-        stateNextPath: nextPath,
-        targetPath,
-        currentUser: { id: currentUser.id, email: currentUser.email, name: currentUser.name },
-      });
       sessionStorage.removeItem(INTENDED_PATH_STORAGE_KEY);
       router.replace(targetPath);
     }
@@ -65,7 +54,6 @@ export default function LoginPage() {
     const snapshot = getLoginRedirectSnapshot();
     sessionStorage.setItem(INTENDED_PATH_STORAGE_KEY, snapshot.redirectTo);
     setNextPath(snapshot.redirectTo);
-    logAuthRedirect('Google login click', snapshot);
     loginWithGoogle(snapshot.redirectTo);
   };
 
