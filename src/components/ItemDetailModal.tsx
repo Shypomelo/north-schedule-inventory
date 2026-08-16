@@ -119,7 +119,7 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
       tx.transaction_date === batch.in_date &&
       tx.quantity === batch.quantity &&
       normalizeText(tx.unit) === normalizeText(batch.unit) &&
-      normalizeText(tx.handler) === normalizeText(batch.handler) &&
+      (!tx.handler || normalizeText(tx.handler) === normalizeText(batch.handler)) &&
       normalizeText(tx.notes) === normalizeText(batch.notes) &&
       getBatchSourceForTransaction(tx) === normalizeText(batch.source)
     );
