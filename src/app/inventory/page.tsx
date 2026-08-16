@@ -9,7 +9,7 @@ import Link from 'next/link';
 import { ItemDetailModal } from '@/components/ItemDetailModal';
 import { TransactionForm } from '@/components/TransactionForm';
 import { format } from 'date-fns';
-import { getInventoryTransactionQuantityDelta } from '@/lib/db/inventory-stock';
+import { getInventoryInflowQuantity, getInventoryTransactionQuantityDelta } from '@/lib/db/inventory-stock';
 
 interface BalanceDisplay {
   item_id: string;
@@ -79,7 +79,7 @@ export default function InventoryBalancePage() {
         balance += getInventoryTransactionQuantityDelta(tx.transaction_type, tx.quantity);
 
         if (txMonth === currentMonth) {
-          if (tx.transaction_type === 'IN') mtd_in += tx.quantity;
+          mtd_in += getInventoryInflowQuantity(tx.transaction_type, tx.quantity);
           if (tx.transaction_type === 'OUT') mtd_out += tx.quantity;
           if (tx.transaction_type === 'RETURN') mtd_return += tx.quantity;
           if (tx.transaction_type === 'ADJUST') mtd_adjust += tx.quantity;

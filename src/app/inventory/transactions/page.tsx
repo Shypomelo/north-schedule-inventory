@@ -6,7 +6,7 @@ import { dbAdapter } from '@/lib/db';
 import { TransactionForm } from '@/components/TransactionForm';
 import { TransactionHistoryModal } from '@/components/TransactionHistoryModal';
 import { useUser } from '@/components/UserContext';
-import { Plus, Search } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { format } from 'date-fns';
 
 const unwrapSettled = <T,>(result: PromiseSettledResult<T>): T => {
@@ -24,7 +24,7 @@ export default function TransactionsPage() {
   const [txSerialsMapping, setTxSerialsMapping] = useState<any[]>([]);
   const [batches, setBatches] = useState<any[]>([]);
   
-  const [searchTerm, setSearchTerm] = useState('');
+  const [hideVoided, setHideVoided] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTx, setEditingTx] = useState<InventoryTransaction | null>(null);
   const [editingTxSerials, setEditingTxSerials] = useState<string[]>([]);
@@ -263,22 +263,7 @@ export default function TransactionsPage() {
     setIsModalOpen(true);
   };
 
-  const normalizedSearchTerm = searchTerm.trim().toLowerCase();
-  const filteredTx = transactions.filter(t => {
-    const item = items.find(i => i.id === t.item_id);
-    if (!normalizedSearchTerm) return true;
-
-    return [
-      item?.name,
-      item?.code,
-      t.item_id,
-      t.transaction_type,
-      t.project_name,
-      t.handler,
-      t.source,
-      t.notes,
-    ].some(value => String(value || '').toLowerCase().includes(normalizedSearchTerm));
-  });
+  const visibleTransactions = hideVoided ? transactions.filter(tx => !tx.is_voided) : transactions;
 
   return (
     <div className="max-w-7xl mx-auto flex flex-col h-full">
@@ -298,17 +283,17 @@ export default function TransactionsPage() {
         </button>
       </div>
 
-      <div className="bg-slate-800/50 border border-slate-700 p-4 rounded-xl mb-6 flex items-center gap-3">
-        <Search className="text-slate-400" size={20} />
-        <input 
-          type="text" 
-          placeholder="搜尋品項、類型..." 
-          className="bg-transparent border-none outline-none text-slate-200 w-full placeholder:text-slate-500"
-          value={searchTerm}
-          onChange={e => setSearchTerm(e.target.value)}
-        />
+      <div className="mb-6 flex items-center justify-end">
+        <label className="flex items-center gap-2 text-sm font-semibold text-slate-300 cursor-pointer hover:text-emerald-300 transition-colors">
+          <input
+            type="checkbox"
+            checked={hideVoided}
+            onChange={e => setHideVoided(e.target.checked)}
+            className="rounded bg-slate-800 border-slate-600 text-emerald-500 focus:ring-emerald-500/50"
+          />
+          隱藏作廢
+        </label>
       </div>
-
       {loadWarning && !loadError && (
         <div className="mb-4 rounded-lg border border-amber-500/40 bg-amber-950/30 px-4 py-3 text-sm text-amber-100">
           <div className="font-semibold text-amber-200">部分關聯資料讀取失敗，已先顯示交易主資料。</div>
@@ -324,7 +309,7 @@ export default function TransactionsPage() {
             <div className="font-semibold mb-2">Inventory transactions failed to load.</div>
             <div className="text-sm text-red-200/80 max-w-2xl break-words">{loadError}</div>
           </div>
-        ) : filteredTx.length === 0 ? (
+        ) : visibleTransactions.length === 0 ? (
            <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500">
              目前無異動紀錄
            </div>
@@ -345,7 +330,7 @@ export default function TransactionsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-700/50 text-sm">
-              {filteredTx.map(tx => {
+              {visibleTransactions.map(tx => {
                 const item = items.find(i => i.id === tx.item_id);
                 const proj = projects.find(p => p.id === tx.project_id);
                 const isPositive = tx.transaction_type === 'IN' || tx.transaction_type === 'RETURN' || (tx.transaction_type === 'ADJUST' && tx.quantity > 0);

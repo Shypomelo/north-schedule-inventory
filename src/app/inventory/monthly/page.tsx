@@ -7,7 +7,7 @@ import { dbAdapter } from '@/lib/db';
 import { format, subMonths } from 'date-fns';
 import { FileSpreadsheet, Lock, Unlock, AlertTriangle, CheckCircle, Info } from 'lucide-react';
 import { exportMonthlyReport } from '@/lib/utils/export-excel';
-import { calculateInventoryStockQuantity, getInventoryTransactionQuantityDelta } from '@/lib/db/inventory-stock';
+import { calculateInventoryStockQuantity, getInventoryInflowQuantity, getInventoryTransactionQuantityDelta } from '@/lib/db/inventory-stock';
 
 export default function MonthlyReportPage() {
   const [viewMode, setViewMode] = useState<'MONTHLY' | 'ANNUAL'>('MONTHLY');
@@ -95,7 +95,7 @@ export default function MonthlyReportPage() {
       if (isBefore) {
         r.opening_quantity += getInventoryTransactionQuantityDelta(tx.transaction_type, tx.quantity);
       } else if (isCurrent) {
-        if (tx.transaction_type === 'IN') r.monthly_in += tx.quantity;
+        r.monthly_in += getInventoryInflowQuantity(tx.transaction_type, tx.quantity);
         if (tx.transaction_type === 'OUT') {
            r.monthly_out += tx.quantity;
            r.usage_quantity += tx.quantity;
@@ -110,7 +110,6 @@ export default function MonthlyReportPage() {
         opening: r.opening_quantity,
         inQuantity: r.monthly_in,
         outQuantity: r.monthly_out,
-        returnQuantity: r.monthly_return,
         adjustQuantity: r.monthly_adjust,
       });
       return r;

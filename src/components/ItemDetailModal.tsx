@@ -5,7 +5,7 @@ import { InventoryItem, InventoryTransaction, InventorySerial, Project, Inventor
 import { dbAdapter } from '@/lib/db';
 import { X, Box, History, List, ChevronDown, ChevronUp } from 'lucide-react';
 import { format } from 'date-fns';
-import { getInventoryTransactionQuantityDelta } from '@/lib/db/inventory-stock';
+import { getInventoryInflowQuantity, getInventoryTransactionQuantityDelta } from '@/lib/db/inventory-stock';
 
 interface ItemDetailModalProps {
   itemId: string | null;
@@ -81,9 +81,8 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
     currentBalance += getInventoryTransactionQuantityDelta(tx.transaction_type, tx.quantity);
 
     if (tx.transaction_date.startsWith(currentMonthPrefix)) {
-      if (tx.transaction_type === 'IN' || tx.transaction_type === 'RETURN') {
-        monthIn += tx.quantity;
-      } else if (tx.transaction_type === 'OUT') {
+      monthIn += getInventoryInflowQuantity(tx.transaction_type, tx.quantity);
+      if (tx.transaction_type === 'OUT') {
         monthOut += tx.quantity;
       }
     }
