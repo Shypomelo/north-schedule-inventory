@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ScheduleTask, ScheduleTaskMember, Project, User, Todo, TaskStatus } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { ScheduleTaskForm } from '@/components/ScheduleTaskForm';
@@ -39,6 +39,8 @@ export default function SchedulePage() {
   const [contextMenu, setContextMenu] = useState<{taskId: string, x: number, y: number} | null>(null);
   const [dayContextMenu, setDayContextMenu] = useState<{dateStr: string, x: number, y: number} | null>(null);
   const [todoContextMenu, setTodoContextMenu] = useState<{todoId: string | null, x: number, y: number} | null>(null);
+  const reconcilePromiseRef = useRef<Promise<void> | null>(null);
+  const lastReconcileAtRef = useRef(0);
 
   useEffect(() => {
     const handleClick = () => {
@@ -52,10 +54,37 @@ export default function SchedulePage() {
 
   const [error, setError] = useState<string | null>(null);
 
-  const fetchData = async (showLoading = true) => {
+  const reconcileGoogleCalendar = useCallback(async () => {
+    const now = Date.now();
+    if (reconcilePromiseRef.current) return reconcilePromiseRef.current;
+    if (now - lastReconcileAtRef.current < 30000) return;
+
+    const reconcileController = new AbortController();
+    const reconcileTimeout = window.setTimeout(() => reconcileController.abort(), 8000);
+
+    const reconcilePromise = fetch('/api/google-calendar/reconcile', {
+      method: 'POST',
+      signal: reconcileController.signal,
+    }).catch(error => {
+      console.error('Google Calendar reconcile failed:', error);
+    }).finally(() => {
+      lastReconcileAtRef.current = Date.now();
+      reconcilePromiseRef.current = null;
+      window.clearTimeout(reconcileTimeout);
+    }).then(() => undefined);
+
+    reconcilePromiseRef.current = reconcilePromise;
+    return reconcilePromise;
+  }, []);
+
+  const fetchData = useCallback(async (showLoading = true) => {
     if (showLoading) setIsLoading(true);
     setError(null);
     try {
+      if (showLoading) {
+        await reconcileGoogleCalendar();
+      }
+
       // Add timeout to prevent infinite loading
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('讀取超時，請重試')), 10000)
@@ -87,11 +116,11 @@ export default function SchedulePage() {
     } finally {
       if (showLoading) setIsLoading(false);
     }
-  };
+  }, [reconcileGoogleCalendar]);
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   // Week View Dates
   const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 }); 

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getGoogleCalendarClient, GOOGLE_CALENDAR_ID } from '@/lib/google-calendar';
 import { ScheduleTask } from '@/lib/db/types';
 import { createClient } from '@supabase/supabase-js';
+import { buildGoogleEventBody, loadScheduleTaskSyncRow } from '@/lib/google-calendar-sync';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!; // Using anon key for now since POC uses anon everywhere. Or service_role if available.
@@ -11,6 +12,17 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 const getSafeErrorInfo = (error: any) => ({
   status: error?.status ?? error?.code ?? null,
   message: error?.message || 'Unknown Google API Error',
+  responseError: error?.response?.data?.error,
+  responseMessage: error?.response?.data?.message,
+  responseErrors: error?.response?.data?.error?.errors?.map((item: any) => ({
+    domain: item?.domain,
+    reason: item?.reason,
+    message: item?.message,
+  })),
+  errors: error?.errors?.map((item: any) => ({
+    reason: item?.reason,
+    message: item?.message,
+  })),
 });
 
 export async function POST(req: Request) {
@@ -42,67 +54,34 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true });
     }
 
-    // Prepare Google Event Format
-    let title = `【${task.project_name || '無案場'}】${task.title}`;
-    if (task.status === '完成' || task.status === '已完成') {
-      title = `[已完成] ${title}`;
-    }
-
-    const descriptionParts = [
-      `任務類型: ${task.task_type || '未分類'}`,
-      `狀態: ${task.status}`,
-      `主要負責人: ${task.main_assignee_id || '未指派'}`, // Ideally map this to name if available
-      `內部任務ID: ${task.id}`
-    ];
-
-    const description = descriptionParts.join('\n');
-
-    let startObj: any = {};
-    let endObj: any = {};
-
-    if (task.is_all_day) {
-      // All day requires date only (YYYY-MM-DD), end date is exclusive
-      startObj = { date: task.task_date };
-      const nextDay = new Date(task.task_date);
-      nextDay.setDate(nextDay.getDate() + 1);
-      endObj = { date: nextDay.toISOString().split('T')[0] };
-    } else {
-      // Time based
-      const startTime = task.start_time || '09:00';
-      const endTime = task.end_time || '10:00';
-      startObj = { dateTime: `${task.task_date}T${startTime}:00+08:00`, timeZone: 'Asia/Taipei' };
-      endObj = { dateTime: `${task.task_date}T${endTime}:00+08:00`, timeZone: 'Asia/Taipei' };
-    }
-
-    const eventBody = {
-      summary: title,
-      description,
-      start: startObj,
-      end: endObj,
-      // For tentatively we could set transparency to transparent
-      transparency: task.is_tentative ? 'transparent' : 'opaque'
+    const persistedTask = await loadScheduleTaskSyncRow(supabase, task.id);
+    const effectiveTask = {
+      ...task,
+      google_event_id: persistedTask?.google_event_id || task.google_event_id,
+      google_calendar_id: persistedTask?.google_calendar_id || task.google_calendar_id,
     };
+    const eventBody = await buildGoogleEventBody(supabase, effectiveTask);
 
-    let newEventId = task.google_event_id;
+    let newEventId = effectiveTask.google_event_id;
     let syncStatus: 'synced' | 'failed' = 'synced';
     let syncError: string | null = null;
 
     try {
-      if (action === 'CREATE' && !task.google_event_id) {
+      if (action === 'CREATE' && !effectiveTask.google_event_id) {
         // Insert
         const res = await calendar.events.insert({
           calendarId: GOOGLE_CALENDAR_ID,
           requestBody: eventBody,
         });
         newEventId = res.data.id || null;
-      } else if ((action === 'UPDATE' || action === 'CREATE') && task.google_event_id) {
+      } else if ((action === 'UPDATE' || action === 'CREATE') && effectiveTask.google_event_id) {
         // Update (if action=CREATE but it has an ID, maybe it's a retry)
         await calendar.events.update({
           calendarId: GOOGLE_CALENDAR_ID,
-          eventId: task.google_event_id,
+          eventId: effectiveTask.google_event_id,
           requestBody: eventBody,
         });
-        newEventId = task.google_event_id;
+        newEventId = effectiveTask.google_event_id;
       }
     } catch (apiError: any) {
       console.error('Google API Error:', getSafeErrorInfo(apiError));

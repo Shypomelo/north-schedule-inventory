@@ -1224,8 +1224,8 @@ export const pocSupabaseAdapter = {
       project_name: row.project_name || null,
       address: row.address || null,
       task_date: row.task_date || '',
-      start_time: row.start_time || null,
-      end_time: row.end_time || null,
+      start_time: row.start_time ? String(row.start_time).slice(0, 5) : null,
+      end_time: row.end_time ? String(row.end_time).slice(0, 5) : null,
       is_all_day: !!row.is_all_day,
       is_tentative: !!row.is_tentative,
       status: row.status || '未開始',
@@ -1308,6 +1308,11 @@ export const pocSupabaseAdapter = {
     if (updates.status !== undefined) dbUpdates.status = updates.status;
     if (updates.is_tentative !== undefined) dbUpdates.is_tentative = updates.is_tentative;
     if (updates.address !== undefined) dbUpdates.address = updates.address;
+    if (updates.google_calendar_id !== undefined) dbUpdates.google_calendar_id = updates.google_calendar_id;
+    if (updates.google_event_id !== undefined) dbUpdates.google_event_id = updates.google_event_id;
+    if (updates.google_sync_status !== undefined) dbUpdates.google_sync_status = updates.google_sync_status;
+    if (updates.google_sync_error !== undefined) dbUpdates.google_sync_error = updates.google_sync_error;
+    if (updates.last_synced_at !== undefined) dbUpdates.last_synced_at = updates.last_synced_at;
     if (newMemberIds !== undefined) dbUpdates.assistant_member_ids = newMemberIds;
     
     dbUpdates.updated_at = new Date().toISOString();
@@ -1332,8 +1337,8 @@ export const pocSupabaseAdapter = {
       project_name: data.project_name || null,
       address: data.address || null,
       task_date: data.task_date || '',
-      start_time: data.start_time || null,
-      end_time: data.end_time || null,
+      start_time: data.start_time ? String(data.start_time).slice(0, 5) : null,
+      end_time: data.end_time ? String(data.end_time).slice(0, 5) : null,
       is_all_day: !!data.is_all_day,
       is_tentative: !!data.is_tentative,
       status: data.status || '未開始',
