@@ -82,15 +82,56 @@ const inventoryAdapter = hasSupabase
         getInventoryMonthlyClosingItems: mockDbAdapter.getMonthlyClosingItems,
       };
 
+const syncToGoogle = async (action: 'CREATE' | 'UPDATE' | 'DELETE', task: any, skipGoogleSync?: boolean) => {
+  if (skipGoogleSync) return;
+  try {
+    const baseUrl = typeof window !== 'undefined' ? '' : process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+    await fetch(`${baseUrl}/api/google-calendar/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, task }),
+    });
+  } catch (error) {
+    console.error('Google Calendar Sync failed:', error);
+  }
+};
+
 export const dbAdapter = {
   ...mockDbAdapter,
   getUsers: hasSupabase ? pocSupabaseAdapter.getUsers : mockDbAdapter.getUsers,
   createUser: hasSupabase ? pocSupabaseAdapter.createUser : mockDbAdapter.createUser,
   updateUser: hasSupabase ? pocSupabaseAdapter.updateUser : mockDbAdapter.updateUser,
   getScheduleTasks: hasSupabase ? pocSupabaseAdapter.getScheduleTasks : mockDbAdapter.getScheduleTasks,
-  createScheduleTask: hasSupabase ? pocSupabaseAdapter.createScheduleTask : mockDbAdapter.createScheduleTask,
-  updateScheduleTask: hasSupabase ? pocSupabaseAdapter.updateScheduleTask : mockDbAdapter.updateScheduleTask,
-  deleteScheduleTask: hasSupabase ? pocSupabaseAdapter.deleteScheduleTask : mockDbAdapter.deleteScheduleTask,
+
+  createScheduleTask: async (t: any, newMemberIds?: string[], skipGoogleSync = false) => {
+    const fn = hasSupabase ? pocSupabaseAdapter.createScheduleTask : mockDbAdapter.createScheduleTask;
+    const result = await fn(t, newMemberIds);
+    await syncToGoogle('CREATE', result, skipGoogleSync);
+    return result;
+  },
+
+  updateScheduleTask: async (id: string, updates: any, newMemberIds?: string[], skipGoogleSync = false) => {
+    const fn = hasSupabase ? pocSupabaseAdapter.updateScheduleTask : mockDbAdapter.updateScheduleTask;
+    const result = await fn(id, updates, newMemberIds);
+    await syncToGoogle('UPDATE', result, skipGoogleSync);
+    return result;
+  },
+
+  deleteScheduleTask: async (id: string, skipGoogleSync = false) => {
+    let taskToDelete;
+    if (!skipGoogleSync) {
+      const getFn = hasSupabase ? pocSupabaseAdapter.getScheduleTasks : mockDbAdapter.getScheduleTasks;
+      const allTasks = await getFn();
+      taskToDelete = allTasks.find(t => t.id === id);
+    }
+
+    const fn = hasSupabase ? pocSupabaseAdapter.deleteScheduleTask : mockDbAdapter.deleteScheduleTask;
+    await fn(id);
+
+    if (taskToDelete) {
+      await syncToGoogle('DELETE', taskToDelete, skipGoogleSync);
+    }
+  },
 
   // Contractors
   getContractors: hasSupabase ? pocSupabaseAdapter.getContractors : mockDbAdapter.getContractors,
