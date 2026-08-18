@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ScheduleTask, ScheduleTaskMember, Project, User, Todo, TaskStatus } from '@/lib/db/types';
-import { dbAdapter } from '@/lib/db';
+import { dbAdapter, isGoogleRemoteDeletedError } from '@/lib/db';
 import { ScheduleTaskForm } from '@/components/ScheduleTaskForm';
 import { TodoForm } from '@/components/TodoForm';
 import { startOfWeek, addDays, subDays, format, isSameDay, startOfMonth, endOfMonth, getDay } from 'date-fns';
@@ -130,6 +130,24 @@ export default function SchedulePage() {
     fetchData();
   }, [fetchData]);
 
+  const removeTaskFromVisibleState = useCallback((taskId: string) => {
+    setTasks(prev => prev.filter(t => t.id !== taskId));
+    setSelectedDayTasks(prev => prev
+      ? { ...prev, tasks: prev.tasks.filter(t => t.id !== taskId) }
+      : null
+    );
+  }, []);
+
+  const handleRemoteDeletedTask = useCallback(async (taskId: string) => {
+    removeTaskFromVisibleState(taskId);
+    setIsFormOpen(false);
+    setEditingTask(null);
+    setEditingTaskMembers([]);
+    setConvertingTodoId(null);
+    alert('此排程已從 Google 日曆刪除，系統已同步移除');
+    await fetchData(false);
+  }, [fetchData, removeTaskFromVisibleState]);
+
   // Week View Dates
   const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 }); 
   const weekDays = Array.from({ length: 6 }).map((_, i) => addDays(weekStart, i));
@@ -177,6 +195,11 @@ export default function SchedulePage() {
             project_id: data.project_id, project_name: '', before_value: null, after_value: null, message: '編輯排程任務'
           });
         } catch (error) {
+          if (isGoogleRemoteDeletedError(error)) {
+            await handleRemoteDeletedTask(editingTask.id);
+            return;
+          }
+
           console.error('Update failed, rolling back:', error);
           alert('排程更新失敗，請檢查網路連線或稍後再試。');
           if (originalTask) {
@@ -286,6 +309,7 @@ export default function SchedulePage() {
 
   const handleDropToTodo = async (e: React.DragEvent) => {
     e.preventDefault();
+    let staleTaskId: string | null = null;
     try {
       const dataStr = e.dataTransfer.getData('application/x-schedule-item') || e.dataTransfer.getData('text/plain');
       if (!dataStr) return;
@@ -295,9 +319,17 @@ export default function SchedulePage() {
       if (dragType !== 'task') return;
       const task = tasks.find(t => t.id === dragId);
       if (!task) return;
+      staleTaskId = task.id;
 
       await handleReturnToTodo(task);
-    } catch(err) { console.error(err); }
+    } catch(err) {
+      if (isGoogleRemoteDeletedError(err) && staleTaskId) {
+        await handleRemoteDeletedTask(staleTaskId);
+        return;
+      }
+
+      console.error(err);
+    }
   };
 
   const handleCreateTodo = async (data: Omit<Todo, 'id' | 'created_at' | 'updated_at'>) => {
@@ -367,6 +399,11 @@ export default function SchedulePage() {
           // Optimistic update succeeded, we can fetch later silently
           fetchData(false);
         } catch (error) {
+          if (isGoogleRemoteDeletedError(error)) {
+            await handleRemoteDeletedTask(dragId);
+            return;
+          }
+
           console.error('Update failed, rolling back:', error);
           alert('排程更新失敗，請檢查網路連線或稍後再試。');
           // Rollback
@@ -443,7 +480,14 @@ export default function SchedulePage() {
           tasks: sortTasks(freshTasks.filter(t => t.task_date === format(prev.date, 'yyyy-MM-dd')))
         } : null);
       }
-    } catch(err) { console.error(err); }
+    } catch(err) {
+      if (isGoogleRemoteDeletedError(err)) {
+        await handleRemoteDeletedTask(currentTaskId);
+        return;
+      }
+
+      console.error(err);
+    }
   };
 
   const getTaskDisplay = (task: ScheduleTask) => {

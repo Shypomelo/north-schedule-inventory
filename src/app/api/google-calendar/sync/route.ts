@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { getGoogleCalendarClient, GOOGLE_CALENDAR_ID } from '@/lib/google-calendar';
 import { ScheduleTask } from '@/lib/db/types';
 import { buildGoogleEventBody, loadScheduleTaskSyncRow } from '@/lib/google-calendar-sync';
@@ -19,6 +20,27 @@ const getSafeErrorInfo = (error: any) => ({
     message: item?.message,
   })),
 });
+
+const isGoogleEventGoneError = (error: any) => {
+  const status = error?.status ?? error?.code ?? error?.response?.status;
+  const message = `${error?.message || ''} ${error?.response?.data?.error?.message || ''}`.toLowerCase();
+  return status === 404
+    || status === 410
+    || message.includes('not found')
+    || message.includes('gone');
+};
+
+const deleteRemoteDeletedScheduleTask = async (
+  supabase: SupabaseClient,
+  taskId: string,
+) => {
+  const { error } = await supabase
+    .from('schedule_tasks')
+    .delete()
+    .eq('id', taskId);
+
+  if (error) throw error;
+};
 
 export async function POST(req: Request) {
   try {
@@ -43,7 +65,18 @@ export async function POST(req: Request) {
             eventId: task.google_event_id,
           });
         } catch (err: any) {
-          // Ignore 404 or deleted events
+          if (isGoogleEventGoneError(err)) {
+            await deleteRemoteDeletedScheduleTask(supabase, task.id);
+            return NextResponse.json({
+              success: true,
+              remote_deleted: true,
+              taskId: task.id,
+              googleEventId: task.google_event_id,
+              syncStatus: 'failed',
+              syncError: 'Google event was already deleted remotely',
+            });
+          }
+
           if (err.status !== 404 && err.status !== 410) {
             console.error('Failed to delete Google event:', getSafeErrorInfo(err));
             // We still return success so the front-end doesn't break, it's already soft-deleted in DB.
@@ -64,9 +97,12 @@ export async function POST(req: Request) {
     let newEventId = effectiveTask.google_event_id;
     let syncStatus: 'synced' | 'failed' = 'synced';
     let syncError: string | null = null;
+    const canCreateGoogleEvent = action === 'CREATE'
+      && !effectiveTask.google_event_id
+      && !persistedTask?.google_sync_status;
 
     try {
-      if (action === 'CREATE' && !effectiveTask.google_event_id) {
+      if (canCreateGoogleEvent) {
         // Insert
         const res = await calendar.events.insert({
           calendarId: GOOGLE_CALENDAR_ID,
@@ -83,6 +119,18 @@ export async function POST(req: Request) {
         newEventId = effectiveTask.google_event_id;
       }
     } catch (apiError: any) {
+      if (effectiveTask.google_event_id && isGoogleEventGoneError(apiError)) {
+        await deleteRemoteDeletedScheduleTask(supabase, task.id);
+        return NextResponse.json({
+          success: true,
+          remote_deleted: true,
+          taskId: task.id,
+          googleEventId: effectiveTask.google_event_id,
+          syncStatus: 'failed',
+          syncError: 'Google event was deleted remotely',
+        });
+      }
+
       console.error('Google API Error:', getSafeErrorInfo(apiError));
       syncStatus = 'failed';
       syncError = apiError.message || 'Unknown Google API Error';

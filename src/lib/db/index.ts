@@ -4,6 +4,27 @@ import { supabase } from './supabaseClient';
 
 const hasSupabase = !!process.env.NEXT_PUBLIC_SUPABASE_URL && !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const isProduction = process.env.NODE_ENV === 'production';
+const GOOGLE_REMOTE_DELETED_CODE = 'GOOGLE_EVENT_REMOTE_DELETED';
+
+class GoogleRemoteDeletedSyncError extends Error {
+  code = GOOGLE_REMOTE_DELETED_CODE;
+  taskId?: string;
+  googleEventId?: string;
+
+  constructor(taskId?: string, googleEventId?: string) {
+    super('Google event was deleted remotely');
+    this.name = 'GoogleRemoteDeletedSyncError';
+    this.taskId = taskId;
+    this.googleEventId = googleEventId;
+  }
+}
+
+export const isGoogleRemoteDeletedError = (error: unknown): error is GoogleRemoteDeletedSyncError => (
+  !!error
+  && typeof error === 'object'
+  && 'code' in error
+  && (error as { code?: string }).code === GOOGLE_REMOTE_DELETED_CODE
+);
 
 const requireInventorySupabase = (methodName: string) => async () => {
   throw new Error(
@@ -92,7 +113,7 @@ const syncToGoogle = async (action: 'CREATE' | 'UPDATE' | 'DELETE', task: any, s
     if (error || !session?.access_token) return;
 
     const baseUrl = typeof window !== 'undefined' ? '' : process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
-    await fetch(`${baseUrl}/api/google-calendar/sync`, {
+    const response = await fetch(`${baseUrl}/api/google-calendar/sync`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -100,7 +121,17 @@ const syncToGoogle = async (action: 'CREATE' | 'UPDATE' | 'DELETE', task: any, s
       },
       body: JSON.stringify({ action, task }),
     });
+
+    const result = await response.json().catch(() => null);
+    if (result?.remote_deleted && action !== 'DELETE') {
+      throw new GoogleRemoteDeletedSyncError(result.taskId, result.googleEventId);
+    }
+
+    if (!response.ok) {
+      console.error('Google Calendar Sync failed:', result?.error || response.statusText);
+    }
   } catch (error) {
+    if (isGoogleRemoteDeletedError(error)) throw error;
     console.error('Google Calendar Sync failed:', error);
   }
 };
