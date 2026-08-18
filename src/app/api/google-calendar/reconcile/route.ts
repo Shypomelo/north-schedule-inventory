@@ -1,15 +1,11 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { dbAdapter } from '@/lib/db';
 import { getGoogleCalendarClient, GOOGLE_CALENDAR_ID } from '@/lib/google-calendar';
 import { GOOGLE_SYNC_SOURCE, getGoogleEventTiming } from '@/lib/google-calendar-sync';
 import { ScheduleTask } from '@/lib/db/types';
+import { requireActiveTeamMember } from '@/lib/server/supabase-auth';
 
 export const dynamic = 'force-dynamic';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseKey);
 const runningReconciles = new Set<string>();
 
 const getSafeErrorInfo = (error: any) => ({
@@ -39,10 +35,14 @@ const hasTimingChanged = (task: any, timing: ReturnType<typeof getGoogleEventTim
 export async function POST(req: Request) {
   let lockKey = '';
   try {
+    const { context, error: authResponse } = await requireActiveTeamMember(req);
+    if (authResponse) return authResponse;
+
     if (!GOOGLE_CALENDAR_ID) {
       return NextResponse.json({ success: false, error: 'Missing GOOGLE_CALENDAR_ID' }, { status: 500 });
     }
 
+    const supabase = context.supabase;
     const body = await req.json().catch(() => ({})) as { taskId?: string };
     lockKey = body.taskId ? `task:${body.taskId}` : `calendar:${GOOGLE_CALENDAR_ID}`;
     if (runningReconciles.has(lockKey)) {
@@ -95,7 +95,12 @@ export async function POST(req: Request) {
         });
 
         if (event.status === 'cancelled') {
-          await dbAdapter.deleteScheduleTask(task.id, true);
+          const { error: deleteError } = await supabase
+            .from('schedule_tasks')
+            .delete()
+            .eq('id', task.id);
+          if (deleteError) throw deleteError;
+
           deleted += 1;
           continue;
         }
@@ -141,10 +146,31 @@ export async function POST(req: Request) {
           updated += 1;
         }
 
-        await dbAdapter.updateScheduleTask(task.id, updates, undefined, true);
+        const dbUpdates: Record<string, unknown> = {
+          google_sync_status: updates.google_sync_status,
+          google_sync_error: updates.google_sync_error,
+          last_synced_at: updates.last_synced_at,
+          updated_at: new Date().toISOString(),
+        };
+
+        if (updates.task_date !== undefined) dbUpdates.task_date = updates.task_date;
+        if (updates.start_time !== undefined) dbUpdates.start_time = updates.start_time;
+        if (updates.end_time !== undefined) dbUpdates.end_time = updates.end_time;
+        if (updates.is_all_day !== undefined) dbUpdates.is_all_day = updates.is_all_day;
+
+        const { error: updateError } = await supabase
+          .from('schedule_tasks')
+          .update(dbUpdates)
+          .eq('id', task.id);
+        if (updateError) throw updateError;
       } catch (eventError: any) {
         if (eventError?.status === 404 || eventError?.status === 410) {
-          await dbAdapter.deleteScheduleTask(task.id, true);
+          const { error: deleteError } = await supabase
+            .from('schedule_tasks')
+            .delete()
+            .eq('id', task.id);
+          if (deleteError) throw deleteError;
+
           deleted += 1;
           continue;
         }

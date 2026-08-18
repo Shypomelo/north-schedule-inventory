@@ -1,13 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getGoogleCalendarClient, GOOGLE_CALENDAR_ID } from '@/lib/google-calendar';
 import { ScheduleTask } from '@/lib/db/types';
-import { createClient } from '@supabase/supabase-js';
 import { buildGoogleEventBody, loadScheduleTaskSyncRow } from '@/lib/google-calendar-sync';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!; // Using anon key for now since POC uses anon everywhere. Or service_role if available.
-
-const supabase = createClient(supabaseUrl, supabaseKey);
+import { requireActiveTeamMember } from '@/lib/server/supabase-auth';
 
 const getSafeErrorInfo = (error: any) => ({
   status: error?.status ?? error?.code ?? null,
@@ -27,12 +22,16 @@ const getSafeErrorInfo = (error: any) => ({
 
 export async function POST(req: Request) {
   try {
+    const { context, error: authResponse } = await requireActiveTeamMember(req);
+    if (authResponse) return authResponse;
+
     const { action, task } = await req.json() as { action: 'CREATE' | 'UPDATE' | 'DELETE', task: ScheduleTask };
 
     if (!task) {
       return NextResponse.json({ error: 'Task is required' }, { status: 400 });
     }
 
+    const supabase = context.supabase;
     const calendar = getGoogleCalendarClient();
 
     // 1. DELETE

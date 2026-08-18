@@ -9,6 +9,7 @@ import { startOfWeek, addDays, subDays, format, isSameDay, startOfMonth, endOfMo
 import { ChevronLeft, ChevronRight, Plus, X, ArrowLeft } from 'lucide-react';
 import { useUser } from '@/components/UserContext';
 import { getDatabaseErrorMessage, isMissingCoreTablesError } from '@/lib/db/supabase-errors';
+import { supabase } from '@/lib/db/supabaseClient';
 
 type ViewMode = 'week' | 'month';
 
@@ -62,9 +63,16 @@ export default function SchedulePage() {
     const reconcileController = new AbortController();
     const reconcileTimeout = window.setTimeout(() => reconcileController.abort(), 8000);
 
-    const reconcilePromise = fetch('/api/google-calendar/reconcile', {
-      method: 'POST',
-      signal: reconcileController.signal,
+    const reconcilePromise = supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session?.access_token) return;
+
+      return fetch('/api/google-calendar/reconcile', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        signal: reconcileController.signal,
+      });
     }).catch(error => {
       console.error('Google Calendar reconcile failed:', error);
     }).finally(() => {

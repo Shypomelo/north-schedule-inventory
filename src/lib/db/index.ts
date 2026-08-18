@@ -1,5 +1,6 @@
 import { mockDbAdapter } from './mock';
 import { pocSupabaseAdapter } from './poc-supabase';
+import { supabase } from './supabaseClient';
 
 const hasSupabase = !!process.env.NEXT_PUBLIC_SUPABASE_URL && !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const isProduction = process.env.NODE_ENV === 'production';
@@ -85,10 +86,18 @@ const inventoryAdapter = hasSupabase
 const syncToGoogle = async (action: 'CREATE' | 'UPDATE' | 'DELETE', task: any, skipGoogleSync?: boolean) => {
   if (skipGoogleSync) return;
   try {
+    if (typeof window === 'undefined') return;
+
+    const { data: { session }, error } = await supabase.auth.getSession();
+    if (error || !session?.access_token) return;
+
     const baseUrl = typeof window !== 'undefined' ? '' : process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
     await fetch(`${baseUrl}/api/google-calendar/sync`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
       body: JSON.stringify({ action, task }),
     });
   } catch (error) {
