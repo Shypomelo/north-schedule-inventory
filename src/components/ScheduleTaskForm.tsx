@@ -6,6 +6,16 @@ import { dbAdapter } from '@/lib/db';
 import { useUser } from './UserContext';
 import { addHours, format, parse } from 'date-fns';
 
+const PRIMARY_TIME_HOURS = [
+  '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18',
+];
+const OTHER_TIME_HOURS = [
+  '19', '20', '21', '22', '23', '00', '01', '02', '03', '04', '05', '06',
+];
+const TIME_HOURS = [...PRIMARY_TIME_HOURS, ...OTHER_TIME_HOURS];
+const TIME_MINUTES = ['00', '30'];
+const OTHER_HOUR_VALUE = '__OTHER__';
+
 interface ScheduleTaskFormProps {
   initialData?: Partial<ScheduleTask>;
   initialMemberIds?: string[];
@@ -110,26 +120,64 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
   }, []);
 
   const handleStartTimeChange = (val: string) => {
-    // Basic auto-colon insertion
-    let formatted = val.replace(/[^\d:]/g, '');
-    if (formatted.length === 2 && !formatted.includes(':') && val.length > (formData.start_time?.length || 0)) {
-      formatted += ':';
-    }
-    
     setFormData(prev => {
-      if (!formatted) return { ...prev, start_time: null, end_time: null };
+      if (!val) return { ...prev, start_time: null, end_time: null };
       
-      if (formatted.length === 5) {
-        try {
-          const parsedTime = parse(formatted, 'HH:mm', new Date());
-          const newEndTime = format(addHours(parsedTime, 2), 'HH:mm');
-          return { ...prev, start_time: formatted, end_time: newEndTime, is_all_day: false };
-        } catch (e) {
-          // ignore parsing error
-        }
+      const parsedTime = parse(val, 'HH:mm', new Date());
+      const suggestedEndTime = format(addHours(parsedTime, 2), 'HH:mm');
+      const endTime = suggestedEndTime > val
+        ? suggestedEndTime
+        : (prev.end_time && prev.end_time > val ? prev.end_time : null);
+
+      if (prev.end_time && prev.end_time > val && prev.end_time !== prev.start_time) {
+        return { ...prev, start_time: val, is_all_day: false };
       }
-      return { ...prev, start_time: formatted };
+
+      return { ...prev, start_time: val, end_time: endTime, is_all_day: false };
     });
+  };
+
+  const splitTime = (time: string | null) => {
+    const [hour = '', minute = ''] = (time || '').split(':');
+    return { hour, minute };
+  };
+
+  const buildTimeValue = (hour: string, minute: string) => {
+    if (!hour && !minute) return null;
+    return `${hour || '00'}:${minute || '00'}`;
+  };
+
+  const handleTimePartChange = (
+    field: 'start_time' | 'end_time',
+    part: 'hour' | 'minute',
+    value: string,
+  ) => {
+    const current = splitTime(formData[field]);
+    const nextTime = buildTimeValue(
+      part === 'hour' ? value : current.hour,
+      part === 'minute' ? value : current.minute,
+    );
+
+    if (field === 'start_time') {
+      handleStartTimeChange(nextTime || '');
+      return;
+    }
+
+    setFormData(prev => ({ ...prev, end_time: nextTime }));
+  };
+
+  const handleHourPresetChange = (field: 'start_time' | 'end_time', value: string) => {
+    if (value === OTHER_HOUR_VALUE) {
+      const currentHour = splitTime(formData[field]).hour;
+      handleTimePartChange(
+        field,
+        'hour',
+        OTHER_TIME_HOURS.includes(currentHour) ? currentHour : OTHER_TIME_HOURS[0],
+      );
+      return;
+    }
+
+    handleTimePartChange(field, 'hour', value);
   };
 
   const handleProjectSearch = (val: string) => {
@@ -173,11 +221,21 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
     if (!formData.project_name?.trim()) return setErrorMsg('案場為必填');
     
     // Auto format check
-    if (formData.start_time && formData.start_time.length !== 5) {
-      return setErrorMsg('開始時間格式不正確，請輸入如 09:00');
+    const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+    if (formData.start_time) {
+      if (!timeRegex.test(formData.start_time)) {
+        return setErrorMsg('開始時間格式不正確，必須為合法時間 (00:00-23:59)');
+      }
     }
-    if (formData.end_time && formData.end_time.length !== 5) {
-      return setErrorMsg('結束時間格式不正確，請輸入如 11:00');
+    if (formData.end_time) {
+      if (!timeRegex.test(formData.end_time)) {
+        return setErrorMsg('結束時間格式不正確，必須為合法時間 (00:00-23:59)');
+      }
+    }
+    if (formData.start_time && formData.end_time) {
+      if (formData.start_time >= formData.end_time) {
+        return setErrorMsg('結束時間必須晚於開始時間 (目前系統不支援跨日排程)');
+      }
     }
 
     await onSubmit(formData as any, memberIds);
@@ -185,6 +243,9 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
 
   const mainAssigneeUsers = users.filter(u => u.category === 'ENGINEERING');
   const coworkerUsers = users;
+  const startTimeParts = splitTime(formData.start_time);
+  const endTimeParts = splitTime(formData.end_time);
+  const timeSelectClassName = "bg-slate-900 border border-slate-700 rounded p-1.5 focus:border-emerald-500 outline-none font-mono text-center";
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-3">
@@ -301,27 +362,67 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
           <>
             <label className="flex flex-col gap-1 mt-1">
               <span className="font-semibold text-slate-300">開始時間</span>
-              <input 
-                type="text" 
-                maxLength={5}
-                placeholder="09:00"
-                className="bg-slate-900 border border-slate-700 rounded p-1.5 focus:border-emerald-500 outline-none placeholder:text-slate-600 font-mono tracking-widest text-center max-w-[120px]"
-                value={formData.start_time || ''} onChange={e => handleStartTimeChange(e.target.value)} 
-              />
+              <div className="flex items-center gap-1 max-w-[240px]">
+                <select
+                  className={`${timeSelectClassName} w-[70px]`}
+                  value={PRIMARY_TIME_HOURS.includes(startTimeParts.hour) ? startTimeParts.hour : startTimeParts.hour ? OTHER_HOUR_VALUE : ''}
+                  onChange={e => handleHourPresetChange('start_time', e.target.value)}
+                >
+                  <option value="">時</option>
+                  {PRIMARY_TIME_HOURS.map(hour => <option key={hour} value={hour}>{hour}</option>)}
+                  <option value={OTHER_HOUR_VALUE}>其他</option>
+                </select>
+                {OTHER_TIME_HOURS.includes(startTimeParts.hour) && (
+                  <select
+                    className={`${timeSelectClassName} w-[70px]`}
+                    value={startTimeParts.hour}
+                    onChange={e => handleTimePartChange('start_time', 'hour', e.target.value)}
+                  >
+                    {OTHER_TIME_HOURS.map(hour => <option key={hour} value={hour}>{hour}</option>)}
+                  </select>
+                )}
+                <span className="text-slate-500 font-mono">:</span>
+                <select
+                  className={`${timeSelectClassName} w-[70px]`}
+                  value={TIME_MINUTES.includes(startTimeParts.minute) ? startTimeParts.minute : ''}
+                  onChange={e => handleTimePartChange('start_time', 'minute', e.target.value)}
+                >
+                  <option value="">分</option>
+                  {TIME_MINUTES.map(minute => <option key={minute} value={minute}>{minute}</option>)}
+                </select>
+              </div>
             </label>
             <label className="flex flex-col gap-1 mt-1">
               <span className="font-semibold text-slate-300">結束時間</span>
-              <input 
-                type="text" 
-                maxLength={5}
-                placeholder="11:00"
-                className="bg-slate-900 border border-slate-700 rounded p-1.5 focus:border-emerald-500 outline-none placeholder:text-slate-600 font-mono tracking-widest text-center max-w-[120px]"
-                value={formData.end_time || ''} onChange={e => {
-                  let v = e.target.value.replace(/[^\d:]/g, '');
-                  if (v.length === 2 && !v.includes(':') && v.length > (formData.end_time?.length || 0)) v += ':';
-                  setFormData({...formData, end_time: v || null});
-                }} 
-              />
+              <div className="flex items-center gap-1 max-w-[240px]">
+                <select
+                  className={`${timeSelectClassName} w-[70px]`}
+                  value={PRIMARY_TIME_HOURS.includes(endTimeParts.hour) ? endTimeParts.hour : endTimeParts.hour ? OTHER_HOUR_VALUE : ''}
+                  onChange={e => handleHourPresetChange('end_time', e.target.value)}
+                >
+                  <option value="">時</option>
+                  {PRIMARY_TIME_HOURS.map(hour => <option key={hour} value={hour}>{hour}</option>)}
+                  <option value={OTHER_HOUR_VALUE}>其他</option>
+                </select>
+                {OTHER_TIME_HOURS.includes(endTimeParts.hour) && (
+                  <select
+                    className={`${timeSelectClassName} w-[70px]`}
+                    value={endTimeParts.hour}
+                    onChange={e => handleTimePartChange('end_time', 'hour', e.target.value)}
+                  >
+                    {OTHER_TIME_HOURS.map(hour => <option key={hour} value={hour}>{hour}</option>)}
+                  </select>
+                )}
+                <span className="text-slate-500 font-mono">:</span>
+                <select
+                  className={`${timeSelectClassName} w-[70px]`}
+                  value={TIME_MINUTES.includes(endTimeParts.minute) ? endTimeParts.minute : ''}
+                  onChange={e => handleTimePartChange('end_time', 'minute', e.target.value)}
+                >
+                  <option value="">分</option>
+                  {TIME_MINUTES.map(minute => <option key={minute} value={minute}>{minute}</option>)}
+                </select>
+              </div>
             </label>
           </>
         )}

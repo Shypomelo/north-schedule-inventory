@@ -73,13 +73,14 @@ export default function SchedulePage() {
         },
         signal: reconcileController.signal,
       });
-    }).catch(error => {
+    }).then(res => res?.json()).catch(error => {
       console.error('Google Calendar reconcile failed:', error);
+      return null;
     }).finally(() => {
       lastReconcileAtRef.current = Date.now();
       reconcilePromiseRef.current = null;
       window.clearTimeout(reconcileTimeout);
-    }).then(() => undefined);
+    });
 
     reconcilePromiseRef.current = reconcilePromise;
     return reconcilePromise;
@@ -89,10 +90,6 @@ export default function SchedulePage() {
     if (showLoading) setIsLoading(true);
     setError(null);
     try {
-      if (showLoading) {
-        await reconcileGoogleCalendar();
-      }
-
       // Add timeout to prevent infinite loading
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('讀取超時，請重試')), 10000)
@@ -118,10 +115,19 @@ export default function SchedulePage() {
       setProjects(p);
       setUsers(u);
       setTodos(td);
+
+      if (showLoading) setIsLoading(false);
+
+      if (showLoading) {
+        reconcileGoogleCalendar().then((res: any) => {
+          if (res?.updated || res?.deleted) {
+            fetchData(false); // Silently refresh data
+          }
+        });
+      }
     } catch (err: any) {
       console.error('Fetch data failed:', err);
       setError(getDatabaseErrorMessage(err, '無法載入排程資料'));
-    } finally {
       if (showLoading) setIsLoading(false);
     }
   }, [reconcileGoogleCalendar]);
@@ -660,7 +666,7 @@ export default function SchedulePage() {
                               {isDone ? '✓ ' : ''}{isRescheduled ? '【改期】 ' : ''}{task.is_tentative ? '[暫] ' : ''}{projName}
                             </div>
                             <div className={`text-[11px] mt-0.5 font-bold truncate ${isDone || isRescheduled ? 'text-slate-500' : 'text-indigo-300'}`}>
-                              {region}[{task.task_type}]
+                              {region}[{task.task_type}] {task.is_all_day ? '全天' : (task.start_time && task.end_time ? `${task.start_time}–${task.end_time}` : (task.start_time || ''))}
                             </div>
                             <div className={`text-[11px] mt-0.5 truncate ${isDone || isRescheduled ? 'text-slate-500' : 'text-slate-300'}`}>
                               {task.title || '無備註'}

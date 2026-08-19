@@ -250,7 +250,10 @@ export async function buildGoogleEventBody(
     projectNameFromMapping || syncRow.project_name,
     '無案場',
   );
-  const taskTitle = sanitizeVisibleValue(syncRow.title, '未命名任務');
+  let taskTitle = syncRow.task_type || '未分類';
+  if (syncRow.title && syncRow.title.trim() !== '') {
+    taskTitle += ` - ${syncRow.title.trim()}`;
+  }
   const mainAssigneeName = sanitizeVisibleValue(
     syncRow.primary_member_name || userNameMap.get(syncRow.primary_member_id || ''),
     '未指派',
