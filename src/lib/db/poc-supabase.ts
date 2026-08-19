@@ -1,6 +1,7 @@
 import { supabase } from './supabaseClient';
 import {
   ScheduleTask,
+  ScheduleTaskMember,
   User,
   UserRole,
   Contractor,
@@ -30,6 +31,42 @@ const mapUser = (row: any): User => ({
   created_at: row.created_at || new Date().toISOString(),
   updated_at: row.updated_at || new Date().toISOString(),
 });
+
+const toStringArray = (value: string[] | string | null | undefined): string[] => {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.filter(Boolean);
+  return value
+    .replace(/^\{|\}$/g, '')
+    .split(',')
+    .map(item => item.trim().replace(/^"|"$/g, ''))
+    .filter(Boolean);
+};
+
+const buildScheduleTaskMemberRows = (taskId: string, memberIds: string[]): ScheduleTaskMember[] => (
+  memberIds.map(userId => ({
+    id: `${taskId}:${userId}`,
+    task_id: taskId,
+    user_id: userId,
+    created_at: new Date().toISOString(),
+  }))
+);
+
+const loadTeamMemberNamesById = async (memberIds: string[]): Promise<Map<string, string>> => {
+  const uniqueIds = Array.from(new Set(memberIds.filter(Boolean)));
+  if (uniqueIds.length === 0) return new Map();
+
+  const { data, error } = await supabase
+    .from('team_members')
+    .select('id, name')
+    .in('id', uniqueIds);
+
+  if (error) {
+    console.error('Error fetching team_member names:', error);
+    throw error;
+  }
+
+  return new Map((data || []).map((member: { id: string; name: string }) => [member.id, member.name]));
+};
 
 const toNumber = (value: number | string | null | undefined): number => {
   if (value === null || value === undefined || value === '') return 0;
@@ -1243,10 +1280,26 @@ export const pocSupabaseAdapter = {
     })) as ScheduleTask[];
   },
 
+  getScheduleTaskMembers: async (): Promise<ScheduleTaskMember[]> => {
+    const { data, error } = await supabase
+      .from('schedule_tasks')
+      .select('id, assistant_member_ids');
+
+    if (error) {
+      console.error('Error fetching schedule_task assistant members:', error);
+      throw error;
+    }
+
+    return (data || []).flatMap((row: any) => (
+      buildScheduleTaskMemberRows(row.id, toStringArray(row.assistant_member_ids))
+    ));
+  },
+
   createScheduleTask: async (
     t: Omit<ScheduleTask, 'id' | 'created_at' | 'updated_at'>,
     newMemberIds: string[] = [] // members are handled in dbAdapter.createScheduleTask
   ): Promise<ScheduleTask> => {
+    const memberNameMap = await loadTeamMemberNamesById([t.main_assignee_id, ...newMemberIds].filter(Boolean) as string[]);
     const taskData = {
       project_id: t.project_id,
       project_name: t.project_name,
@@ -1258,9 +1311,9 @@ export const pocSupabaseAdapter = {
       end_time: t.end_time || null,
       is_all_day: t.is_all_day,
       primary_member_id: t.main_assignee_id,
-      primary_member_name: null,
+      primary_member_name: t.main_assignee_id ? memberNameMap.get(t.main_assignee_id) || null : null,
       assistant_member_ids: newMemberIds || [],
-      assistant_member_names: [],
+      assistant_member_names: newMemberIds.map(id => memberNameMap.get(id)).filter(Boolean),
       status: t.status,
       is_tentative: t.is_tentative || false,
       address: t.address || null,
@@ -1314,6 +1367,20 @@ export const pocSupabaseAdapter = {
     if (updates.google_sync_error !== undefined) dbUpdates.google_sync_error = updates.google_sync_error;
     if (updates.last_synced_at !== undefined) dbUpdates.last_synced_at = updates.last_synced_at;
     if (newMemberIds !== undefined) dbUpdates.assistant_member_ids = newMemberIds;
+
+    const nameIds = [
+      updates.main_assignee_id,
+      ...(newMemberIds || []),
+    ].filter(Boolean) as string[];
+    const memberNameMap = await loadTeamMemberNamesById(nameIds);
+    if (updates.main_assignee_id !== undefined) {
+      dbUpdates.primary_member_name = updates.main_assignee_id
+        ? memberNameMap.get(updates.main_assignee_id) || null
+        : null;
+    }
+    if (newMemberIds !== undefined) {
+      dbUpdates.assistant_member_names = newMemberIds.map(memberId => memberNameMap.get(memberId)).filter(Boolean);
+    }
     
     dbUpdates.updated_at = new Date().toISOString();
 

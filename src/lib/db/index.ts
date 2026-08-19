@@ -142,6 +142,7 @@ export const dbAdapter = {
   createUser: hasSupabase ? pocSupabaseAdapter.createUser : mockDbAdapter.createUser,
   updateUser: hasSupabase ? pocSupabaseAdapter.updateUser : mockDbAdapter.updateUser,
   getScheduleTasks: hasSupabase ? pocSupabaseAdapter.getScheduleTasks : mockDbAdapter.getScheduleTasks,
+  getScheduleTaskMembers: hasSupabase ? pocSupabaseAdapter.getScheduleTaskMembers : mockDbAdapter.getScheduleTaskMembers,
 
   createScheduleTask: async (t: any, newMemberIds?: string[], skipGoogleSync = false) => {
     const fn = hasSupabase ? pocSupabaseAdapter.createScheduleTask : mockDbAdapter.createScheduleTask;

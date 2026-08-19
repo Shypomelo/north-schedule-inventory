@@ -282,9 +282,22 @@ export async function buildGoogleEventBody(
         timeZone: GOOGLE_TIME_ZONE,
       };
 
+  let finalAddress = syncRow.address || task.address;
+  if (!finalAddress && syncRow.project_id) {
+    const { data: pData } = await supabase
+      .from('projects')
+      .select('address')
+      .eq('id', syncRow.project_id)
+      .maybeSingle();
+    if (pData?.address) {
+      finalAddress = pData.address;
+    }
+  }
+
   return {
     summary: `【${projectName}】${taskTitle}`,
     description,
+    location: finalAddress || undefined,
     start,
     end,
     transparency: syncRow.is_tentative ? 'transparent' : 'opaque',

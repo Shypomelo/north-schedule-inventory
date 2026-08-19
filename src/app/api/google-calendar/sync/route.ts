@@ -42,6 +42,23 @@ const deleteRemoteDeletedScheduleTask = async (
   if (error) throw error;
 };
 
+const respondRemoteDeleted = async (
+  supabase: SupabaseClient,
+  taskId: string,
+  googleEventId: string,
+  syncError: string,
+) => {
+  await deleteRemoteDeletedScheduleTask(supabase, taskId);
+  return NextResponse.json({
+    success: true,
+    remote_deleted: true,
+    taskId,
+    googleEventId,
+    syncStatus: 'failed',
+    syncError,
+  });
+};
+
 export async function POST(req: Request) {
   try {
     const { context, error: authResponse } = await requireActiveTeamMember(req);
@@ -56,25 +73,34 @@ export async function POST(req: Request) {
     const supabase = context.supabase;
     const calendar = getGoogleCalendarClient();
 
+    const persistedTask = await loadScheduleTaskSyncRow(supabase, task.id);
+    if (!persistedTask) {
+      return NextResponse.json({ success: false, error: 'Task not found' }, { status: 404 });
+    }
+
+    const dbGoogleEventId = persistedTask.google_event_id;
+    const eventBody = await buildGoogleEventBody(supabase, {
+      ...task,
+      google_event_id: dbGoogleEventId,
+      google_calendar_id: persistedTask.google_calendar_id || task.google_calendar_id,
+    });
+
     // 1. DELETE
     if (action === 'DELETE') {
-      if (task.google_event_id) {
+      if (dbGoogleEventId) {
         try {
           await calendar.events.delete({
             calendarId: GOOGLE_CALENDAR_ID,
-            eventId: task.google_event_id,
+            eventId: dbGoogleEventId,
           });
         } catch (err: any) {
           if (isGoogleEventGoneError(err)) {
-            await deleteRemoteDeletedScheduleTask(supabase, task.id);
-            return NextResponse.json({
-              success: true,
-              remote_deleted: true,
-              taskId: task.id,
-              googleEventId: task.google_event_id,
-              syncStatus: 'failed',
-              syncError: 'Google event was already deleted remotely',
-            });
+            return respondRemoteDeleted(
+              supabase,
+              task.id,
+              dbGoogleEventId,
+              'Google event was already deleted remotely',
+            );
           }
 
           if (err.status !== 404 && err.status !== 410) {
@@ -86,20 +112,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true });
     }
 
-    const persistedTask = await loadScheduleTaskSyncRow(supabase, task.id);
-    const effectiveTask = {
-      ...task,
-      google_event_id: persistedTask?.google_event_id || task.google_event_id,
-      google_calendar_id: persistedTask?.google_calendar_id || task.google_calendar_id,
-    };
-    const eventBody = await buildGoogleEventBody(supabase, effectiveTask);
-
-    let newEventId = effectiveTask.google_event_id;
+    let newEventId = dbGoogleEventId;
     let syncStatus: 'synced' | 'failed' = 'synced';
     let syncError: string | null = null;
     const canCreateGoogleEvent = action === 'CREATE'
-      && !effectiveTask.google_event_id
-      && !persistedTask?.google_sync_status;
+      && !dbGoogleEventId
+      && !persistedTask.google_calendar_id
+      && !persistedTask.google_sync_status;
 
     try {
       if (canCreateGoogleEvent) {
@@ -109,26 +128,43 @@ export async function POST(req: Request) {
           requestBody: eventBody,
         });
         newEventId = res.data.id || null;
-      } else if ((action === 'UPDATE' || action === 'CREATE') && effectiveTask.google_event_id) {
-        // Update (if action=CREATE but it has an ID, maybe it's a retry)
+      } else if (dbGoogleEventId) {
+        const { data: existingEvent } = await calendar.events.get({
+          calendarId: GOOGLE_CALENDAR_ID,
+          eventId: dbGoogleEventId,
+        });
+
+        if (existingEvent.status === 'cancelled') {
+          return respondRemoteDeleted(
+            supabase,
+            task.id,
+            dbGoogleEventId,
+            'Google event was deleted remotely',
+          );
+        }
+
         await calendar.events.update({
           calendarId: GOOGLE_CALENDAR_ID,
-          eventId: effectiveTask.google_event_id,
+          eventId: dbGoogleEventId,
           requestBody: eventBody,
         });
-        newEventId = effectiveTask.google_event_id;
+        newEventId = dbGoogleEventId;
+      } else {
+        return NextResponse.json({
+          success: false,
+          skipped: true,
+          reason: 'missing_google_event_id_for_update',
+          taskId: task.id,
+        }, { status: 409 });
       }
     } catch (apiError: any) {
-      if (effectiveTask.google_event_id && isGoogleEventGoneError(apiError)) {
-        await deleteRemoteDeletedScheduleTask(supabase, task.id);
-        return NextResponse.json({
-          success: true,
-          remote_deleted: true,
-          taskId: task.id,
-          googleEventId: effectiveTask.google_event_id,
-          syncStatus: 'failed',
-          syncError: 'Google event was deleted remotely',
-        });
+      if (dbGoogleEventId && isGoogleEventGoneError(apiError)) {
+        return respondRemoteDeleted(
+          supabase,
+          task.id,
+          dbGoogleEventId,
+          'Google event was deleted remotely',
+        );
       }
 
       console.error('Google API Error:', getSafeErrorInfo(apiError));

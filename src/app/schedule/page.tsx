@@ -177,6 +177,22 @@ export default function SchedulePage() {
     });
   };
 
+  const buildMemberRows = (taskId: string, userIds: string[]): ScheduleTaskMember[] => (
+    userIds.map(userId => ({
+      id: `${taskId}:${userId}`,
+      task_id: taskId,
+      user_id: userId,
+      created_at: new Date().toISOString(),
+    }))
+  );
+
+  const replaceTaskMembers = (taskId: string, userIds: string[]) => {
+    setMembers(prev => [
+      ...prev.filter(member => member.task_id !== taskId),
+      ...buildMemberRows(taskId, userIds),
+    ]);
+  };
+
   const handleCreateOrUpdateTask = async (data: Omit<ScheduleTask, 'id' | 'created_at' | 'updated_at'>, newMemberIds: string[]) => {
     setIsSubmitting(true);
     try {
@@ -189,6 +205,7 @@ export default function SchedulePage() {
         
         try {
           await dbAdapter.updateScheduleTask(editingTask.id, data, newMemberIds);
+          replaceTaskMembers(editingTask.id, newMemberIds);
           await dbAdapter.logActivity({
             actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
             action_type: 'UPDATE_TASK', target_type: 'ScheduleTask', target_id: editingTask.id, target_label: data.title,
@@ -205,6 +222,7 @@ export default function SchedulePage() {
           if (originalTask) {
             setTasks(prev => prev.map(t => t.id === editingTask.id ? originalTask : t));
           }
+          replaceTaskMembers(editingTask.id, editingTaskMembers);
           throw error;
         }
       } else {
@@ -220,6 +238,7 @@ export default function SchedulePage() {
           
           // Replace temp with real
           setTasks(prev => prev.map(t => t.id === tempId ? newTask : t));
+          replaceTaskMembers(newTask.id, newMemberIds);
 
           await dbAdapter.logActivity({
             actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
@@ -250,6 +269,7 @@ export default function SchedulePage() {
 
       setIsFormOpen(false);
       setEditingTask(null);
+      setEditingTaskMembers([]);
       setConvertingTodoId(null);
       // Fetch data silently in background
       fetchData(false);
@@ -496,9 +516,10 @@ export default function SchedulePage() {
     const mainUser = users.find(u => u.id === task.main_assignee_id);
     const memberUids = members.filter(m => m.task_id === task.id).map(m => m.user_id);
     const coUsers = users.filter(u => memberUids.includes(u.id));
-    // Use the full name if user explicitly wants like 柚子/維揚 instead of just short name, but short_name or name is fine.
-    // The prompt says 柚子/維揚. So let's use name.
-    const allUsersShort = [mainUser?.name, ...coUsers.map(u => u.name)].filter(Boolean).join('/');
+    const mainAssigneeName = mainUser?.name || '';
+    const coworkerNames = coUsers.map(u => u.name);
+    const assigneeDisplay = mainAssigneeName ? `主要：${mainAssigneeName}` : '';
+    const coworkerDisplay = coworkerNames.length > 0 ? `協同：${coworkerNames.join('、')}` : '';
     
     let regionStr = proj?.region || '';
     if (!regionStr && (task.address || proj?.address)) {
@@ -511,7 +532,7 @@ export default function SchedulePage() {
     const region = regionStr ? `[${regionStr}]` : '';
     const searchAddress = task.address || proj?.address || projName;
 
-    return { projName, allUsersShort, region, searchAddress };
+    return { projName, assigneeDisplay, coworkerDisplay, region, searchAddress };
   };
 
   return (
@@ -610,7 +631,7 @@ export default function SchedulePage() {
                     </div>
                     <div className="flex-1 p-2 flex flex-col gap-2 overflow-y-auto">
                       {displayTasks.map(task => {
-                        const { projName, allUsersShort, region, searchAddress } = getTaskDisplay(task);
+                        const { projName, assigneeDisplay, coworkerDisplay, region, searchAddress } = getTaskDisplay(task);
                         const isDone = task.status === '完成';
                         const isRescheduled = task.status === '改期';
                         
@@ -644,9 +665,10 @@ export default function SchedulePage() {
                             <div className={`text-[11px] mt-0.5 truncate ${isDone || isRescheduled ? 'text-slate-500' : 'text-slate-300'}`}>
                               {task.title || '無備註'}
                             </div>
-                            {allUsersShort && (
-                              <div className={`text-[11px] mt-0.5 truncate ${isDone || isRescheduled ? 'text-slate-600' : 'text-slate-400'}`}>
-                                {allUsersShort}
+                            {(assigneeDisplay || coworkerDisplay) && (
+                              <div className={`text-[11px] mt-0.5 space-y-0.5 ${isDone || isRescheduled ? 'text-slate-600' : 'text-slate-400'}`}>
+                                {assigneeDisplay && <div className="truncate">{assigneeDisplay}</div>}
+                                {coworkerDisplay && <div className="truncate">{coworkerDisplay}</div>}
                               </div>
                             )}
                             <div className="text-[11px] mt-1">
@@ -829,7 +851,7 @@ export default function SchedulePage() {
               <div className="text-slate-500 text-center mt-10">尚無排程任務</div>
             ) : (
               selectedDayTasks.tasks.map(task => {
-                const { projName, allUsersShort, region, searchAddress } = getTaskDisplay(task);
+                const { projName, assigneeDisplay, coworkerDisplay, region, searchAddress } = getTaskDisplay(task);
                 return (
                   <div key={task.id} className={`bg-slate-900 border border-slate-700 rounded-lg p-4 ${task.status === '完成' ? 'opacity-50' : ''}`}>
                     <div className="flex justify-between items-start mb-2">
@@ -857,7 +879,10 @@ export default function SchedulePage() {
                       {task.status === '完成' ? '✓ ' : ''}{task.is_tentative ? '[暫] ' : ''}{projName}
                     </div>
                     <div className="text-sm text-indigo-400 mt-1 font-bold">{region}[{task.task_type}] {task.title ? task.title : '無備註'}</div>
-                    <div className="text-sm text-slate-300 mt-1">人員：{allUsersShort}</div>
+                    <div className="text-sm text-slate-300 mt-1">
+                      {assigneeDisplay && <div>{assigneeDisplay}</div>}
+                      {coworkerDisplay && <div>{coworkerDisplay}</div>}
+                    </div>
                     <div className="text-sm mt-1">
                       <a 
                         href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchAddress)}`}

@@ -69,16 +69,11 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
         }
       }
 
-      // Initialize main_assignee_id properly
-      const firstEngineer = activeUsers.find(u => u.category === 'ENGINEERING');
       let currentAssignee = activeUsers.find(u => u.id === initialData?.main_assignee_id);
       
       setFormData(prev => {
         let assigneeId = prev.main_assignee_id;
-        if (!initialData?.id) {
-           // New task default to first engineering user
-           assigneeId = firstEngineer ? firstEngineer.id : null;
-        } else {
+        if (initialData?.id) {
            // Editing: if the current assignee is not engineering, clear it
            if (currentAssignee && currentAssignee.category !== 'ENGINEERING') {
              assigneeId = '';
@@ -88,6 +83,10 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
       });
     });
   }, [initialData?.project_id, initialData?.project_name, initialData?.id, initialData?.main_assignee_id]);
+
+  useEffect(() => {
+    setMemberIds(initialMemberIds || []);
+  }, [initialData?.id, initialMemberIds]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -170,7 +169,7 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
     e.preventDefault();
     setErrorMsg(null);
     if (!formData.task_date) return setErrorMsg('任務日期為必填');
-    if (!formData.main_assignee_id) return setErrorMsg('主要負責人為必填');
+    if (!formData.main_assignee_id) return setErrorMsg('請選擇主要負責人');
     if (!formData.project_name?.trim()) return setErrorMsg('案場為必填');
     
     // Auto format check
@@ -336,7 +335,7 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
             className="bg-slate-900 border border-slate-700 rounded p-1.5 focus:border-emerald-500 outline-none cursor-pointer appearance-none"
             value={formData.main_assignee_id || ''} onChange={e => setFormData({...formData, main_assignee_id: e.target.value})} 
           >
-            <option value="">(請選擇)</option>
+            <option value="">請選擇</option>
             {mainAssigneeUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
           </select>
         </label>
