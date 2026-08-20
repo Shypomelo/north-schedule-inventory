@@ -64,6 +64,10 @@ export async function POST(req: Request) {
     const { context, error: authResponse } = await requireActiveTeamMember(req);
     if (authResponse) return authResponse;
 
+    if (context.member.role?.toUpperCase() === 'VIEWER') {
+      return NextResponse.json({ success: false, error: 'Forbidden for VIEWER role' }, { status: 403 });
+    }
+
     const { action, task } = await req.json() as { action: 'CREATE' | 'UPDATE' | 'DELETE', task: ScheduleTask };
 
     if (!task) {

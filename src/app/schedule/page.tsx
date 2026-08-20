@@ -56,6 +56,8 @@ export default function SchedulePage() {
   const [error, setError] = useState<string | null>(null);
 
   const reconcileGoogleCalendar = useCallback(async () => {
+    if (currentUser?.role === 'VIEWER') return;
+
     const now = Date.now();
     if (reconcilePromiseRef.current) return reconcilePromiseRef.current;
     if (now - lastReconcileAtRef.current < 30000) return;
