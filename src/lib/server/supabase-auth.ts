@@ -19,6 +19,8 @@ export type ActiveTeamMemberContext = {
   member: ActiveMember;
 };
 
+const normalizeEmail = (email?: string | null) => email?.trim().toLowerCase() || '';
+
 const jsonError = (message: string, status: number) => NextResponse.json(
   { success: false, error: message },
   { status },
@@ -71,17 +73,18 @@ export async function requireActiveTeamMember(
     return { context: null, error: jsonError('Invalid authorization token', 401) };
   }
 
-  const { data: member, error: memberError } = await supabase
+  const sessionEmail = normalizeEmail(user.email);
+  const { data: members, error: memberError } = await supabase
     .from('team_members')
     .select('id, email, name, role, is_active, deleted_at')
-    .eq('email', user.email)
     .eq('is_active', true)
-    .is('deleted_at', null)
-    .maybeSingle();
+    .is('deleted_at', null);
 
   if (memberError) {
     return { context: null, error: jsonError('Failed to verify team member access', 500) };
   }
+
+  const member = members?.find((candidate: ActiveMember) => normalizeEmail(candidate.email) === sessionEmail);
 
   if (!member) {
     return { context: null, error: jsonError('User is not an active team member', 403) };

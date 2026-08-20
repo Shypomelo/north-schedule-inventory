@@ -19,6 +19,8 @@ const UserContext = createContext<UserContextType | undefined>(undefined);
 const DEFAULT_PRODUCTION_SITE_URL = 'https://north-schedule-inventory.vercel.app';
 const INTENDED_PATH_STORAGE_KEY = 'north-schedule-intended-path';
 
+const normalizeEmail = (email?: string | null) => email?.trim().toLowerCase() || '';
+
 const getSafeNextPath = (value?: string | null) => {
   if (!value) return '/';
   if (!value.startsWith('/') || value.startsWith('//')) return '/';
@@ -73,7 +75,8 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         if (mounted) {
           setAllUsers(users);
           if (session?.user?.email) {
-            const foundUser = users.find((u: User) => u.email === session.user.email);
+            const sessionEmail = normalizeEmail(session.user.email);
+            const foundUser = users.find((u: User) => normalizeEmail(u.email) === sessionEmail);
             if (!foundUser) {
               setAuthError('此 Google 帳號尚未被授權，請聯絡管理者');
               setCurrentUser(null);

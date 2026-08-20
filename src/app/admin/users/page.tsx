@@ -7,6 +7,9 @@ import { User, UserRole } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { Plus, Edit2, ShieldAlert } from 'lucide-react';
 
+const OWNER_TEAM_MEMBER_ID = '65916798-f0ec-4d41-8b17-785c4189bd83';
+const isOwnerUser = (user?: Pick<User, 'id'> | null) => user?.id === OWNER_TEAM_MEMBER_ID;
+
 export default function AdminUsersPage() {
   const router = useRouter();
   const { currentUser, isLoading: contextLoading } = useUser();
@@ -107,10 +110,14 @@ export default function AdminUsersPage() {
     }
     
     try {
+      const payload = editingUser && isOwnerUser(editingUser)
+        ? { ...formData, role: 'ADMIN' as UserRole, is_active: true }
+        : formData;
+
       if (editingUser) {
-        await dbAdapter.updateUser(editingUser.id, formData);
+        await dbAdapter.updateUser(editingUser.id, payload);
       } else {
-        await dbAdapter.createUser(formData as any);
+        await dbAdapter.createUser(payload as any);
       }
       setIsModalOpen(false);
       loadUsers();
@@ -120,6 +127,8 @@ export default function AdminUsersPage() {
       alert(`儲存失敗：${err.message || '未知錯誤'}`);
     }
   };
+
+  const editingOwner = isOwnerUser(editingUser);
 
   return (
     <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 flex flex-col gap-6">
@@ -167,9 +176,21 @@ export default function AdminUsersPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-700/50 text-sm">
-              {users.map(user => (
+              {users.map(user => {
+                const isOwner = isOwnerUser(user);
+
+                return (
                 <tr key={user.id} className="hover:bg-slate-700/30 transition-colors">
-                  <td className="p-4 text-slate-200 font-medium">{user.name}</td>
+                  <td className="p-4 text-slate-200 font-medium">
+                    <div className="flex items-center gap-2">
+                      <span>{user.name}</span>
+                      {isOwner && (
+                        <span className="rounded bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-300">
+                          系統擁有者
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td className="p-4 text-slate-400">{user.short_name}</td>
                   <td className="p-4 text-slate-300">
                     {user.category === 'ENGINEERING' ? '工程' : user.category === 'MANAGEMENT' ? '管理' : user.category === 'OTHER' ? '其他' : '-'}
@@ -203,7 +224,8 @@ export default function AdminUsersPage() {
                     </button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -225,6 +247,12 @@ export default function AdminUsersPage() {
             </div>
             
             <form onSubmit={handleSave} className="p-6 flex flex-col gap-4">
+              {editingOwner && (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+                  系統擁有者固定為 Admin 且不可停用。
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-1.5">
                   <label className="text-sm font-medium text-slate-300">姓名 <span className="text-red-400">*</span></label>
@@ -268,7 +296,8 @@ export default function AdminUsersPage() {
                   <select 
                     value={formData.role} 
                     onChange={e => setFormData({...formData, role: e.target.value as UserRole})}
-                    className="bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-slate-200 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                    disabled={editingOwner}
+                    className="bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-slate-200 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <option value="ADMIN">Admin</option>
                     <option value="ENGINEER">Engineer</option>
@@ -280,7 +309,8 @@ export default function AdminUsersPage() {
                   <select 
                     value={formData.is_active ? 'true' : 'false'} 
                     onChange={e => setFormData({...formData, is_active: e.target.value === 'true'})}
-                    className="bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-slate-200 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                    disabled={editingOwner}
+                    className="bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-slate-200 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <option value="true">啟用</option>
                     <option value="false">停用</option>
@@ -295,7 +325,8 @@ export default function AdminUsersPage() {
                   required
                   value={formData.email || ''} 
                   onChange={e => setFormData({...formData, email: e.target.value})}
-                  className="bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-slate-200 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  disabled={editingOwner}
+                  className="bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-slate-200 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
                   placeholder="name@example.com"
                 />
               </div>
