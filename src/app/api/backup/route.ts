@@ -1,9 +1,14 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
+import { requireAdminTeamMember } from '@/lib/server/supabase-auth';
 
 export async function POST(request: Request) {
   try {
+    const { error: authResponse } = await requireAdminTeamMember(request);
+    if (authResponse) return authResponse;
+
     const data = await request.json();
     const date = new Date();
     // YYYYMMDD-HHmm
@@ -13,7 +18,9 @@ export async function POST(request: Request) {
       String(date.getHours()).padStart(2, '0') +
       String(date.getMinutes()).padStart(2, '0');
     
-    const backupDir = path.join(process.cwd(), 'backup');
+    const backupDir = process.env.VERCEL
+      ? path.join(os.tmpdir(), 'schedule-inventory-backup')
+      : path.join(process.cwd(), 'backup');
     if (!fs.existsSync(backupDir)) {
       fs.mkdirSync(backupDir, { recursive: true });
     }

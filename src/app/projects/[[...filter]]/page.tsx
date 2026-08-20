@@ -11,6 +11,7 @@ import { SmartDateInput } from '@/components/SmartDateInput';
 import { DateDualInput } from '@/components/DateDualInput';
 import { useUser } from '@/components/UserContext';
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
+import { supabase } from '@/lib/db/supabaseClient';
 import { MapPin, Plus, Search, Filter, Maximize2 } from 'lucide-react';
 import { useParams } from 'next/navigation';
 
@@ -54,10 +55,17 @@ export default function ProjectsPage() {
 
   const handleBackup = async () => {
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        alert('Please sign in before creating a backup.');
+        return;
+      }
+
       const response = await fetch('/api/backup', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify(filteredProjects),
       });

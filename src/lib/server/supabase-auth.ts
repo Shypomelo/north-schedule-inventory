@@ -96,3 +96,16 @@ export async function requireActiveTeamMember(
     error: null,
   };
 }
+
+export async function requireAdminTeamMember(
+  req: Request,
+): Promise<{ context: ActiveTeamMemberContext; error: null } | { context: null; error: NextResponse }> {
+  const result = await requireActiveTeamMember(req);
+  if (result.error) return result;
+
+  if (result.context.member.role?.toLowerCase() !== 'admin') {
+    return { context: null, error: jsonError('Admin access is required', 403) };
+  }
+
+  return result;
+}
