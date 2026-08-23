@@ -25,6 +25,7 @@ export interface ActivityLog {
 
 export interface SESupplyRecord {
   id: string;
+  project_id: string | null;
   project_name: string | null;
   old_model: string | null;
   faulty_serial: string | null;

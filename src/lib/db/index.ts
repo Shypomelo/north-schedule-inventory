@@ -104,6 +104,33 @@ const inventoryAdapter = hasSupabase
         getInventoryMonthlyClosingItems: mockDbAdapter.getMonthlyClosingItems,
       };
 
+const requireSESupplySupabase = (methodName: string) => async () => {
+  throw new Error(
+    `Supabase is required for SE Supply in production. Refusing mock/localStorage fallback for ${methodName}.`
+  );
+};
+
+const seSupplyAdapter = hasSupabase
+  ? {
+      getSESupplyRecords: pocSupabaseAdapter.getSESupplyRecords,
+      createSESupplyRecord: pocSupabaseAdapter.createSESupplyRecord,
+      updateSESupplyRecord: pocSupabaseAdapter.updateSESupplyRecord,
+      deleteSESupplyRecord: pocSupabaseAdapter.deleteSESupplyRecord,
+    }
+  : isProduction
+    ? {
+        getSESupplyRecords: requireSESupplySupabase('getSESupplyRecords'),
+        createSESupplyRecord: requireSESupplySupabase('createSESupplyRecord'),
+        updateSESupplyRecord: requireSESupplySupabase('updateSESupplyRecord'),
+        deleteSESupplyRecord: requireSESupplySupabase('deleteSESupplyRecord'),
+      }
+    : {
+        getSESupplyRecords: mockDbAdapter.getSESupplyRecords,
+        createSESupplyRecord: mockDbAdapter.createSESupplyRecord,
+        updateSESupplyRecord: mockDbAdapter.updateSESupplyRecord,
+        deleteSESupplyRecord: mockDbAdapter.deleteSESupplyRecord,
+      };
+
 const syncToGoogle = async (action: 'CREATE' | 'UPDATE' | 'DELETE', task: any, skipGoogleSync?: boolean) => {
   if (skipGoogleSync) return;
   try {
@@ -187,6 +214,7 @@ export const dbAdapter = {
   deleteProject: hasSupabase ? pocSupabaseAdapter.deleteProject : mockDbAdapter.deleteProject,
 
   ...inventoryAdapter,
+  ...seSupplyAdapter,
   getActivityLogs: hasSupabase ? pocSupabaseAdapter.getActivityLogs : mockDbAdapter.getActivityLogs,
   logActivity: hasSupabase ? pocSupabaseAdapter.logActivity : mockDbAdapter.logActivity,
 };

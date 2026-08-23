@@ -14,6 +14,7 @@ import {
   InventoryMonthlyClosing,
   InventoryMonthlyClosingItem,
   ActivityLog,
+  SESupplyRecord,
 } from './types';
 import { throwMissingCoreTablesErrorIfNeeded } from './supabase-errors';
 import { getInventoryTransactionQuantityDelta } from './inventory-stock';
@@ -606,6 +607,60 @@ const resolveInventorySerial = async (
   }
 
   return null;
+};
+
+const fetchSESupplyRecordsFromSupabase = async (): Promise<SESupplyRecord[]> => {
+  const { data, error } = await supabase
+    .from('se_supply_records')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching se_supply_records:', error);
+    throw error;
+  }
+  return (data || []) as SESupplyRecord[];
+};
+
+const createSESupplyRecordInSupabase = async (data: Omit<SESupplyRecord, 'id' | 'created_at' | 'updated_at'>): Promise<SESupplyRecord> => {
+  const { data: created, error } = await supabase
+    .from('se_supply_records')
+    .insert(data)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error creating se_supply_record:', error);
+    throw error;
+  }
+  return created as SESupplyRecord;
+};
+
+const updateSESupplyRecordInSupabase = async (id: string, updates: Partial<SESupplyRecord>): Promise<SESupplyRecord> => {
+  const { data, error } = await supabase
+    .from('se_supply_records')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error updating se_supply_record:', error);
+    throw error;
+  }
+  return data as SESupplyRecord;
+};
+
+const deleteSESupplyRecordFromSupabase = async (id: string): Promise<void> => {
+  const { error } = await supabase
+    .from('se_supply_records')
+    .delete()
+    .eq('id', id);
+
+  if (error) {
+    console.error('Error deleting se_supply_record:', error);
+    throw error;
+  }
 };
 
 const getSerialUpdateForTransaction = (
@@ -1751,4 +1806,8 @@ export const pocSupabaseAdapter = {
   getInventoryMonthlyClosingItems: fetchInventoryMonthlyClosingItemsFromSupabase,
   getActivityLogs: fetchActivityLogsFromSupabase,
   logActivity: logActivityInSupabase,
+  getSESupplyRecords: fetchSESupplyRecordsFromSupabase,
+  createSESupplyRecord: createSESupplyRecordInSupabase,
+  updateSESupplyRecord: updateSESupplyRecordInSupabase,
+  deleteSESupplyRecord: deleteSESupplyRecordFromSupabase,
 };

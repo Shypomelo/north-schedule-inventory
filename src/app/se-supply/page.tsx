@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { dbAdapter } from '@/lib/db';
 import { Project, SESupplyRecord } from '@/lib/db/types';
 import { Plus, Trash2, Download, Search, Filter } from 'lucide-react';
@@ -25,6 +25,13 @@ export default function SESupplyPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterMethod, setFilterMethod] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [contextMenu, setContextMenu] = useState<{ visible: boolean, x: number, y: number, recordId: string | null }>({ visible: false, x: 0, y: 0, recordId: null });
+
+  useEffect(() => {
+    const handleClick = () => setContextMenu({ visible: false, x: 0, y: 0, recordId: null });
+    document.addEventListener('click', handleClick);
+    return () => document.removeEventListener('click', handleClick);
+  }, []);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -48,10 +55,33 @@ export default function SESupplyPage() {
     return '待收料';
   };
 
+  const projectById = useMemo(
+    () => new Map(projects.map(project => [project.id, project])),
+    [projects]
+  );
+
+  const duplicateProjectNames = useMemo(() => {
+    const nameCounts = new Map<string, number>();
+    projects.forEach(project => nameCounts.set(project.name, (nameCounts.get(project.name) || 0) + 1));
+    return new Set(Array.from(nameCounts.entries()).filter(([, count]) => count > 1).map(([name]) => name));
+  }, [projects]);
+
+  const getProjectDisplayName = useCallback((record: SESupplyRecord) => (
+    (record.project_id ? projectById.get(record.project_id)?.name : null)
+    || record.project_name
+    || ''
+  ), [projectById]);
+
+  const getProjectOptionLabel = (project: Project) => {
+    if (!duplicateProjectNames.has(project.name)) return project.name;
+    const discriminator = project.short_name || project.project_code || project.id.slice(0, 8);
+    return `${project.name}（${discriminator}）`;
+  };
+
   const filteredRecords = useMemo(() => {
     return records.filter(r => {
       const matchSearch = 
-        (r.project_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        getProjectDisplayName(r).toLowerCase().includes(searchTerm.toLowerCase()) ||
         (r.faulty_serial || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (r.new_serial || '').toLowerCase().includes(searchTerm.toLowerCase());
       
@@ -60,13 +90,18 @@ export default function SESupplyPage() {
       const matchStatus = filterStatus ? status === filterStatus : true;
 
       return matchSearch && matchMethod && matchStatus;
+    }).sort((a, b) => {
+      const timeA = new Date(a.created_at || 0).getTime();
+      const timeB = new Date(b.created_at || 0).getTime();
+      return timeB - timeA;
     });
-  }, [records, searchTerm, filterMethod, filterStatus]);
+  }, [records, searchTerm, filterMethod, filterStatus, getProjectDisplayName]);
 
   const handleAddRow = async () => {
     try {
       // @ts-ignore
       const newRec = await dbAdapter.createSESupplyRecord({
+        project_id: null,
         project_name: '',
         old_model: '',
         faulty_serial: '',
@@ -85,7 +120,7 @@ export default function SESupplyPage() {
   };
 
   const handleDeleteRow = async (id: string) => {
-    if (!confirm('確定要刪除這筆紀錄嗎？')) return;
+    if (!confirm('確定刪除此筆 SE 供貨紀錄？')) return;
     try {
       // @ts-ignore
       await dbAdapter.deleteSESupplyRecord(id);
@@ -110,6 +145,31 @@ export default function SESupplyPage() {
     }
   };
 
+  const handleProjectInputChange = (id: string, projectName: string) => {
+    setRecords(current => current.map(record => record.id === id
+      ? { ...record, project_id: null, project_name: projectName }
+      : record));
+  };
+
+  const handleProjectBlur = async (id: string, inputValue: string) => {
+    const matchingProjects = projects.filter(project => project.name === inputValue);
+    const selectedProject = projects.find(project => getProjectOptionLabel(project) === inputValue)
+      || (matchingProjects.length === 1 ? matchingProjects[0] : null);
+    const updates: Pick<SESupplyRecord, 'project_id' | 'project_name'> = selectedProject
+      ? { project_id: selectedProject.id, project_name: selectedProject.name }
+      : { project_id: null, project_name: inputValue };
+
+    setRecords(current => current.map(record => record.id === id ? { ...record, ...updates } : record));
+
+    try {
+      // @ts-ignore
+      await dbAdapter.updateSESupplyRecord(id, updates);
+    } catch (e) {
+      console.error(e);
+      await loadData();
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement>, id: string, field: keyof SESupplyRecord, value: string) => {
     if (e.key === 'Enter') {
       e.currentTarget.blur();
@@ -118,7 +178,7 @@ export default function SESupplyPage() {
 
   const exportExcel = () => {
     const data = filteredRecords.map(r => ({
-      '案名': r.project_name || '',
+      '案名': getProjectDisplayName(r),
       '原故障型號': r.old_model || '',
       '故障序號': r.faulty_serial || '',
       '故障原因': r.fault_reason || '',
@@ -232,7 +292,15 @@ export default function SESupplyPage() {
               filteredRecords.map(r => {
                 const status = getStatus(r.receive_date, r.replace_date);
                 return (
-                  <tr key={r.id} className="bg-slate-900 hover:bg-slate-800/50 transition-colors group">
+                  <tr
+                    key={r.id}
+                    className="bg-slate-900 hover:bg-slate-800/50 transition-colors group"
+                    onContextMenu={(e) => {
+                      if (currentUser?.role === 'VIEWER') return;
+                      e.preventDefault();
+                      setContextMenu({ visible: true, x: e.clientX, y: e.clientY, recordId: r.id });
+                    }}
+                  >
                     <td className="px-3 py-1.5 text-center">
                       <button 
                         onClick={() => handleDeleteRow(r.id)}
@@ -244,12 +312,12 @@ export default function SESupplyPage() {
                       </button>
                     </td>
                     <td className="px-1 py-1">
-                      <input 
+                      <input
                         type="text"
                         list="projects-list"
-                        value={r.project_name || ''}
-                        onChange={e => handleCellChange(r.id, 'project_name', e.target.value)}
-                        onBlur={e => handleCellBlur(r.id, 'project_name', e.target.value)}
+                        value={getProjectDisplayName(r)}
+                        onChange={e => handleProjectInputChange(r.id, e.target.value)}
+                        onBlur={e => handleProjectBlur(r.id, e.target.value)}
                         onKeyDown={e => handleKeyDown(e, r.id, 'project_name', e.currentTarget.value)}
                         placeholder="輸入案名..."
                         className="w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-emerald-500 focus:bg-slate-950 rounded px-2 py-1 outline-none text-slate-200 placeholder-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -370,7 +438,9 @@ export default function SESupplyPage() {
       </div>
 
       <datalist id="projects-list">
-        {projects.filter(p => p.is_active).map(p => <option key={p.id} value={p.name} />)}
+        {projects.filter(project => project.is_active).map(project => (
+          <option key={project.id} value={getProjectOptionLabel(project)} />
+        ))}
       </datalist>
       <datalist id="receive-methods">
         {RECEIVE_METHODS.map(m => <option key={m} value={m} />)}
@@ -383,6 +453,24 @@ export default function SESupplyPage() {
         <option value="188/182" />
         <option value="未確認" />
       </datalist>
+
+      {contextMenu.visible && (
+        <div
+          className="fixed z-50 bg-slate-800 border border-slate-700 shadow-xl rounded py-1 min-w-[120px]"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+        >
+          <button
+            className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-slate-700 flex items-center gap-2"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (contextMenu.recordId) handleDeleteRow(contextMenu.recordId);
+              setContextMenu({ visible: false, x: 0, y: 0, recordId: null });
+            }}
+          >
+            <Trash2 size={14} /> 刪除紀錄
+          </button>
+        </div>
+      )}
     </div>
   );
 }

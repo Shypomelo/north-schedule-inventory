@@ -38,8 +38,4 @@ export const supabaseDbAdapter = {
   getMonthlyClosings: async () => { throw new Error('Supabase not configured yet'); },
   getMonthlyClosingItems: async (closingId: string) => { throw new Error('Supabase not configured yet'); },
   createMonthlyClosing: async (closing: any, items: any) => { throw new Error('Supabase not configured yet'); },
-  getSESupplyRecords: async () => { throw new Error('Supabase not configured yet'); },
-  createSESupplyRecord: async (data: any) => { throw new Error('Supabase not configured yet'); },
-  updateSESupplyRecord: async (id: string, updates: any) => { throw new Error('Supabase not configured yet'); },
-  deleteSESupplyRecord: async (id: string) => { throw new Error('Supabase not configured yet'); },
 };
