@@ -622,10 +622,29 @@ const fetchSESupplyRecordsFromSupabase = async (): Promise<SESupplyRecord[]> => 
   return (data || []) as SESupplyRecord[];
 };
 
-const createSESupplyRecordInSupabase = async (data: Omit<SESupplyRecord, 'id' | 'created_at' | 'updated_at'>): Promise<SESupplyRecord> => {
+type NewSESupplyRecord = Omit<SESupplyRecord, 'id' | 'created_at' | 'updated_at'>;
+
+const normalizeSESupplyNullableValue = (value: string | null): string | null =>
+  value === '' ? null : value;
+
+const normalizeNewSESupplyRecord = (data: NewSESupplyRecord): NewSESupplyRecord => ({
+  project_id: normalizeSESupplyNullableValue(data.project_id),
+  project_name: normalizeSESupplyNullableValue(data.project_name),
+  old_model: normalizeSESupplyNullableValue(data.old_model),
+  faulty_serial: normalizeSESupplyNullableValue(data.faulty_serial),
+  fault_reason: normalizeSESupplyNullableValue(data.fault_reason),
+  new_serial: normalizeSESupplyNullableValue(data.new_serial),
+  receive_method: normalizeSESupplyNullableValue(data.receive_method),
+  receive_date: normalizeSESupplyNullableValue(data.receive_date),
+  replace_date: normalizeSESupplyNullableValue(data.replace_date),
+  notes: normalizeSESupplyNullableValue(data.notes),
+});
+
+const createSESupplyRecordInSupabase = async (data: NewSESupplyRecord): Promise<SESupplyRecord> => {
+  const payload = normalizeNewSESupplyRecord(data);
   const { data: created, error } = await supabase
     .from('se_supply_records')
-    .insert(data)
+    .insert(payload)
     .select()
     .single();
 

@@ -102,20 +102,23 @@ export default function SESupplyPage() {
       // @ts-ignore
       const newRec = await dbAdapter.createSESupplyRecord({
         project_id: null,
-        project_name: '',
-        old_model: '',
-        faulty_serial: '',
-        fault_reason: '',
-        new_serial: '',
-        receive_method: '',
-        receive_date: '',
-        replace_date: '',
-        notes: ''
+        project_name: null,
+        old_model: null,
+        faulty_serial: null,
+        fault_reason: null,
+        new_serial: null,
+        receive_method: null,
+        receive_date: null,
+        replace_date: null,
+        notes: null
       });
       setRecords([newRec, ...records]);
     } catch (e) {
       console.error(e);
-      alert('新增失敗');
+      const message = e && typeof e === 'object' && 'message' in e
+        ? String(e.message)
+        : '未知錯誤';
+      alert(`新增失敗：${message}`);
     }
   };
 
