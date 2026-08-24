@@ -482,6 +482,9 @@ export const mockDbAdapter = {
 
   // --- Inventory Items ---
   getInventoryItems: async () => [...db.inventory_items],
+  hasInventoryItemMonthlyClosing: async (itemId: string) => (
+    db.inventory_monthly_closing_items.some(item => item.inventory_item_id === itemId)
+  ),
   createInventoryItem: async (t: Omit<InventoryItem, 'id'|'created_at'|'updated_at'>) => {
     const newItem: InventoryItem = {
       ...t,
@@ -782,31 +785,50 @@ export const mockDbAdapter = {
   // --- Monthly Closings ---
   getMonthlyClosings: async () => [...db.inventory_monthly_closings],
   getMonthlyClosingItems: async (closingId: string) => db.inventory_monthly_closing_items.filter(i => i.closing_id === closingId),
+  unsealInventoryMonth: async (year: string, month: string) => {
+    const closing = db.inventory_monthly_closings.find(c => c.year === year && c.month === month);
+    if (!closing) throw new Error(`${year}-${month} 找不到月結紀錄`);
+    if (closing.status !== 'CLOSED') throw new Error(`${year}-${month} 尚未封存`);
+
+    closing.status = 'OPEN';
+    persist();
+    return { ...closing };
+  },
   createMonthlyClosing: async (closing: Omit<InventoryMonthlyClosing, 'id'>, items: Omit<InventoryMonthlyClosingItem, 'id' | 'closing_id'>[]) => {
-    // Delete existing closing for this year/month if it exists
     const existingIndex = db.inventory_monthly_closings.findIndex(c => c.year === closing.year && c.month === closing.month);
+    let storedClosing: InventoryMonthlyClosing;
+
     if (existingIndex >= 0) {
-       const existingId = db.inventory_monthly_closings[existingIndex].id;
-       db.inventory_monthly_closings.splice(existingIndex, 1);
-       db.inventory_monthly_closing_items = db.inventory_monthly_closing_items.filter(i => i.closing_id !== existingId);
+      if (db.inventory_monthly_closings[existingIndex].status === 'CLOSED') {
+        throw new Error('此月份已封存，請先解除封存後再重新封存');
+      }
+
+      storedClosing = {
+        ...db.inventory_monthly_closings[existingIndex],
+        ...closing,
+        status: 'CLOSED',
+      };
+      db.inventory_monthly_closings[existingIndex] = storedClosing;
+      db.inventory_monthly_closing_items = db.inventory_monthly_closing_items.filter(i => i.closing_id !== storedClosing.id);
+    } else {
+      storedClosing = {
+        ...closing,
+        id: crypto.randomUUID(),
+        status: 'CLOSED',
+      };
+      db.inventory_monthly_closings.push(storedClosing);
     }
-    
-    const newClosing: InventoryMonthlyClosing = {
-      ...closing,
-      id: crypto.randomUUID(),
-    };
-    db.inventory_monthly_closings.push(newClosing);
 
     items.forEach(item => {
       db.inventory_monthly_closing_items.push({
         ...item,
         id: crypto.randomUUID(),
-        closing_id: newClosing.id,
+        closing_id: storedClosing.id,
       });
     });
 
     persist();
-    return newClosing;
+    return { ...storedClosing };
   },
 
   // --- SE Supply Records ---

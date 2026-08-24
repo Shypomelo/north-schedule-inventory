@@ -9,9 +9,16 @@ interface ItemFormProps {
   onSubmit: (data: Omit<InventoryItem, 'id' | 'created_at' | 'updated_at'>) => Promise<void>;
   onCancel: () => void;
   isSubmitting: boolean;
+  isOpeningQuantityLocked?: boolean;
 }
 
-export function ItemForm({ initialData, onSubmit, onCancel, isSubmitting }: ItemFormProps) {
+export function ItemForm({
+  initialData,
+  onSubmit,
+  onCancel,
+  isSubmitting,
+  isOpeningQuantityLocked = false,
+}: ItemFormProps) {
   const { currentUser } = useUser();
   const isViewer = currentUser?.role === 'VIEWER';
   const [formData, setFormData] = useState({
@@ -36,7 +43,7 @@ export function ItemForm({ initialData, onSubmit, onCancel, isSubmitting }: Item
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <fieldset disabled={isViewer || isSubmitting} className="grid grid-cols-1 md:grid-cols-2 gap-4 disabled:opacity-70">
         <label className="flex flex-col gap-1">
           <span className="text-sm font-semibold text-slate-300">品項代碼 *</span>
           <input 
@@ -103,9 +110,16 @@ export function ItemForm({ initialData, onSubmit, onCancel, isSubmitting }: Item
           <span className="text-sm font-semibold text-slate-300">期初數量</span>
           <input 
             type="number" required 
-            className="bg-slate-900 border border-slate-700 rounded p-2 focus:border-emerald-500 outline-none text-slate-100"
+            disabled={isOpeningQuantityLocked}
+            aria-describedby={isOpeningQuantityLocked ? 'opening-quantity-lock-message' : undefined}
+            className="bg-slate-900 border border-slate-700 rounded p-2 focus:border-emerald-500 outline-none text-slate-100 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-400"
             value={formData.opening_quantity} onChange={e => setFormData({...formData, opening_quantity: parseInt(e.target.value) || 0})} 
           />
+          {isOpeningQuantityLocked && (
+            <span id="opening-quantity-lock-message" className="text-xs text-amber-400 mt-1">
+              已有月結紀錄，請使用庫存調整
+            </span>
+          )}
         </label>
 
         <label className="flex flex-col gap-1">
@@ -142,7 +156,7 @@ export function ItemForm({ initialData, onSubmit, onCancel, isSubmitting }: Item
             value={formData.notes || ''} onChange={e => setFormData({...formData, notes: e.target.value})} 
           />
         </label>
-      </div>
+      </fieldset>
 
       <div className="flex justify-end gap-3 mt-4 border-t border-slate-700 pt-4">
         <button type="button" onClick={onCancel} disabled={isSubmitting} className="px-4 py-2 rounded text-slate-300 hover:bg-slate-800 disabled:opacity-50">

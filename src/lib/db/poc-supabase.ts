@@ -308,6 +308,21 @@ const fetchInventoryItemsFromSupabase = async (): Promise<InventoryItem[]> => {
   return (data || []).map(mapInventoryItem);
 };
 
+const hasInventoryItemMonthlyClosingInSupabase = async (itemId: string): Promise<boolean> => {
+  const { data, error } = await supabase
+    .from('inventory_monthly_closing_items')
+    .select('id')
+    .eq('inventory_item_id', itemId)
+    .limit(1);
+
+  if (error) {
+    console.error('Error checking inventory_item monthly closing:', error);
+    throw error;
+  }
+
+  return (data?.length || 0) > 0;
+};
+
 const createInventoryItemInSupabase = async (
   item: Omit<InventoryItem, 'id' | 'created_at' | 'updated_at'>,
 ): Promise<InventoryItem> => {
@@ -1025,13 +1040,35 @@ const fetchInventoryMonthlyClosingItemsFromSupabase = async (
   return (data || []).map(mapInventoryMonthlyClosingItem);
 };
 
+const unsealInventoryMonthInSupabase = async (
+  year: string,
+  month: string,
+): Promise<InventoryMonthlyClosing> => {
+  const { data, error } = await supabase.rpc('unseal_inventory_month', {
+    p_year: year,
+    p_month: month,
+  });
+
+  if (error) {
+    console.error('Error unsealing inventory month:', error);
+    throw error;
+  }
+
+  const unsealedClosing = Array.isArray(data) ? data[0] : data;
+  if (!unsealedClosing) {
+    throw new Error(`${year}-${month} 解除封存後未回傳月結資料`);
+  }
+
+  return mapInventoryMonthlyClosing(unsealedClosing);
+};
+
 const createMonthlyClosingInSupabase = async (
   closing: Omit<InventoryMonthlyClosing, 'id'>,
   items: Omit<InventoryMonthlyClosingItem, 'id' | 'closing_id'>[],
 ): Promise<InventoryMonthlyClosing> => {
   const { data: existingClosing, error: existingError } = await supabase
     .from('inventory_monthly_closings')
-    .select('id')
+    .select('id, status')
     .eq('year', closing.year)
     .eq('month', closing.month)
     .maybeSingle();
@@ -1041,40 +1078,47 @@ const createMonthlyClosingInSupabase = async (
     throw existingError;
   }
 
-  if (existingClosing) {
-    const { error: deleteError } = await supabase
-      .from('inventory_monthly_closings')
+  if (existingClosing?.status === 'CLOSED') {
+    throw new Error('此月份已封存，請先解除封存後再重新封存');
+  }
+
+  let closingId = existingClosing?.id;
+
+  if (closingId) {
+    const { error: deleteItemsError } = await supabase
+      .from('inventory_monthly_closing_items')
       .delete()
-      .eq('id', existingClosing.id);
+      .eq('closing_id', closingId);
 
-    if (deleteError) {
-      console.error('Error replacing inventory_monthly_closing:', deleteError);
-      throw deleteError;
+    if (deleteItemsError) {
+      console.error('Error clearing inventory_monthly_closing_items:', deleteItemsError);
+      throw deleteItemsError;
     }
+  } else {
+    const { data: stagedClosing, error: createError } = await supabase
+      .from('inventory_monthly_closings')
+      .insert({
+        year: closing.year,
+        month: closing.month,
+        closed_at: closing.closed_at,
+        closed_by: closing.closed_by,
+        status: 'OPEN',
+        notes: closing.notes || null,
+      })
+      .select('id')
+      .single();
+
+    if (createError) {
+      console.error('Error staging inventory_monthly_closing:', createError);
+      throw createError;
+    }
+
+    closingId = stagedClosing.id;
   }
 
-  const { data, error } = await supabase
-    .from('inventory_monthly_closings')
-    .insert({
-      year: closing.year,
-      month: closing.month,
-      closed_at: closing.closed_at,
-      closed_by: closing.closed_by,
-      status: closing.status,
-      notes: closing.notes || null,
-    })
-    .select()
-    .single();
-
-  if (error) {
-    console.error('Error creating inventory_monthly_closing:', error);
-    throw error;
-  }
-
-  const createdClosing = mapInventoryMonthlyClosing(data);
   if (items.length > 0) {
     const itemPayloads = items.map((item) => ({
-      closing_id: createdClosing.id,
+      closing_id: closingId,
       inventory_item_id: item.inventory_item_id || null,
       stock_category: item.stock_category,
       source: item.source,
@@ -1102,7 +1146,24 @@ const createMonthlyClosingInSupabase = async (
     }
   }
 
-  return createdClosing;
+  const { data, error } = await supabase
+    .from('inventory_monthly_closings')
+    .update({
+      closed_at: closing.closed_at,
+      closed_by: closing.closed_by,
+      status: 'CLOSED',
+      notes: closing.notes || null,
+    })
+    .eq('id', closingId)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error finalizing inventory_monthly_closing:', error);
+    throw error;
+  }
+
+  return mapInventoryMonthlyClosing(data);
 };
 
 const fetchActivityLogsFromSupabase = async (): Promise<ActivityLog[]> => {
@@ -1803,6 +1864,7 @@ export const pocSupabaseAdapter = {
 
   // --- Inventory Reads ---
   getInventoryItems: fetchInventoryItemsFromSupabase,
+  hasInventoryItemMonthlyClosing: hasInventoryItemMonthlyClosingInSupabase,
   createInventoryItem: createInventoryItemInSupabase,
   updateInventoryItem: updateInventoryItemInSupabase,
   deleteInventoryItem: deleteInventoryItemFromSupabase,
@@ -1820,6 +1882,7 @@ export const pocSupabaseAdapter = {
   getInventoryBalances: calculateInventoryBalancesFromSupabase,
   getMonthlyClosings: fetchInventoryMonthlyClosingsFromSupabase,
   getMonthlyClosingItems: fetchInventoryMonthlyClosingItemsFromSupabase,
+  unsealInventoryMonth: unsealInventoryMonthInSupabase,
   createMonthlyClosing: createMonthlyClosingInSupabase,
   getInventoryMonthlyClosings: fetchInventoryMonthlyClosingsFromSupabase,
   getInventoryMonthlyClosingItems: fetchInventoryMonthlyClosingItemsFromSupabase,

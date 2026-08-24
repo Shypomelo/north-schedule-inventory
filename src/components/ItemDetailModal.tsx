@@ -3,9 +3,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { InventoryItem, InventoryTransaction, InventorySerial, Project, InventoryBatch, InventoryTransactionSerial } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
-import { X, Box, History, List, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, Box, History, List, ChevronDown, ChevronUp, Pencil } from 'lucide-react';
 import { format } from 'date-fns';
 import { getInventoryInflowQuantity, getInventoryTransactionQuantityDelta } from '@/lib/db/inventory-stock';
+import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
+import { ItemForm } from './ItemForm';
+import { useUser } from './UserContext';
 
 interface ItemDetailModalProps {
   itemId: string | null;
@@ -13,9 +16,10 @@ interface ItemDetailModalProps {
   onItemUpdated: () => void;
 }
 
-type TabKey = 'SUMMARY' | 'BATCHES' | 'HISTORY';
+type TabKey = 'SUMMARY' | 'EDIT' | 'BATCHES' | 'HISTORY';
 
 export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailModalProps) {
+  const { currentUser } = useUser();
   const [activeTab, setActiveTab] = useState<TabKey>('SUMMARY');
   
   const [item, setItem] = useState<InventoryItem | null>(null);
@@ -25,6 +29,8 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
   const [transactionSerials, setTransactionSerials] = useState<InventoryTransactionSerial[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasMonthlyClosing, setHasMonthlyClosing] = useState(false);
+  const [isSavingItem, setIsSavingItem] = useState(false);
 
   const [expandedBatchId, setExpandedBatchId] = useState<string | null>(null);
   const [newSerialNo, setNewSerialNo] = useState('');
@@ -35,14 +41,15 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
     async function load() {
       if (!itemId) return;
       setIsLoading(true);
-      const [itms, txs, srls, txSrls, projs, allBatches] = await Promise.all([
+      const [itms, txs, srls, txSrls, projs, allBatches, itemHasMonthlyClosing] = await Promise.all([
         dbAdapter.getInventoryItems(),
         dbAdapter.getInventoryTransactions(),
         dbAdapter.getInventorySerials(),
         dbAdapter.getInventoryTransactionSerials(),
         dbAdapter.getProjects(),
         // @ts-ignore
-        dbAdapter.getInventoryBatches ? dbAdapter.getInventoryBatches() : Promise.resolve([])
+        dbAdapter.getInventoryBatches ? dbAdapter.getInventoryBatches() : Promise.resolve([]),
+        dbAdapter.hasInventoryItemMonthlyClosing(itemId),
       ]);
       const found = itms.find(i => i.id === itemId);
       setItem(found || null);
@@ -52,6 +59,7 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
       setTransactionSerials(txSrls);
       setProjects(projs);
       setBatches(allBatches.filter((b: InventoryBatch) => b.item_id === itemId).sort((a: InventoryBatch, b: InventoryBatch) => new Date(b.in_date).getTime() - new Date(a.in_date).getTime()));
+      setHasMonthlyClosing(itemHasMonthlyClosing);
       setIsLoading(false);
     }
     load();
@@ -185,19 +193,39 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
   };
 
   const handleUpdateSource = async (newSource: string) => {
-    if (!item) return;
+    if (!item || currentUser?.role === 'VIEWER') return;
     try {
       const updated = await dbAdapter.updateInventoryItem(item.id, { source_type: newSource });
       setItem(updated);
       onItemUpdated();
     } catch(e) {
       console.error(e);
-      alert('更新失敗');
+      alert(getDatabaseErrorMessage(e, '更新品項失敗'));
+    }
+  };
+
+  const handleUpdateItem = async (
+    updates: Omit<InventoryItem, 'id' | 'created_at' | 'updated_at'>,
+  ) => {
+    if (!item || currentUser?.role === 'VIEWER') return;
+
+    setIsSavingItem(true);
+    try {
+      const updated = await dbAdapter.updateInventoryItem(item.id, updates);
+      setItem(updated);
+      setActiveTab('SUMMARY');
+      onItemUpdated();
+    } catch (error) {
+      console.error(error);
+      alert(getDatabaseErrorMessage(error, '更新品項失敗'));
+    } finally {
+      setIsSavingItem(false);
     }
   };
 
   const tabs = [
     { key: 'SUMMARY', label: '庫存摘要', icon: Box },
+    { key: 'EDIT', label: '品項編輯', icon: Pencil },
     { key: 'BATCHES', label: item?.requires_serial ? '入庫批次 / 序號' : '入庫批次', icon: List },
     { key: 'HISTORY', label: '流水紀錄', icon: History },
   ];
@@ -264,7 +292,8 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
                       <select 
                         value={item?.source_type || ''}
                         onChange={(e) => handleUpdateSource(e.target.value)}
-                        className="bg-transparent text-lg font-medium text-slate-200 outline-none w-full border-b border-dashed border-slate-600 focus:border-indigo-400 cursor-pointer"
+                        disabled={currentUser?.role === 'VIEWER'}
+                        className="bg-transparent text-lg font-medium text-slate-200 outline-none w-full border-b border-dashed border-slate-600 focus:border-indigo-400 cursor-pointer disabled:cursor-not-allowed disabled:text-slate-500"
                       >
                         <option value="陽光" className="bg-slate-800">陽光</option>
                         <option value="中部移轉" className="bg-slate-800">中部移轉</option>
@@ -321,6 +350,19 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
                       </div>
                     </>
                   )}
+                </div>
+              )}
+
+              {activeTab === 'EDIT' && item && (
+                <div className="flex flex-col gap-5 max-w-2xl">
+                  <h3 className="text-lg font-bold text-slate-200 border-b border-slate-700/50 pb-2">品項編輯</h3>
+                  <ItemForm
+                    initialData={item}
+                    onSubmit={handleUpdateItem}
+                    onCancel={() => setActiveTab('SUMMARY')}
+                    isSubmitting={isSavingItem}
+                    isOpeningQuantityLocked={hasMonthlyClosing}
+                  />
                 </div>
               )}
 

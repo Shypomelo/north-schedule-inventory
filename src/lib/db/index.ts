@@ -35,6 +35,7 @@ const requireInventorySupabase = (methodName: string) => async () => {
 const inventoryAdapter = hasSupabase
   ? {
       getInventoryItems: pocSupabaseAdapter.getInventoryItems,
+      hasInventoryItemMonthlyClosing: pocSupabaseAdapter.hasInventoryItemMonthlyClosing,
       createInventoryItem: pocSupabaseAdapter.createInventoryItem,
       updateInventoryItem: pocSupabaseAdapter.updateInventoryItem,
       deleteInventoryItem: pocSupabaseAdapter.deleteInventoryItem,
@@ -52,6 +53,7 @@ const inventoryAdapter = hasSupabase
       getInventoryBalances: pocSupabaseAdapter.getInventoryBalances,
       getMonthlyClosings: pocSupabaseAdapter.getMonthlyClosings,
       getMonthlyClosingItems: pocSupabaseAdapter.getMonthlyClosingItems,
+      unsealInventoryMonth: pocSupabaseAdapter.unsealInventoryMonth,
       createMonthlyClosing: pocSupabaseAdapter.createMonthlyClosing,
       getInventoryMonthlyClosings: pocSupabaseAdapter.getInventoryMonthlyClosings,
       getInventoryMonthlyClosingItems: pocSupabaseAdapter.getInventoryMonthlyClosingItems,
@@ -59,6 +61,7 @@ const inventoryAdapter = hasSupabase
   : isProduction
     ? {
         getInventoryItems: requireInventorySupabase('getInventoryItems'),
+        hasInventoryItemMonthlyClosing: requireInventorySupabase('hasInventoryItemMonthlyClosing'),
         createInventoryItem: requireInventorySupabase('createInventoryItem'),
         updateInventoryItem: requireInventorySupabase('updateInventoryItem'),
         deleteInventoryItem: requireInventorySupabase('deleteInventoryItem'),
@@ -76,12 +79,14 @@ const inventoryAdapter = hasSupabase
         getInventoryBalances: requireInventorySupabase('getInventoryBalances'),
         getMonthlyClosings: requireInventorySupabase('getMonthlyClosings'),
         getMonthlyClosingItems: requireInventorySupabase('getMonthlyClosingItems'),
+        unsealInventoryMonth: requireInventorySupabase('unsealInventoryMonth'),
         createMonthlyClosing: requireInventorySupabase('createMonthlyClosing'),
         getInventoryMonthlyClosings: requireInventorySupabase('getInventoryMonthlyClosings'),
         getInventoryMonthlyClosingItems: requireInventorySupabase('getInventoryMonthlyClosingItems'),
       }
     : {
         getInventoryItems: mockDbAdapter.getInventoryItems,
+        hasInventoryItemMonthlyClosing: mockDbAdapter.hasInventoryItemMonthlyClosing,
         createInventoryItem: mockDbAdapter.createInventoryItem,
         updateInventoryItem: mockDbAdapter.updateInventoryItem,
         deleteInventoryItem: mockDbAdapter.deleteInventoryItem,
@@ -99,6 +104,7 @@ const inventoryAdapter = hasSupabase
         getInventoryBalances: mockDbAdapter.getInventoryBalances,
         getMonthlyClosings: mockDbAdapter.getMonthlyClosings,
         getMonthlyClosingItems: mockDbAdapter.getMonthlyClosingItems,
+        unsealInventoryMonth: mockDbAdapter.unsealInventoryMonth,
         createMonthlyClosing: mockDbAdapter.createMonthlyClosing,
         getInventoryMonthlyClosings: mockDbAdapter.getMonthlyClosings,
         getInventoryMonthlyClosingItems: mockDbAdapter.getMonthlyClosingItems,

@@ -8,6 +8,7 @@ import { format, subMonths } from 'date-fns';
 import { FileSpreadsheet, Lock, Unlock, AlertTriangle, CheckCircle, Info } from 'lucide-react';
 import { exportMonthlyReport } from '@/lib/utils/export-excel';
 import { calculateInventoryStockQuantity, getInventoryInflowQuantity, getInventoryTransactionQuantityDelta } from '@/lib/db/inventory-stock';
+import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
 
 export default function MonthlyReportPage() {
   const [viewMode, setViewMode] = useState<'MONTHLY' | 'ANNUAL'>('MONTHLY');
@@ -40,7 +41,11 @@ export default function MonthlyReportPage() {
 
   // Find if current selected month is closed
   const currentClosing = useMemo(() => {
-    return closings.find(c => c.year === selectedYear && c.month === selectedMonth);
+    return closings.find(c => (
+      c.year === selectedYear
+      && c.month === selectedMonth
+      && c.status === 'CLOSED'
+    ));
   }, [closings, selectedYear, selectedMonth]);
 
   // Load closing items if closed
@@ -121,25 +126,50 @@ export default function MonthlyReportPage() {
   const displayData = currentClosing ? closingItems : dynamicReportData;
 
   const handleCloseMonth = async () => {
-    if (currentClosing) {
-      const confirmReclose = window.confirm("此月份已封存，是否重新封存？這將覆蓋現有的封存紀錄。");
-      if (!confirmReclose) return;
-    }
-    
+    if (currentClosing || currentUser?.role === 'VIEWER') return;
+
     setIsLoading(true);
-    await dbAdapter.createMonthlyClosing(
-      {
-        year: selectedYear,
-        month: selectedMonth,
-        closed_at: new Date().toISOString(),
-        closed_by: '系統管理員', // Mock
-        status: 'CLOSED',
-        notes: null
-      },
-      dynamicReportData
+    try {
+      await dbAdapter.createMonthlyClosing(
+        {
+          year: selectedYear,
+          month: selectedMonth,
+          closed_at: new Date().toISOString(),
+          closed_by: currentUser?.name || '未知使用者',
+          status: 'CLOSED',
+          notes: null
+        },
+        dynamicReportData
+      );
+      await loadData();
+      alert('封存完成');
+    } catch (error) {
+      console.error(error);
+      alert(getDatabaseErrorMessage(error, '封存失敗'));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleUnsealMonth = async () => {
+    if (!currentClosing || currentUser?.role !== 'ADMIN') return;
+
+    const confirmed = window.confirm(
+      '解除封存後，該月份庫存紀錄將可重新修改，重新封存後才會產生新的正式月結資料。確定解除？'
     );
-    await loadData();
-    alert("封存完成");
+    if (!confirmed) return;
+
+    setIsLoading(true);
+    try {
+      await dbAdapter.unsealInventoryMonth(selectedYear, selectedMonth);
+      await loadData();
+      alert('解除封存完成');
+    } catch (error) {
+      console.error(error);
+      alert(getDatabaseErrorMessage(error, '解除封存失敗'));
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleExport = () => {
@@ -275,14 +305,27 @@ export default function MonthlyReportPage() {
              </div>
              
              <div className="flex items-center gap-3">
-               <button 
-                 onClick={handleCloseMonth}
-                 disabled={currentUser?.role === 'VIEWER'}
-                 className={`flex items-center gap-2 px-4 py-2 rounded shadow transition ${currentClosing ? 'bg-slate-600 hover:bg-slate-500 text-slate-200' : 'bg-emerald-600 hover:bg-emerald-500 text-white'} disabled:opacity-50 disabled:cursor-not-allowed`}
-               >
-                 {currentClosing ? <Lock size={18} /> : <CheckCircle size={18} />}
-                 {currentClosing ? '重新封存本月' : '封存本月'}
-               </button>
+               {currentClosing ? (
+                 currentUser?.role === 'ADMIN' && (
+                   <button
+                     onClick={handleUnsealMonth}
+                     disabled={isLoading}
+                     className="flex items-center gap-2 px-4 py-2 rounded shadow transition bg-amber-600 hover:bg-amber-500 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                   >
+                     <Unlock size={18} />
+                     解除封存
+                   </button>
+                 )
+               ) : (
+                 <button
+                   onClick={handleCloseMonth}
+                   disabled={currentUser?.role === 'VIEWER' || isLoading}
+                   className="flex items-center gap-2 px-4 py-2 rounded shadow transition bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                 >
+                   <CheckCircle size={18} />
+                   封存本月
+                 </button>
+               )}
                <button 
                  onClick={handleExport}
                  disabled={displayData.length === 0}
