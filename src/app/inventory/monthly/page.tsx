@@ -7,7 +7,11 @@ import { dbAdapter } from '@/lib/db';
 import { format, subMonths } from 'date-fns';
 import { FileSpreadsheet, Lock, Unlock, AlertTriangle, CheckCircle, Info } from 'lucide-react';
 import { exportMonthlyReport } from '@/lib/utils/export-excel';
-import { calculateInventoryStockQuantity, getInventoryInflowQuantity, getInventoryTransactionQuantityDelta } from '@/lib/db/inventory-stock';
+import { getInventoryTransactionQuantityDelta } from '@/lib/db/inventory-stock';
+import {
+  calculateInventoryMonthlyReport,
+  getPreviousInventoryYearMonth,
+} from '@/lib/db/inventory-monthly-report';
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
 
 export default function MonthlyReportPage() {
@@ -20,6 +24,9 @@ export default function MonthlyReportPage() {
   const [transactions, setTransactions] = useState<InventoryTransaction[]>([]);
   const [closings, setClosings] = useState<InventoryMonthlyClosing[]>([]);
   const [closingItems, setClosingItems] = useState<InventoryMonthlyClosingItem[]>([]);
+  const [previousClosingItems, setPreviousClosingItems] = useState<InventoryMonthlyClosingItem[]>([]);
+  const [isMonthlyItemsLoading, setIsMonthlyItemsLoading] = useState(false);
+  const [monthlyItemsError, setMonthlyItemsError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -39,94 +46,104 @@ export default function MonthlyReportPage() {
     setIsLoading(false);
   }
 
-  // Find if current selected month is closed
-  const currentClosing = useMemo(() => {
+  const selectedClosing = useMemo(() => {
     return closings.find(c => (
       c.year === selectedYear
       && c.month === selectedMonth
-      && c.status === 'CLOSED'
     ));
   }, [closings, selectedYear, selectedMonth]);
 
-  // Load closing items if closed
+  // CLOSED months always display their stored snapshot. OPEN/missing months stay dynamic.
+  const currentClosing = selectedClosing?.status === 'CLOSED' ? selectedClosing : undefined;
+  const previousYearMonth = useMemo(
+    () => getPreviousInventoryYearMonth(selectedYear, selectedMonth),
+    [selectedYear, selectedMonth],
+  );
+  const previousClosing = useMemo(() => closings.find(closing => (
+    closing.year === previousYearMonth.year
+    && closing.month === previousYearMonth.month
+    && closing.status === 'CLOSED'
+  )), [closings, previousYearMonth]);
+  const currentClosingId = currentClosing?.id;
+  const previousClosingId = previousClosing?.id;
+
+  const selectableYears = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    const years = new Set([
+      ...Array.from({ length: 5 }, (_, index) => String(currentYear - 2 + index)),
+      ...closings.map(closing => closing.year),
+      selectedYear,
+    ]);
+
+    return Array.from(years).sort((a, b) => Number(a) - Number(b));
+  }, [closings, selectedYear]);
+
+  // Fetch only the one snapshot needed by the selected month.
   useEffect(() => {
-    if (currentClosing) {
-      dbAdapter.getMonthlyClosingItems(currentClosing.id).then(setClosingItems);
-    } else {
-      setClosingItems([]);
+    let cancelled = false;
+    const snapshotClosingId = currentClosingId || previousClosingId;
+
+    setClosingItems([]);
+    setPreviousClosingItems([]);
+    setMonthlyItemsError(null);
+
+    if (!snapshotClosingId) {
+      setIsMonthlyItemsLoading(false);
+      return () => {
+        cancelled = true;
+      };
     }
-  }, [currentClosing]);
+
+    setIsMonthlyItemsLoading(true);
+    dbAdapter.getMonthlyClosingItems(snapshotClosingId)
+      .then(snapshotItems => {
+        if (cancelled) return;
+        if (currentClosingId) {
+          setClosingItems(snapshotItems);
+        } else {
+          setPreviousClosingItems(snapshotItems);
+        }
+      })
+      .catch(error => {
+        if (cancelled) return;
+        console.error('Error loading inventory monthly snapshot:', error);
+        setMonthlyItemsError('月結 snapshot 載入失敗，請稍後重試');
+      })
+      .finally(() => {
+        if (!cancelled) setIsMonthlyItemsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentClosingId, previousClosingId]);
 
   // Dynamically calculate for unclosed month
   const dynamicReportData = useMemo(() => {
     if (currentClosing) return []; // skip if closed
-    
-    const targetMonth = `${selectedYear}-${selectedMonth}`;
-    const rows: Record<string, InventoryMonthlyClosingItem> = {};
 
-    items.forEach(item => {
-      rows[item.id] = {
-        id: '',
-        closing_id: '',
-        inventory_item_id: item.id,
-        stock_category: item.category || '',
-        source: item.source_type || '',
-        item_name: item.name,
-        item_type: item.item_category || '',
-        unit: item.unit,
-        opening_quantity: item.opening_quantity || 0,
-        monthly_in: 0,
-        monthly_out: 0,
-        monthly_return: 0,
-        monthly_adjust: 0,
-        closing_quantity: 0,
-        usage_quantity: 0,
-        status: item.is_active ? '啟用' : '停用',
-        notes: item.notes || ''
-      };
+    return calculateInventoryMonthlyReport({
+      year: selectedYear,
+      month: selectedMonth,
+      items,
+      transactions,
+      previousClosingItems: previousClosing ? previousClosingItems : null,
     });
-
-    transactions.forEach(tx => {
-      if (tx.is_voided) return;
-      const txMonth = tx.transaction_date.substring(0, 7);
-      const isBefore = txMonth < targetMonth;
-      const isCurrent = txMonth === targetMonth;
-      
-      if (!isBefore && !isCurrent) return;
-
-      const r = rows[tx.item_id];
-      if (!r) return; // Item deleted? skip
-
-      if (isBefore) {
-        r.opening_quantity += getInventoryTransactionQuantityDelta(tx.transaction_type, tx.quantity);
-      } else if (isCurrent) {
-        r.monthly_in += getInventoryInflowQuantity(tx.transaction_type, tx.quantity);
-        if (tx.transaction_type === 'OUT') {
-           r.monthly_out += tx.quantity;
-           r.usage_quantity += tx.quantity;
-        }
-        if (tx.transaction_type === 'RETURN') r.monthly_return += tx.quantity;
-        if (tx.transaction_type === 'ADJUST') r.monthly_adjust += tx.quantity;
-      }
-    });
-
-    return Object.values(rows).map(r => {
-      r.closing_quantity = calculateInventoryStockQuantity({
-        opening: r.opening_quantity,
-        inQuantity: r.monthly_in,
-        outQuantity: r.monthly_out,
-        adjustQuantity: r.monthly_adjust,
-      });
-      return r;
-    }).filter(r => r.opening_quantity !== 0 || r.monthly_in !== 0 || r.monthly_out !== 0 || r.monthly_return !== 0 || r.monthly_adjust !== 0 || r.closing_quantity !== 0)
-      .sort((a, b) => a.item_name.localeCompare(b.item_name));
-
-  }, [currentClosing, selectedYear, selectedMonth, items, transactions]);
+  }, [
+    currentClosing,
+    selectedYear,
+    selectedMonth,
+    items,
+    transactions,
+    previousClosing,
+    previousClosingItems,
+  ]);
 
   const displayData = currentClosing ? closingItems : dynamicReportData;
+  const isMonthlyDataLoading = isLoading || isMonthlyItemsLoading;
 
   const handleCloseMonth = async () => {
-    if (currentClosing || currentUser?.role === 'VIEWER') return;
+    if (currentClosing || currentUser?.role === 'VIEWER' || isMonthlyItemsLoading || monthlyItemsError) return;
 
     setIsLoading(true);
     try {
@@ -175,7 +192,13 @@ export default function MonthlyReportPage() {
   const handleExport = () => {
     const targetMonth = `${selectedYear}-${selectedMonth}`;
     const txsInMonth = transactions.filter(tx => tx.transaction_date.substring(0, 7) === targetMonth);
-    exportMonthlyReport(selectedYear, selectedMonth, displayData, txsInMonth);
+    exportMonthlyReport(
+      selectedYear,
+      selectedMonth,
+      currentClosing ? 'CLOSED' : 'OPEN',
+      displayData,
+      txsInMonth,
+    );
   };
 
   // --- Annual Report Logic ---
@@ -277,10 +300,9 @@ export default function MonthlyReportPage() {
                  onChange={e => setSelectedYear(e.target.value)}
                  className="bg-slate-900 border border-slate-600 rounded p-2 text-slate-200 outline-none"
                >
-                 {Array.from({length: 5}).map((_, i) => {
-                   const y = (new Date().getFullYear() - 2 + i).toString();
-                   return <option key={y} value={y}>{y} 年</option>;
-                 })}
+                 {selectableYears.map(year => (
+                   <option key={year} value={year}>{year} 年</option>
+                 ))}
                </select>
                <select 
                  value={selectedMonth}
@@ -295,11 +317,18 @@ export default function MonthlyReportPage() {
 
                {currentClosing ? (
                  <span className="flex items-center gap-1 text-emerald-400 bg-emerald-400/10 px-3 py-1 rounded-full text-sm font-medium">
-                   <Lock size={16} /> 已封存 ({format(new Date(currentClosing.closed_at), 'MM/dd HH:mm')})
+                   <Lock size={16} /> 已封存 · Snapshot ({format(new Date(currentClosing.closed_at), 'MM/dd HH:mm')})
                  </span>
                ) : (
                  <span className="flex items-center gap-1 text-amber-400 bg-amber-400/10 px-3 py-1 rounded-full text-sm font-medium">
-                   <Unlock size={16} /> 未封存 (動態計算)
+                   <Unlock size={16} /> {selectedClosing?.status === 'OPEN' ? '已解除封存' : '未封存'} · 即時計算
+                 </span>
+               )}
+               {!currentClosing && (
+                 <span className="text-xs text-slate-400">
+                   {previousClosing
+                     ? `期初承接 ${previousYearMonth.year}-${previousYearMonth.month} 封存期末`
+                     : '期初依原始庫存與歷史異動計算'}
                  </span>
                )}
              </div>
@@ -319,7 +348,7 @@ export default function MonthlyReportPage() {
                ) : (
                  <button
                    onClick={handleCloseMonth}
-                   disabled={currentUser?.role === 'VIEWER' || isLoading}
+                   disabled={currentUser?.role === 'VIEWER' || isMonthlyDataLoading || Boolean(monthlyItemsError)}
                    className="flex items-center gap-2 px-4 py-2 rounded shadow transition bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                  >
                    <CheckCircle size={18} />
@@ -328,7 +357,7 @@ export default function MonthlyReportPage() {
                )}
                <button 
                  onClick={handleExport}
-                 disabled={displayData.length === 0}
+                 disabled={isMonthlyDataLoading || Boolean(monthlyItemsError) || displayData.length === 0}
                  className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded shadow transition"
                >
                  <FileSpreadsheet size={18} />
@@ -338,8 +367,10 @@ export default function MonthlyReportPage() {
           </div>
 
           <div className="flex-1 overflow-auto bg-slate-800/50 border border-slate-700 rounded-xl relative">
-            {isLoading ? (
+            {isMonthlyDataLoading ? (
               <div className="absolute inset-0 flex items-center justify-center text-slate-400">計算中...</div>
+            ) : monthlyItemsError ? (
+              <div className="absolute inset-0 flex items-center justify-center text-red-400">{monthlyItemsError}</div>
             ) : displayData.length === 0 ? (
                <div className="absolute inset-0 flex items-center justify-center text-slate-500">
                  這個月份沒有任何庫存記錄與異動
@@ -351,12 +382,12 @@ export default function MonthlyReportPage() {
                     <th className="p-3 font-semibold">分類</th>
                     <th className="p-3 font-semibold">來源</th>
                     <th className="p-3 font-semibold">品名</th>
-                    <th className="p-3 font-semibold text-right text-slate-400">月初</th>
+                    <th className="p-3 font-semibold text-right text-slate-400">期初</th>
                     <th className="p-3 font-semibold text-right text-emerald-400">入庫</th>
-                    <th className="p-3 font-semibold text-right text-red-400">出庫</th>
                     <th className="p-3 font-semibold text-right text-indigo-400">退料</th>
+                    <th className="p-3 font-semibold text-right text-red-400">出庫</th>
                     <th className="p-3 font-semibold text-right text-amber-400">調整</th>
-                    <th className="p-3 font-semibold text-right text-emerald-300 text-base border-l border-slate-600">月末</th>
+                    <th className="p-3 font-semibold text-right text-emerald-300 text-base border-l border-slate-600">期末</th>
                     <th className="p-3 font-semibold text-center text-slate-400 border-l border-slate-600">單位</th>
                     <th className="p-3 font-semibold">備註</th>
                   </tr>
@@ -369,8 +400,8 @@ export default function MonthlyReportPage() {
                       <td className="p-3 text-slate-100 font-medium">{r.item_name}</td>
                       <td className="p-3 text-right text-slate-400">{r.opening_quantity}</td>
                       <td className="p-3 text-right text-emerald-400">{r.monthly_in}</td>
-                      <td className="p-3 text-right text-red-400">{r.monthly_out}</td>
                       <td className="p-3 text-right text-indigo-400">{r.monthly_return}</td>
+                      <td className="p-3 text-right text-red-400">{r.monthly_out}</td>
                       <td className="p-3 text-right text-amber-400">{r.monthly_adjust}</td>
                       <td className="p-3 text-right font-bold text-base text-emerald-300 border-l border-slate-700/50 bg-slate-800/20">{r.closing_quantity}</td>
                       <td className="p-3 text-center text-slate-500 border-l border-slate-700/50">{r.unit}</td>
@@ -393,10 +424,9 @@ export default function MonthlyReportPage() {
                  onChange={e => setSelectedYear(e.target.value)}
                  className="bg-slate-900 border border-slate-600 rounded p-2 text-slate-200 outline-none"
                >
-                 {Array.from({length: 5}).map((_, i) => {
-                   const y = (new Date().getFullYear() - 2 + i).toString();
-                   return <option key={y} value={y}>{y} 年</option>;
-                 })}
+                 {selectableYears.map(year => (
+                   <option key={year} value={year}>{year} 年</option>
+                 ))}
                </select>
                <span className="text-slate-400 text-sm flex items-center gap-2">
                  <Info size={16} />
