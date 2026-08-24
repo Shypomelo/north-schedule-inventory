@@ -237,6 +237,12 @@ export default function TransactionsPage() {
   };
 
   const handleVoidTx = async (id: string) => {
+    const transaction = transactions.find(tx => tx.id === id);
+    if (transaction?.transaction_type === 'IN' && currentUser?.role !== 'ADMIN') {
+      alert('僅限管理員作廢入庫紀錄。');
+      return;
+    }
+
     const reason = prompt('確定要作廢這筆紀錄嗎？請填寫作廢原因：');
     if (reason === null) return;
     if (reason.trim() === '') {
@@ -366,7 +372,14 @@ export default function TransactionsPage() {
                       {!tx.is_voided && (
                         <>
                           <button onClick={() => openEditModal(tx)} disabled={currentUser?.role === 'VIEWER'} className="text-indigo-400 hover:text-indigo-300 text-xs bg-indigo-900/30 px-2 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed">編輯</button>
-                          <button onClick={() => handleVoidTx(tx.id)} disabled={currentUser?.role === 'VIEWER'} className="text-amber-400 hover:text-amber-300 text-xs bg-amber-900/30 px-2 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed">作廢</button>
+                          <button
+                            onClick={() => handleVoidTx(tx.id)}
+                            disabled={currentUser?.role === 'VIEWER' || (tx.transaction_type === 'IN' && currentUser?.role !== 'ADMIN')}
+                            title={tx.transaction_type === 'IN' && currentUser?.role !== 'ADMIN' ? '僅限管理員作廢入庫紀錄' : undefined}
+                            className="text-amber-400 hover:text-amber-300 text-xs bg-amber-900/30 px-2 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            作廢
+                          </button>
                         </>
                       )}
                       <button onClick={() => setHistoryTxId(tx.id)} className="text-slate-400 hover:text-slate-300 text-xs bg-slate-800 px-2 py-1 rounded">紀錄</button>

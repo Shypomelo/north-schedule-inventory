@@ -178,6 +178,7 @@ const mapInventoryBatch = (row: any): InventoryBatch => ({
   id: row.id,
   batch_number: row.batch_number || '',
   item_id: row.item_id,
+  source_transaction_id: row.source_transaction_id || null,
   in_date: row.in_date,
   source: row.source || null,
   quantity: toNumber(row.quantity),
@@ -541,7 +542,7 @@ const buildInventoryTransactionPayload = (
 };
 
 const createInventoryBatchForTransaction = async (
-  transaction: InventoryTransaction | Omit<InventoryTransaction, 'id' | 'created_at' | 'updated_at'>,
+  transaction: InventoryTransaction,
   user: string,
 ): Promise<InventoryBatch | null> => {
   if (transaction.transaction_type !== 'IN' && transaction.transaction_type !== 'RETURN') return null;
@@ -564,6 +565,7 @@ const createInventoryBatchForTransaction = async (
     const payload = {
       batch_number: batchNumber,
       item_id: transaction.item_id,
+      source_transaction_id: transaction.id,
       in_date: transaction.transaction_date,
       source: transaction.source || (transaction.transaction_type === 'RETURN' ? '退料' : null),
       quantity: transaction.quantity,
@@ -799,7 +801,7 @@ const revertSerialsForTransaction = async (transaction: InventoryTransaction) =>
       }
 
       if (serialData && serialData.status !== SERIAL_STATUS_IN_STOCK) {
-        throw new Error('Cannot void or edit an IN transaction after its serial has already left stock');
+        throw new Error('此入庫批次已有序號被使用，請先處理相關序號後再作廢入庫。');
       }
     }
   }
@@ -811,8 +813,6 @@ const revertSerialsForTransaction = async (transaction: InventoryTransaction) =>
       await updateInventorySerialInSupabase(txSerial.serial_id, { status: SERIAL_STATUS_IN_STOCK });
     } else if (transaction.transaction_type === 'RETURN') {
       await updateInventorySerialInSupabase(txSerial.serial_id, { status: SERIAL_STATUS_OUT });
-    } else if (transaction.transaction_type === 'IN') {
-      await deleteInventorySerialFromSupabase(txSerial.serial_id);
     }
   }
 
@@ -952,7 +952,11 @@ const voidInventoryTransactionInSupabase = async (
     throw new Error('Inventory transaction is already voided');
   }
 
-  await revertSerialsForTransaction(transaction);
+  // IN void is handled atomically by the DB trigger. It preserves serial rows,
+  // changes their status to 作廢, and rejects serials used by active later transactions.
+  if (transaction.transaction_type !== 'IN') {
+    await revertSerialsForTransaction(transaction);
+  }
 
   const { error } = await supabase
     .from('inventory_transactions')

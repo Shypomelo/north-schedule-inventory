@@ -177,6 +177,7 @@ export default function SerialsPage() {
                       <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
                         s.status === '在庫' ? 'bg-emerald-500/20 text-emerald-400' :
                         s.status === '已出庫' ? 'bg-indigo-500/20 text-indigo-400' :
+                        s.status === '作廢' ? 'bg-slate-700 text-slate-400 line-through' :
                         'bg-slate-600/50 text-slate-400'
                       }`}>
                         {s.status}

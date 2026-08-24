@@ -251,6 +251,10 @@ if (IS_BROWSER) {
       
       // Auto-migrate batches
       if (!db.inventory_batches) db.inventory_batches = [];
+      db.inventory_batches = db.inventory_batches.map(batch => ({
+        ...batch,
+        source_transaction_id: batch.source_transaction_id || null,
+      }));
       if (!db.se_supply_records) db.se_supply_records = [];
       
       let hasChanges = false;
@@ -268,6 +272,7 @@ if (IS_BROWSER) {
               id: crypto.randomUUID(),
               batch_number: getNextBatchNo(item.created_at || new Date().toISOString()),
               item_id: item.id,
+              source_transaction_id: null,
               in_date: (item.created_at || new Date().toISOString()).substring(0,10),
               source: item.source_type || '系統期初',
               quantity: item.opening_quantity,
@@ -290,6 +295,7 @@ if (IS_BROWSER) {
               id: crypto.randomUUID(),
               batch_number: getNextBatchNo(tx.transaction_date || new Date().toISOString()),
               item_id: tx.item_id,
+              source_transaction_id: tx.id,
               in_date: tx.transaction_date,
               source: tx.source || (tx.transaction_type === 'RETURN' ? '退料' : '無來源'),
               quantity: tx.quantity,
@@ -533,6 +539,7 @@ export const mockDbAdapter = {
         id: crypto.randomUUID(),
         batch_number: batchNo,
         item_id: t.item_id,
+        source_transaction_id: newTx.id,
         in_date: t.transaction_date,
         source: t.source || (t.transaction_type === 'RETURN' ? '退料' : null),
         quantity: t.quantity,
@@ -590,13 +597,21 @@ export const mockDbAdapter = {
 
     const txSerials = db.inventory_transaction_serials.filter(ts => ts.transaction_id === id);
     
-    // 阻擋邏輯：若為入庫，且有已被出庫的序號，則阻擋作廢
+    // IN can only be voided while every linked serial is in stock and unused by
+    // another active transaction.
     if (tx.transaction_type === 'IN') {
       for (const ts of txSerials) {
         if (!ts.serial_id) continue;
         const serial = db.item_serials.find(s => s.id === ts.serial_id);
-        if (serial && serial.status !== '在庫') {
-           throw new Error("無法作廢：此入庫紀錄包含「已出庫」的序號。請先作廢對應的出庫紀錄。");
+        const hasActiveLaterTransaction = db.inventory_transaction_serials.some(otherLink => (
+          otherLink.serial_id === ts.serial_id
+          && otherLink.transaction_id !== id
+          && db.inventory_transactions.some(otherTx => (
+            otherTx.id === otherLink.transaction_id && !otherTx.is_voided
+          ))
+        ));
+        if ((serial && serial.status !== '在庫') || hasActiveLaterTransaction) {
+          throw new Error('此入庫批次已有序號被使用，請先處理相關序號後再作廢入庫。');
         }
       }
     }
@@ -614,7 +629,12 @@ export const mockDbAdapter = {
       } else if (tx.transaction_type === 'RETURN') {
         db.item_serials[serialIndex] = { ...serial, status: '已出庫', updated_at: new Date().toISOString() };
       } else if (tx.transaction_type === 'IN') {
-        db.item_serials.splice(serialIndex, 1);
+        db.item_serials[serialIndex] = {
+          ...serial,
+          status: '作廢',
+          project_id: null,
+          updated_at: new Date().toISOString(),
+        };
       }
     }
 
@@ -664,8 +684,6 @@ export const mockDbAdapter = {
         db.item_serials[serialIndex] = { ...serial, status: '在庫', updated_at: new Date().toISOString() };
       } else if (oldTx.transaction_type === 'RETURN') {
         db.item_serials[serialIndex] = { ...serial, status: '已出庫', updated_at: new Date().toISOString() };
-      } else if (oldTx.transaction_type === 'IN') {
-        db.item_serials.splice(serialIndex, 1);
       }
     }
     db.inventory_transaction_serials = db.inventory_transaction_serials.filter(ts => ts.transaction_id !== id);

@@ -3,7 +3,7 @@ export type TaskStatus = '未開始' | '進行中' | '已完成' | '取消' | ''
 export type TodoStatus = '待安排' | '已排程' | '已完成' | '取消';
 export type TransactionType = 'IN' | 'OUT' | 'RETURN' | 'ADJUST';
 export type StockCategory = 'CONSTRUCTION' | 'MAINTENANCE' | 'VENDOR_SPARE';
-export type SerialStatus = '在庫' | '已出庫' | '已使用' | '已退回' | '待補' | '報廢';
+export type SerialStatus = '在庫' | '已出庫' | '已使用' | '已退回' | '待補' | '報廢' | '作廢';
 
 export type ActivityActionType = 'CREATE_TASK' | 'UPDATE_TASK' | 'COMPLETE_TASK' | 'RESCHEDULE_TASK' | 'DELETE_TASK' | 'CREATE_TODO' | 'TODO_TO_TASK' | 'TASK_TO_TODO' | 'UPDATE_PROJECT' | 'COMPLETE_PROJECT' | 'CREATE_TRANSACTION' | 'UPDATE_TRANSACTION' | 'VOID_TRANSACTION';
 
@@ -319,6 +319,7 @@ export interface InventoryBatch {
   id: string;
   batch_number: string; // IN-YYYYMMDD-00X
   item_id: string;
+  source_transaction_id: string | null;
   in_date: string;
   source: string | null;
   quantity: number;

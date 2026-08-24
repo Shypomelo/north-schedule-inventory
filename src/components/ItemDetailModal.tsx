@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { InventoryItem, InventoryTransaction, InventorySerial, Project, InventoryBatch, InventoryTransactionSerial } from '@/lib/db/types';
+import { InventoryItem, InventoryTransaction, InventorySerial, Project, InventoryBatch } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { X, Box, History, List, ChevronDown, ChevronUp, Pencil } from 'lucide-react';
 import { format } from 'date-fns';
@@ -26,7 +26,6 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
   const [transactions, setTransactions] = useState<InventoryTransaction[]>([]);
   const [batches, setBatches] = useState<InventoryBatch[]>([]);
   const [serials, setSerials] = useState<InventorySerial[]>([]);
-  const [transactionSerials, setTransactionSerials] = useState<InventoryTransactionSerial[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [hasMonthlyClosing, setHasMonthlyClosing] = useState(false);
@@ -41,11 +40,10 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
     async function load() {
       if (!itemId) return;
       setIsLoading(true);
-      const [itms, txs, srls, txSrls, projs, allBatches, itemHasMonthlyClosing] = await Promise.all([
+      const [itms, txs, srls, projs, allBatches, itemHasMonthlyClosing] = await Promise.all([
         dbAdapter.getInventoryItems(),
         dbAdapter.getInventoryTransactions(),
         dbAdapter.getInventorySerials(),
-        dbAdapter.getInventoryTransactionSerials(),
         dbAdapter.getProjects(),
         // @ts-ignore
         dbAdapter.getInventoryBatches ? dbAdapter.getInventoryBatches() : Promise.resolve([]),
@@ -56,7 +54,6 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
       
       setTransactions(txs.filter(t => t.item_id === itemId).sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
       setSerials(srls.filter(s => s.item_id === itemId));
-      setTransactionSerials(txSrls);
       setProjects(projs);
       setBatches(allBatches.filter((b: InventoryBatch) => b.item_id === itemId).sort((a: InventoryBatch, b: InventoryBatch) => new Date(b.in_date).getTime() - new Date(a.in_date).getTime()));
       setHasMonthlyClosing(itemHasMonthlyClosing);
@@ -103,36 +100,9 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
   const registered_serials = serials.filter(s => s.status === '在庫').length;
   const pending_serials = item?.requires_serial ? Math.max(0, currentBalance - registered_serials) : 0;
 
-  const normalizeText = (value: string | null | undefined) => value || null;
-  const getBatchSourceForTransaction = (tx: InventoryTransaction) => {
-    return normalizeText(tx.source || (tx.transaction_type === 'RETURN' ? '退料' : null));
-  };
   const getBatchSourceTransaction = (batch: InventoryBatch) => {
-    const batchSerialIds = new Set(serials.filter(s => s.batch_id === batch.id).map(s => s.id));
-    const linkedTransactionIds = new Set(
-      transactionSerials
-        .filter(ts => ts.serial_id && batchSerialIds.has(ts.serial_id))
-        .map(ts => ts.transaction_id)
-    );
-    const linkedTransactions = transactions.filter(tx =>
-      linkedTransactionIds.has(tx.id) &&
-      (tx.transaction_type === 'IN' || tx.transaction_type === 'RETURN')
-    );
-
-    if (linkedTransactions.length === 1) return linkedTransactions[0];
-
-    const matchingTransactions = transactions.filter(tx =>
-      (tx.transaction_type === 'IN' || tx.transaction_type === 'RETURN') &&
-      tx.item_id === batch.item_id &&
-      tx.transaction_date === batch.in_date &&
-      tx.quantity === batch.quantity &&
-      normalizeText(tx.unit) === normalizeText(batch.unit) &&
-      (!tx.handler || normalizeText(tx.handler) === normalizeText(batch.handler)) &&
-      normalizeText(tx.notes) === normalizeText(batch.notes) &&
-      getBatchSourceForTransaction(tx) === normalizeText(batch.source)
-    );
-
-    return matchingTransactions.length === 1 ? matchingTransactions[0] : undefined;
+    if (!batch.source_transaction_id) return undefined;
+    return transactions.find(tx => tx.id === batch.source_transaction_id);
   };
 
   const handleManualRegisterSerial = async (e: React.FormEvent, batchId: string) => {
@@ -148,6 +118,10 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
 
     const batch = batches.find(b => b.id === batchId);
     if (!batch) return;
+    if (getBatchSourceTransaction(batch)?.is_voided) {
+      alert('此入庫批次已作廢，不能再補登序號。');
+      return;
+    }
 
     const batchSerialsCount = serials.filter(s => s.batch_id === batchId).length;
     if (batchSerialsCount >= batch.quantity) {
@@ -382,10 +356,12 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
                         // @ts-ignore
                         const batchSerials = serials.filter(s => s.batch_id === batch.id);
                         const registeredBatchSerials = batchSerials.filter(s => s.status === '在庫').length;
-                        const pendingBatchSerials = Math.max(0, batch.quantity - batchSerials.length);
                         const isExpanded = expandedBatchId === batch.id;
                         const sourceTransaction = getBatchSourceTransaction(batch);
                         const isBatchVoided = !!sourceTransaction?.is_voided;
+                        const pendingBatchSerials = isBatchVoided
+                          ? 0
+                          : Math.max(0, batch.quantity - batchSerials.length);
 
                         return (
                           <div key={batch.id} className={`bg-slate-800 border rounded-lg overflow-hidden ${isBatchVoided ? 'border-slate-700/50 opacity-60' : 'border-slate-700'}`}>
@@ -450,17 +426,17 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
                                       className="flex-1 bg-slate-950 border border-indigo-500/50 rounded p-2 text-slate-100 outline-none focus:border-indigo-400"
                                       value={newSerialNo}
                                       onChange={e => setNewSerialNo(e.target.value)}
-                                      disabled={pendingBatchSerials === 0}
+                                      disabled={isBatchVoided || pendingBatchSerials === 0}
                                     />
                                     <button 
                                       type="submit" 
-                                      disabled={pendingBatchSerials === 0}
+                                      disabled={isBatchVoided || pendingBatchSerials === 0}
                                       className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded shadow whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                       新增序號
                                     </button>
                                   </form>
-                                  {pendingBatchSerials === 0 && (
+                                  {!isBatchVoided && pendingBatchSerials === 0 && (
                                     <div className="text-emerald-400 text-sm mt-2 flex items-center gap-1">
                                       ✓ 此批次序號已全數補齊
                                     </div>
@@ -497,6 +473,7 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
                                                   s.status === '在庫' ? 'bg-emerald-500/20 text-emerald-400' :
                                                   s.status === '已出庫' ? 'bg-red-500/20 text-red-400' :
                                                   s.status === '已退回' ? 'bg-indigo-500/20 text-indigo-400' :
+                                                  s.status === '作廢' ? 'bg-slate-700 text-slate-400 line-through' :
                                                   'bg-slate-600/50 text-slate-400'
                                                 }`}>
                                                   {s.status}
