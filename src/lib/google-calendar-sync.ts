@@ -1,5 +1,5 @@
-import { calendar_v3 } from 'googleapis';
-import { ScheduleTask } from '@/lib/db/types';
+import type { calendar_v3 } from 'googleapis';
+import type { ScheduleTask } from '@/lib/db/types';
 
 export const GOOGLE_SYNC_SOURCE = 'north-schedule-inventory';
 
@@ -44,6 +44,59 @@ export type GoogleEventTiming = {
   is_all_day: boolean;
 };
 
+export type ManualGoogleEventSkipReason =
+  | 'missing_event_id'
+  | 'missing_summary'
+  | 'missing_creator_email'
+  | 'creator_not_active_team_member'
+  | 'unsupported_multi_day_event'
+  | 'invalid_time';
+
+export type GoogleImportMember = {
+  id: string;
+  email: string;
+  name: string;
+};
+
+export type GoogleImportProject = {
+  id: string;
+  project_name: string;
+  project_short_name: string | null;
+  project_code: string | null;
+  address: string | null;
+};
+
+export type ManualScheduleTaskInsert = {
+  project_id: string | null;
+  project_name: string;
+  task_type: '其他';
+  title: string;
+  notes: string | null;
+  task_date: string;
+  start_time: string | null;
+  end_time: string | null;
+  is_all_day: boolean;
+  primary_member_id: string;
+  primary_member_name: string;
+  assistant_member_ids: string[];
+  assistant_member_names: string[];
+  status: '已排程';
+  is_tentative: false;
+  address: string | null;
+  google_maps_url: null;
+  google_calendar_id: string;
+  google_event_id: string;
+  google_sync_status: 'synced';
+  google_sync_error: null;
+  last_synced_at: string;
+  created_by: 'google-calendar-import';
+  updated_by: 'google-calendar-import';
+};
+
+export type ManualGoogleEventMapping =
+  | { ok: true; task: ManualScheduleTaskInsert }
+  | { ok: false; reason: ManualGoogleEventSkipReason };
+
 const toArray = (value: string[] | string | null | undefined): string[] => {
   if (!value) return [];
   if (Array.isArray(value)) return value.filter(Boolean);
@@ -85,6 +138,171 @@ const formatTaipeiParts = (date: Date) => {
     time: `${get('hour')}:${get('minute')}`,
   };
 };
+
+const isDateOnly = (value: string | null | undefined): value is string => (
+  !!value && /^\d{4}-\d{2}-\d{2}$/.test(value)
+);
+
+const addUtcDateDays = (dateString: string, days: number): string | null => {
+  if (!isDateOnly(dateString)) return null;
+  const date = new Date(`${dateString}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+};
+
+const normalizeExactText = (value: string | null | undefined): string => (
+  (value || '').trim().toLocaleLowerCase('zh-TW')
+);
+
+const findExactProject = (
+  event: calendar_v3.Schema$Event,
+  projects: GoogleImportProject[],
+): GoogleImportProject | null => {
+  const summary = (event.summary || '').trim();
+  const bracketMatch = summary.match(/^【([^】]+)】/);
+  const summaryKeys = new Set(
+    [bracketMatch?.[1], summary]
+      .map(normalizeExactText)
+      .filter(Boolean),
+  );
+  const locationKey = normalizeExactText(event.location);
+
+  const matches = projects.filter((project) => {
+    const identifiers = [
+      project.project_name,
+      project.project_short_name,
+      project.project_code,
+    ].map(normalizeExactText).filter(Boolean);
+    const summaryMatches = identifiers.some(identifier => summaryKeys.has(identifier));
+    const locationMatches = !!locationKey
+      && normalizeExactText(project.address) === locationKey;
+    return summaryMatches || locationMatches;
+  });
+
+  return matches.length === 1 ? matches[0] : null;
+};
+
+const getManualGoogleEventTiming = (
+  event: calendar_v3.Schema$Event,
+): { ok: true; timing: GoogleEventTiming } | { ok: false; reason: 'invalid_time' | 'unsupported_multi_day_event' } => {
+  if (event.start?.date || event.end?.date) {
+    if (!isDateOnly(event.start?.date) || !isDateOnly(event.end?.date)) {
+      return { ok: false, reason: 'invalid_time' };
+    }
+    if (addUtcDateDays(event.start.date, 1) !== event.end.date) {
+      return { ok: false, reason: 'unsupported_multi_day_event' };
+    }
+    return {
+      ok: true,
+      timing: {
+        task_date: event.start.date,
+        start_time: null,
+        end_time: null,
+        is_all_day: true,
+      },
+    };
+  }
+
+  if (!event.start?.dateTime || !event.end?.dateTime) {
+    return { ok: false, reason: 'invalid_time' };
+  }
+
+  const startDate = new Date(event.start.dateTime);
+  const endDate = new Date(event.end.dateTime);
+  if (
+    Number.isNaN(startDate.getTime())
+    || Number.isNaN(endDate.getTime())
+    || endDate.getTime() <= startDate.getTime()
+  ) {
+    return { ok: false, reason: 'invalid_time' };
+  }
+
+  const start = formatTaipeiParts(startDate);
+  const end = formatTaipeiParts(endDate);
+  if (start.date !== end.date) {
+    return { ok: false, reason: 'unsupported_multi_day_event' };
+  }
+
+  return {
+    ok: true,
+    timing: {
+      task_date: start.date,
+      start_time: start.time,
+      end_time: end.time,
+      is_all_day: false,
+    },
+  };
+};
+
+export function isSystemManagedGoogleEvent(event: calendar_v3.Schema$Event): boolean {
+  const privateProperties = event.extendedProperties?.private;
+  return privateProperties?.source === GOOGLE_SYNC_SOURCE
+    || !!privateProperties?.scheduleTaskId;
+}
+
+export function mapManualGoogleEvent(
+  event: calendar_v3.Schema$Event,
+  options: {
+    calendarId: string;
+    activeMembers: GoogleImportMember[];
+    projects: GoogleImportProject[];
+    syncedAt: string;
+  },
+): ManualGoogleEventMapping {
+  if (!event.id) return { ok: false, reason: 'missing_event_id' };
+
+  const title = (event.summary || '').trim();
+  if (!title) return { ok: false, reason: 'missing_summary' };
+
+  const creatorEmail = normalizeExactText(event.creator?.email);
+  if (!creatorEmail) return { ok: false, reason: 'missing_creator_email' };
+
+  const memberMatches = options.activeMembers.filter(
+    member => normalizeExactText(member.email) === creatorEmail,
+  );
+  if (memberMatches.length !== 1) {
+    return { ok: false, reason: 'creator_not_active_team_member' };
+  }
+
+  const timingResult = getManualGoogleEventTiming(event);
+  if (!timingResult.ok) return timingResult;
+
+  const member = memberMatches[0];
+  const project = findExactProject(event, options.projects);
+  const notes = (event.description || '').trim() || null;
+  const address = (event.location || '').trim() || null;
+
+  return {
+    ok: true,
+    task: {
+      project_id: project?.id || null,
+      project_name: project?.project_name || '無案場',
+      task_type: '其他',
+      title,
+      notes,
+      task_date: timingResult.timing.task_date,
+      start_time: timingResult.timing.start_time,
+      end_time: timingResult.timing.end_time,
+      is_all_day: timingResult.timing.is_all_day,
+      primary_member_id: member.id,
+      primary_member_name: member.name,
+      assistant_member_ids: [],
+      assistant_member_names: [],
+      status: '已排程',
+      is_tentative: false,
+      address,
+      google_maps_url: null,
+      google_calendar_id: options.calendarId,
+      google_event_id: event.id,
+      google_sync_status: 'synced',
+      google_sync_error: null,
+      last_synced_at: options.syncedAt,
+      created_by: 'google-calendar-import',
+      updated_by: 'google-calendar-import',
+    },
+  };
+}
 
 const addOneDay = (dateString: string): string => {
   const date = new Date(`${dateString}T00:00:00+08:00`);

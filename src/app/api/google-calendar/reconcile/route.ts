@@ -1,12 +1,26 @@
 import { NextResponse } from 'next/server';
+import type { calendar_v3 } from 'googleapis';
 import { getGoogleCalendarClient, GOOGLE_CALENDAR_ID } from '@/lib/google-calendar';
-import { GOOGLE_SYNC_SOURCE, getGoogleEventTiming } from '@/lib/google-calendar-sync';
-import { ScheduleTask } from '@/lib/db/types';
+import {
+  GOOGLE_SYNC_SOURCE,
+  getGoogleEventTiming,
+  isSystemManagedGoogleEvent,
+  mapManualGoogleEvent,
+  type GoogleImportMember,
+  type GoogleImportProject,
+  type ManualGoogleEventSkipReason,
+} from '@/lib/google-calendar-sync';
+import type { ScheduleTask } from '@/lib/db/types';
 import { requireActiveTeamMember } from '@/lib/server/supabase-auth';
 
 export const dynamic = 'force-dynamic';
 
 const runningReconciles = new Set<string>();
+const GOOGLE_LIST_TIME_ZONE = 'Asia/Taipei';
+const DAY_IN_MILLISECONDS = 24 * 60 * 60 * 1000;
+
+type ImportSkipReason = ManualGoogleEventSkipReason | 'already_imported' | 'insert_failed';
+type SkippedEvent = { eventId: string; reason: ImportSkipReason };
 
 const getSafeErrorInfo = (error: any) => ({
   status: error?.status ?? error?.code ?? null,
@@ -30,6 +44,30 @@ const hasTimingChanged = (task: any, timing: ReturnType<typeof getGoogleEventTim
     || (task.start_time || null) !== timing.start_time
     || (task.end_time || null) !== timing.end_time
     || !!task.is_all_day !== timing.is_all_day;
+};
+
+const listGoogleEventsInImportWindow = async (
+  calendar: calendar_v3.Calendar,
+  now: Date,
+): Promise<calendar_v3.Schema$Event[]> => {
+  const events: calendar_v3.Schema$Event[] = [];
+  let pageToken: string | undefined;
+
+  do {
+    const response = await calendar.events.list({
+      calendarId: GOOGLE_CALENDAR_ID,
+      timeMin: new Date(now.getTime() - 90 * DAY_IN_MILLISECONDS).toISOString(),
+      timeMax: new Date(now.getTime() + 365 * DAY_IN_MILLISECONDS).toISOString(),
+      timeZone: GOOGLE_LIST_TIME_ZONE,
+      singleEvents: true,
+      showDeleted: false,
+      pageToken,
+    });
+    events.push(...(response.data.items || []));
+    pageToken = response.data.nextPageToken || undefined;
+  } while (pageToken);
+
+  return events;
 };
 
 export async function POST(req: Request) {
@@ -57,6 +95,8 @@ export async function POST(req: Request) {
         checked: 0,
         updated: 0,
         deleted: 0,
+        imported: 0,
+        skippedEvents: [],
         failures: [],
       });
     }
@@ -82,6 +122,8 @@ export async function POST(req: Request) {
     let updated = 0;
     let deleted = 0;
     let skipped = 0;
+    let imported = 0;
+    const skippedEvents: SkippedEvent[] = [];
     const failures: Array<{ taskId: string; eventId: string; message: string }> = [];
 
     for (const task of tasks || []) {
@@ -188,12 +230,80 @@ export async function POST(req: Request) {
       }
     }
 
+    if (!body.taskId) {
+      const now = new Date();
+      const listedEvents = await listGoogleEventsInImportWindow(calendar, now);
+      const existingEventIds = new Set(
+        (tasks || [])
+          .map(task => task.google_event_id)
+          .filter((eventId): eventId is string => !!eventId),
+      );
+
+      const [{ data: members, error: membersError }, { data: projects, error: projectsError }] = await Promise.all([
+        supabase
+          .from('team_members')
+          .select('id, email, name')
+          .eq('is_active', true)
+          .is('deleted_at', null),
+        supabase
+          .from('projects')
+          .select('id, project_name, project_short_name, project_code, address')
+          .is('deleted_at', null),
+      ]);
+
+      if (membersError) throw membersError;
+      if (projectsError) throw projectsError;
+
+      for (const event of listedEvents) {
+        if (isSystemManagedGoogleEvent(event)) {
+          continue;
+        }
+
+        const eventId = event.id || '';
+        if (eventId && existingEventIds.has(eventId)) {
+          skippedEvents.push({ eventId, reason: 'already_imported' });
+          continue;
+        }
+
+        const mapping = mapManualGoogleEvent(event, {
+          calendarId: GOOGLE_CALENDAR_ID,
+          activeMembers: (members || []) as GoogleImportMember[],
+          projects: (projects || []) as GoogleImportProject[],
+          syncedAt: now.toISOString(),
+        });
+
+        if (!mapping.ok) {
+          skippedEvents.push({ eventId, reason: mapping.reason });
+          continue;
+        }
+
+        const { error: insertError } = await supabase
+          .from('schedule_tasks')
+          .insert(mapping.task);
+
+        if (insertError) {
+          if (insertError.code === '23505') {
+            skippedEvents.push({ eventId: mapping.task.google_event_id, reason: 'already_imported' });
+          } else {
+            skippedEvents.push({ eventId: mapping.task.google_event_id, reason: 'insert_failed' });
+            console.error('Google manual event import failed:', getSafeErrorInfo(insertError));
+          }
+          continue;
+        }
+
+        existingEventIds.add(mapping.task.google_event_id);
+        imported += 1;
+      }
+    }
+
     return NextResponse.json({
       success: failures.length === 0,
       checked,
       updated,
       deleted,
       skipped,
+      imported,
+      skippedEvents,
       failures,
     });
   } catch (err: any) {
