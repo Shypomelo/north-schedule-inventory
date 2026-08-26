@@ -11,9 +11,15 @@ import { SmartDateInput } from '@/components/SmartDateInput';
 import { DateDualInput } from '@/components/DateDualInput';
 import { useUser } from '@/components/UserContext';
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
+import { parseTaiwanProjectLocation, projectMatchesSearchQuery } from '@/lib/project-location';
 import { supabase } from '@/lib/db/supabaseClient';
 import { MapPin, Plus, Search, Filter, Maximize2 } from 'lucide-react';
 import { useParams } from 'next/navigation';
+
+const getCity = (address: string | null) => {
+  if (!address) return null;
+  return parseTaiwanProjectLocation(address)?.city || '其他';
+};
 
 export default function ProjectsPage() {
   const params = useParams();
@@ -124,21 +130,6 @@ export default function ProjectsPage() {
     return '所有案場';
   };
 
-  const getCity = (address: string | null) => {
-    if (!address) return null;
-    const match = address.match(/(..[市縣])/);
-    if (match) {
-      if (match[1] === '桃園縣') return '桃園市';
-      if (match[1] === '台北縣' || match[1] === '信北市') return '新北市';
-      return match[1];
-    }
-    const taipeiDistricts = ['中正區', '大同區', '中山區', '松山區', '大安區', '萬華區', '信義區', '士林區', '北投區', '內湖區', '南港區', '文山區'];
-    for (const dist of taipeiDistricts) {
-      if (address.includes(dist)) return '台北市';
-    }
-    return '其他';
-  };
-
   const cities = useMemo(() => {
     const allCities = projects.map(p => getCity(p.address)).filter(Boolean) as string[];
     return Array.from(new Set(allCities)).sort();
@@ -160,14 +151,9 @@ export default function ProjectsPage() {
       if (filterInverterBrand && p.inverter_brand !== filterInverterBrand) return false;
 
       if (searchTerm) {
-        const lowerTerm = searchTerm.toLowerCase();
-        const matchSearch = 
-          (p.name && p.name.toLowerCase().includes(lowerTerm)) || 
-          (p.contact_name && p.contact_name.toLowerCase().includes(lowerTerm)) ||
-          (p.contact_phone && p.contact_phone.toLowerCase().includes(lowerTerm)) ||
-          (p.address && p.address.toLowerCase().includes(lowerTerm)) ||
-          (p.notes && p.notes.toLowerCase().includes(lowerTerm));
-        if (!matchSearch) return false;
+        if (!projectMatchesSearchQuery(p, searchTerm, [p.contact_name, p.contact_phone, p.notes])) {
+          return false;
+        }
       }
       return true;
     });
@@ -179,12 +165,7 @@ export default function ProjectsPage() {
       if (filterUser && p.manager !== filterUser.name) return false;
 
       if (searchTerm) {
-        const lowerTerm = searchTerm.toLowerCase();
-        const matchSearch = 
-          (p.name && p.name.toLowerCase().includes(lowerTerm)) || 
-          (p.project_code && p.project_code.toLowerCase().includes(lowerTerm)) ||
-          (p.notes && p.notes.toLowerCase().includes(lowerTerm));
-        if (!matchSearch) return false;
+        if (!projectMatchesSearchQuery(p, searchTerm, [p.notes])) return false;
       }
       return true;
     });
@@ -627,7 +608,7 @@ export default function ProjectsPage() {
             <Search className="text-slate-400" size={20} />
             <input 
               type="text" 
-              placeholder="搜尋案場名稱、代碼、備註..." 
+              placeholder="搜尋名稱、代碼、縣市、行政區或地址..."
               className="bg-transparent border-none outline-none text-slate-200 w-full placeholder:text-slate-500 py-2.5"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}

@@ -1,4 +1,4 @@
-import { User, Project, ScheduleTask, ScheduleTaskMember, Todo, InventoryItem, InventoryTransaction, InventorySerial, InventoryTransactionSerial, InventoryMonthlyClosing, InventoryMonthlyClosingItem, StockCategory, ActivityLog, Contractor, InventoryBatch, SESupplyRecord } from './types';
+import { User, Project, ScheduleTask, ScheduleTaskMember, ScheduleTaskType, Todo, InventoryItem, InventoryTransaction, InventorySerial, InventoryTransactionSerial, InventoryMonthlyClosing, InventoryMonthlyClosingItem, StockCategory, ActivityLog, Contractor, InventoryBatch, SESupplyRecord } from './types';
 import { getInventoryTransactionQuantityDelta } from './inventory-stock';
 
 import mockProjectsData from './mock-projects.json';
@@ -14,6 +14,7 @@ interface MockDatabase {
   contractors: Contractor[];
   schedule_tasks: ScheduleTask[];
   schedule_task_members: ScheduleTaskMember[];
+  schedule_task_types: ScheduleTaskType[];
   todos: Todo[];
   inventory_items: InventoryItem[];
   inventory_transactions: InventoryTransaction[];
@@ -27,6 +28,21 @@ interface MockDatabase {
 }
 
 const STORAGE_KEY = 'schedule-inventory-mock-db-v7';
+
+const initialScheduleTaskTypes: ScheduleTaskType[] = [
+  '現勘', '維修', '施工', '掛表', '送電', '清洗', '電檢', '確認', '內部', '其他',
+].map((name, sort_order) => ({
+  id: `mock-task-type-${sort_order}`,
+  name,
+  is_active: true,
+  sort_order,
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
+}));
+
+const normalizeScheduleTaskTypeName = (name: string) => (
+  name.replace(/\u3000/g, ' ').trim().toLocaleLowerCase()
+);
 
 const initialUsers: User[] = [
     {
@@ -114,6 +130,7 @@ let db: MockDatabase = {
   contractors: [],
   schedule_tasks: [],
   schedule_task_members: [],
+  schedule_task_types: [...initialScheduleTaskTypes],
   todos: [],
   inventory_items: mockInventoryItemsData.map(item => ({
     ...item,
@@ -139,6 +156,10 @@ if (IS_BROWSER) {
       let hasMigrationChanges = false;
       if (!db.contractors) {
         db.contractors = [];
+      }
+      if (!db.schedule_task_types) {
+        db.schedule_task_types = [...initialScheduleTaskTypes];
+        hasMigrationChanges = true;
       }
       if ((db as any).active_projects && (db as any).active_projects.length > 0) {
         (db as any).active_projects.forEach((ap: any) => {
@@ -354,6 +375,52 @@ export const mockDbAdapter = {
     if (idx === -1) throw new Error("User not found");
     const updated = { ...db.users[idx], ...updates, updated_at: new Date().toISOString() };
     db.users[idx] = updated;
+    persist();
+    return updated;
+  },
+
+  // --- Schedule Task Types ---
+  listScheduleTaskTypes: async () => [...db.schedule_task_types]
+    .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, 'zh-Hant')),
+  createScheduleTaskType: async (
+    taskType: Pick<ScheduleTaskType, 'name'> & Partial<Pick<ScheduleTaskType, 'is_active' | 'sort_order'>>,
+  ) => {
+    const name = taskType.name.trim();
+    const normalizedName = normalizeScheduleTaskTypeName(name);
+    if (!normalizedName) throw new Error('任務類型名稱不可空白');
+    if (db.schedule_task_types.some(item => normalizeScheduleTaskTypeName(item.name) === normalizedName)) {
+      throw new Error('任務類型名稱已存在');
+    }
+    const now = new Date().toISOString();
+    const newTaskType: ScheduleTaskType = {
+      id: crypto.randomUUID(),
+      name,
+      is_active: taskType.is_active ?? true,
+      sort_order: taskType.sort_order ?? 0,
+      created_at: now,
+      updated_at: now,
+    };
+    db.schedule_task_types.push(newTaskType);
+    persist();
+    return newTaskType;
+  },
+  updateScheduleTaskType: async (
+    id: string,
+    updates: Partial<Pick<ScheduleTaskType, 'name' | 'is_active' | 'sort_order'>>,
+  ) => {
+    const index = db.schedule_task_types.findIndex(item => item.id === id);
+    if (index === -1) throw new Error('Task type not found');
+    if (updates.name !== undefined) {
+      const name = updates.name.trim();
+      const normalizedName = normalizeScheduleTaskTypeName(name);
+      if (!normalizedName) throw new Error('任務類型名稱不可空白');
+      if (db.schedule_task_types.some(item => item.id !== id && normalizeScheduleTaskTypeName(item.name) === normalizedName)) {
+        throw new Error('任務類型名稱已存在');
+      }
+      updates = { ...updates, name };
+    }
+    const updated = { ...db.schedule_task_types[index], ...updates, updated_at: new Date().toISOString() };
+    db.schedule_task_types[index] = updated;
     persist();
     return updated;
   },

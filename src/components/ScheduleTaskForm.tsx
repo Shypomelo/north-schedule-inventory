@@ -3,8 +3,10 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ScheduleTask, Project, User, TaskStatus } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
+import { getProjectLocationLabel, getProjectSearchScore } from '@/lib/project-location';
 import { useUser } from './UserContext';
 import { addHours, format, parse } from 'date-fns';
+import { useScheduleTaskTypes } from '@/hooks/useScheduleTaskTypes';
 
 const PRIMARY_TIME_HOURS = [
   '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18',
@@ -35,7 +37,7 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
   else if (initialStatus === '已完成') initialStatus = '完成';
 
   const [formData, setFormData] = useState<Omit<ScheduleTask, 'id' | 'created_at' | 'updated_at'>>({
-    task_type: initialData?.task_type || '維修',
+    task_type: initialData?.task_type || '',
     title: initialData?.title || '',
     project_id: initialData?.project_id || null,
     project_name: initialData?.project_name || '',
@@ -60,6 +62,17 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [memberIds, setMemberIds] = useState<string[]>(initialMemberIds || []);
   const [projectNameInput, setProjectNameInput] = useState(initialData?.project_name || '');
+  const isEditingExistingTask = Boolean(initialData?.id);
+  const {
+    activeTaskTypes,
+    defaultTaskType,
+    error: taskTypesError,
+    isLoading: taskTypesLoading,
+    shouldShowLegacyValue,
+  } = useScheduleTaskTypes({
+    currentValue: formData.task_type,
+    preserveCurrentValue: isEditingExistingTask,
+  });
   
   // Custom dropdown state
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -97,6 +110,14 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
   useEffect(() => {
     setMemberIds(initialMemberIds || []);
   }, [initialData?.id, initialMemberIds]);
+
+  useEffect(() => {
+    if (taskTypesLoading || isEditingExistingTask) return;
+    const currentIsActive = activeTaskTypes.some(taskType => taskType.name === formData.task_type);
+    if (!currentIsActive && defaultTaskType) {
+      setFormData(prev => ({ ...prev, task_type: defaultTaskType }));
+    }
+  }, [activeTaskTypes, defaultTaskType, formData.task_type, isEditingExistingTask, taskTypesLoading]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -196,18 +217,11 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
   const filteredProjects = useMemo(() => {
     if (!projectNameInput.trim()) return projects.slice(0, 50); // Show max 50 default
     
-    const term = projectNameInput.toLowerCase();
-    
     const scored = projects.map(p => {
-      let score = 0;
-      if (p.name?.toLowerCase().includes(term)) score += 100;
-      if (p.short_name?.toLowerCase().includes(term)) score += 80;
-      const code = (p as any).project_code || (p as any).code;
-      if (code?.toLowerCase().includes(term)) score += 60;
-      if (p.address?.toLowerCase().includes(term) || p.region?.toLowerCase().includes(term)) score += 40;
-      if (p.notes?.toLowerCase().includes(term)) score += 20;
-
-      return { project: p, score };
+      return {
+        project: p,
+        score: getProjectSearchScore(p, projectNameInput, [p.notes]),
+      };
     }).filter(item => item.score > 0);
 
     return scored.sort((a, b) => b.score - a.score).map(item => item.project).slice(0, 50);
@@ -284,8 +298,9 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
           {isDropdownOpen && filteredProjects.length > 0 && (
             <div className="absolute top-[100%] left-0 z-[100] w-full mt-1 max-h-64 overflow-y-auto bg-slate-800 border border-slate-600 rounded-md shadow-2xl custom-scrollbar">
               {filteredProjects.map(p => {
-                const code = (p as any).project_code || (p as any).code || '無代碼';
+                const code = p.project_code || '無代碼';
                 const cap = p.capacity ? `${p.capacity} kW` : '- kW';
+                const location = getProjectLocationLabel(p) || p.address || '無區域';
                 return (
                   <div 
                     key={p.id}
@@ -296,11 +311,11 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
                       <span className="font-medium text-emerald-400 whitespace-nowrap">{p.name}</span>
                       <span className="hidden sm:inline text-slate-500">｜</span>
                       <div className="flex items-center gap-2 text-slate-300 text-xs sm:text-sm truncate">
+                        <span className="whitespace-nowrap text-sky-300/80" title={p.address || ''}>{location}</span>
+                        <span className="text-slate-500">｜</span>
                         <span className="whitespace-nowrap">{code}</span>
                         <span className="text-slate-500">｜</span>
                         <span className="whitespace-nowrap text-amber-400/80">{cap}</span>
-                        <span className="text-slate-500">｜</span>
-                        <span className="truncate flex-1 text-slate-400" title={p.address || ''}>{p.address || '無地址'}</span>
                       </div>
                     </div>
                   </div>
@@ -315,11 +330,17 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
           <span className="font-semibold text-slate-300">任務類型 *</span>
           <select 
             required
+            disabled={taskTypesLoading || Boolean(taskTypesError)}
             className="bg-slate-900 border border-slate-700 rounded p-1.5 focus:border-emerald-500 outline-none"
             value={formData.task_type} onChange={e => setFormData({...formData, task_type: e.target.value})} 
           >
-            {['現勘', '維修', '施工', '掛表', '送電', '清洗', '電檢', '確認', '內部', '其他'].map(t => (
-               <option key={t} value={t}>{t}</option>
+            {taskTypesLoading && <option value="">載入中...</option>}
+            {taskTypesError && <option value="">{taskTypesError}</option>}
+            {shouldShowLegacyValue && (
+              <option value={formData.task_type}>{formData.task_type}（已停用）</option>
+            )}
+            {activeTaskTypes.map(taskType => (
+              <option key={taskType.id} value={taskType.name}>{taskType.name}</option>
             ))}
           </select>
         </label>

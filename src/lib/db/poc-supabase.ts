@@ -2,6 +2,7 @@ import { supabase } from './supabaseClient';
 import {
   ScheduleTask,
   ScheduleTaskMember,
+  ScheduleTaskType,
   User,
   UserRole,
   Contractor,
@@ -1379,6 +1380,66 @@ export const pocSupabaseAdapter = {
     }
     
     return mapUser(data);
+  },
+
+  // --- Schedule Task Types ---
+  listScheduleTaskTypes: async (): Promise<ScheduleTaskType[]> => {
+    const { data, error } = await supabase
+      .from('schedule_task_types')
+      .select('*')
+      .order('sort_order', { ascending: true })
+      .order('name', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching schedule_task_types:', error);
+      throw error;
+    }
+
+    return data as ScheduleTaskType[];
+  },
+
+  createScheduleTaskType: async (
+    taskType: Pick<ScheduleTaskType, 'name'> & Partial<Pick<ScheduleTaskType, 'is_active' | 'sort_order'>>,
+  ): Promise<ScheduleTaskType> => {
+    const { data, error } = await supabase
+      .from('schedule_task_types')
+      .insert({
+        name: taskType.name.trim(),
+        is_active: taskType.is_active ?? true,
+        sort_order: taskType.sort_order ?? 0,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error creating schedule_task_type:', error);
+      throw error;
+    }
+
+    return data as ScheduleTaskType;
+  },
+
+  updateScheduleTaskType: async (
+    id: string,
+    updates: Partial<Pick<ScheduleTaskType, 'name' | 'is_active' | 'sort_order'>>,
+  ): Promise<ScheduleTaskType> => {
+    const dbUpdates = {
+      ...updates,
+      ...(updates.name !== undefined ? { name: updates.name.trim() } : {}),
+    };
+    const { data, error } = await supabase
+      .from('schedule_task_types')
+      .update(dbUpdates)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error updating schedule_task_type:', error);
+      throw error;
+    }
+
+    return data as ScheduleTaskType;
   },
 
   // --- Schedule Tasks ---

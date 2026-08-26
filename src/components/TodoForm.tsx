@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Todo, Project } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { useUser } from './UserContext';
+import { useScheduleTaskTypes } from '@/hooks/useScheduleTaskTypes';
 
 interface TodoFormProps {
   initialData?: Partial<Todo>;
@@ -28,10 +29,29 @@ export function TodoForm({ initialData, onSubmit, onCancel, isSubmitting }: Todo
   });
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const isEditingExistingTodo = Boolean(initialData?.id);
+  const {
+    activeTaskTypes,
+    defaultTaskType,
+    error: taskTypesError,
+    isLoading: taskTypesLoading,
+    shouldShowLegacyValue,
+  } = useScheduleTaskTypes({
+    currentValue: formData.task_type,
+    preserveCurrentValue: isEditingExistingTodo,
+  });
 
   useEffect(() => {
     dbAdapter.getProjects().then(data => setProjects(data.filter(p => p.is_active)));
   }, []);
+
+  useEffect(() => {
+    if (taskTypesLoading || isEditingExistingTodo || !formData.task_type) return;
+    const currentIsActive = activeTaskTypes.some(taskType => taskType.name === formData.task_type);
+    if (!currentIsActive) {
+      setFormData(prev => ({ ...prev, task_type: defaultTaskType || null }));
+    }
+  }, [activeTaskTypes, defaultTaskType, formData.task_type, isEditingExistingTodo, taskTypesLoading]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,12 +86,16 @@ export function TodoForm({ initialData, onSubmit, onCancel, isSubmitting }: Todo
         <label className="flex flex-col gap-1">
           <span className="text-sm font-semibold text-slate-300">任務類型</span>
           <select 
+            disabled={taskTypesLoading || Boolean(taskTypesError)}
             className="bg-slate-900 border border-slate-700 rounded p-2 focus:border-emerald-500 outline-none"
             value={formData.task_type || ''} onChange={e => setFormData({...formData, task_type: e.target.value || null})} 
           >
-            <option value="">(無)</option>
-            {['現勘', '維修', '施工', '掛表', '送電', '清洗', '電檢', '確認', '內部', '其他'].map(t => (
-               <option key={t} value={t}>{t}</option>
+            <option value="">{taskTypesLoading ? '載入中...' : taskTypesError || '(無)'}</option>
+            {shouldShowLegacyValue && formData.task_type && (
+              <option value={formData.task_type}>{formData.task_type}（已停用）</option>
+            )}
+            {activeTaskTypes.map(taskType => (
+              <option key={taskType.id} value={taskType.name}>{taskType.name}</option>
             ))}
           </select>
         </label>

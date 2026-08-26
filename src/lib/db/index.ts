@@ -137,6 +137,30 @@ const seSupplyAdapter = hasSupabase
         deleteSESupplyRecord: mockDbAdapter.deleteSESupplyRecord,
       };
 
+const requireScheduleTaskTypesSupabase = (methodName: string) => async () => {
+  throw new Error(
+    `Supabase is required for schedule task types in production. Refusing mock/localStorage fallback for ${methodName}.`
+  );
+};
+
+const scheduleTaskTypesAdapter = hasSupabase
+  ? {
+      listScheduleTaskTypes: pocSupabaseAdapter.listScheduleTaskTypes,
+      createScheduleTaskType: pocSupabaseAdapter.createScheduleTaskType,
+      updateScheduleTaskType: pocSupabaseAdapter.updateScheduleTaskType,
+    }
+  : isProduction
+    ? {
+        listScheduleTaskTypes: requireScheduleTaskTypesSupabase('listScheduleTaskTypes'),
+        createScheduleTaskType: requireScheduleTaskTypesSupabase('createScheduleTaskType'),
+        updateScheduleTaskType: requireScheduleTaskTypesSupabase('updateScheduleTaskType'),
+      }
+    : {
+        listScheduleTaskTypes: mockDbAdapter.listScheduleTaskTypes,
+        createScheduleTaskType: mockDbAdapter.createScheduleTaskType,
+        updateScheduleTaskType: mockDbAdapter.updateScheduleTaskType,
+      };
+
 const syncToGoogle = async (action: 'CREATE' | 'UPDATE' | 'DELETE', task: any, skipGoogleSync?: boolean) => {
   if (skipGoogleSync) return;
   try {
@@ -171,6 +195,7 @@ const syncToGoogle = async (action: 'CREATE' | 'UPDATE' | 'DELETE', task: any, s
 
 export const dbAdapter = {
   ...mockDbAdapter,
+  ...scheduleTaskTypesAdapter,
   getUsers: hasSupabase ? pocSupabaseAdapter.getUsers : mockDbAdapter.getUsers,
   createUser: hasSupabase ? pocSupabaseAdapter.createUser : mockDbAdapter.createUser,
   updateUser: hasSupabase ? pocSupabaseAdapter.updateUser : mockDbAdapter.updateUser,
