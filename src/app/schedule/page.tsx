@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { ScheduleTask, ScheduleTaskMember, Project, User, Todo, TaskStatus } from '@/lib/db/types';
 import { dbAdapter, isGoogleRemoteDeletedError } from '@/lib/db';
 import { ScheduleTaskForm } from '@/components/ScheduleTaskForm';
@@ -10,8 +10,28 @@ import { ChevronLeft, ChevronRight, Plus, X, ArrowLeft } from 'lucide-react';
 import { useUser } from '@/components/UserContext';
 import { getDatabaseErrorMessage, isMissingCoreTablesError } from '@/lib/db/supabase-errors';
 import { supabase } from '@/lib/db/supabaseClient';
+import {
+  collectUniqueWeatherRequests,
+  resolveTaskWeatherRequest,
+  WEATHER_STATE_DISPLAY,
+  type WeatherState,
+} from '@/lib/weather';
 
 type ViewMode = 'week' | 'month';
+
+const sortTasks = (taskList: ScheduleTask[]) => {
+  return [...taskList].filter(t => t.status !== '取消').sort((a, b) => {
+    if (a.is_tentative && !b.is_tentative) return 1;
+    if (!a.is_tentative && b.is_tentative) return -1;
+
+    const timeWeight = (t: ScheduleTask) => {
+      if (t.start_time) return t.start_time;
+      if (t.is_all_day) return '25:00';
+      return '26:00';
+    };
+    return timeWeight(a).localeCompare(timeWeight(b));
+  });
+};
 
 export default function SchedulePage() {
   const { currentUser } = useUser();
@@ -24,6 +44,9 @@ export default function SchedulePage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [weatherByKey, setWeatherByKey] = useState<Map<string, WeatherState | null>>(() => new Map());
+  const weatherCacheRef = useRef<Map<string, WeatherState | null>>(new Map());
+  const requestedWeatherKeysRef = useRef<Set<string>>(new Set());
 
   // Task Modal & Drawer State
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -171,19 +194,54 @@ export default function SchedulePage() {
     d = addDays(d, 1);
   }
 
-  const sortTasks = (taskList: ScheduleTask[]) => {
-    return [...taskList].filter(t => t.status !== '取消').sort((a, b) => {
-      if (a.is_tentative && !b.is_tentative) return 1;
-      if (!a.is_tentative && b.is_tentative) return -1;
-      
-      const timeWeight = (t: ScheduleTask) => {
-        if (t.start_time) return t.start_time;
-        if (t.is_all_day) return '25:00';
-        return '26:00';
-      };
-      return timeWeight(a).localeCompare(timeWeight(b));
+  const visibleWeatherTasks = useMemo(() => {
+    const visibleTasks = selectedDayTasks ? [...selectedDayTasks.tasks] : [];
+    if (viewMode !== 'week') return visibleTasks;
+
+    const visibleWeekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
+    for (let index = 0; index < 6; index += 1) {
+      const dateStr = format(addDays(visibleWeekStart, index), 'yyyy-MM-dd');
+      visibleTasks.push(...sortTasks(tasks.filter(task => task.task_date === dateStr)).slice(0, 3));
+    }
+    return visibleTasks;
+  }, [currentDate, selectedDayTasks, tasks, viewMode]);
+
+  const weatherRequests = useMemo(
+    () => collectUniqueWeatherRequests(visibleWeatherTasks, projects),
+    [projects, visibleWeatherTasks],
+  );
+
+  useEffect(() => {
+    const missingRequests = weatherRequests.filter(request => (
+      !weatherCacheRef.current.has(request.key)
+      && !requestedWeatherKeysRef.current.has(request.key)
+    ));
+    if (missingRequests.length === 0) return;
+
+    missingRequests.forEach(request => requestedWeatherKeysRef.current.add(request.key));
+
+    Promise.all(missingRequests.map(async weatherRequest => {
+      const searchParams = new URLSearchParams({
+        date: weatherRequest.date,
+        city: weatherRequest.city,
+        district: weatherRequest.district,
+      });
+
+      try {
+        const response = await fetch(`/api/weather?${searchParams.toString()}`);
+        if (!response.ok) return [weatherRequest.key, null] as const;
+        const data = await response.json() as { weather?: WeatherState | null };
+        return [weatherRequest.key, data.weather || null] as const;
+      } catch {
+        return [weatherRequest.key, null] as const;
+      }
+    })).then(results => {
+      const nextWeatherByKey = new Map(weatherCacheRef.current);
+      results.forEach(([key, weather]) => nextWeatherByKey.set(key, weather));
+      weatherCacheRef.current = nextWeatherByKey;
+      setWeatherByKey(nextWeatherByKey);
     });
-  };
+  }, [weatherRequests]);
 
   const buildMemberRows = (taskId: string, userIds: string[]): ScheduleTaskMember[] => (
     userIds.map(userId => ({
@@ -543,6 +601,15 @@ export default function SchedulePage() {
     return { projName, assigneeDisplay, coworkerDisplay, region, searchAddress };
   };
 
+  const getTaskWeatherDisplay = (task: ScheduleTask) => {
+    const project = projects.find(candidate => candidate.id === task.project_id);
+    const weatherRequest = resolveTaskWeatherRequest(task, project);
+    if (!weatherRequest) return null;
+
+    const weather = weatherByKey.get(weatherRequest.key);
+    return weather ? WEATHER_STATE_DISPLAY[weather] : null;
+  };
+
   return (
     <div className="p-8 h-full flex flex-col min-w-[1500px] mx-auto">
       <div className="flex justify-between items-center mb-6">
@@ -640,6 +707,7 @@ export default function SchedulePage() {
                     <div className="flex-1 p-2 flex flex-col gap-2 overflow-y-auto">
                       {displayTasks.map(task => {
                         const { projName, assigneeDisplay, coworkerDisplay, region, searchAddress } = getTaskDisplay(task);
+                        const weatherDisplay = getTaskWeatherDisplay(task);
                         const isDone = task.status === '完成';
                         const isRescheduled = task.status === '改期';
                         
@@ -679,7 +747,7 @@ export default function SchedulePage() {
                                 {coworkerDisplay && <div className="truncate">{coworkerDisplay}</div>}
                               </div>
                             )}
-                            <div className="text-[11px] mt-1">
+                            <div className="text-[11px] mt-1 flex items-center justify-between gap-2">
                               <a 
                                 href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchAddress)}`}
                                 target="_blank"
@@ -689,6 +757,15 @@ export default function SchedulePage() {
                               >
                                 MAP
                               </a>
+                              {weatherDisplay && (
+                                <span
+                                  className={`${isDone || isRescheduled ? 'text-slate-600' : 'text-slate-300'} whitespace-nowrap`}
+                                  title={weatherDisplay.label}
+                                  aria-label={`天氣：${weatherDisplay.label}`}
+                                >
+                                  {weatherDisplay.icon}<span className="hidden 2xl:inline"> {weatherDisplay.label}</span>
+                                </span>
+                              )}
                             </div>
                           </div>
                         );
@@ -860,6 +937,7 @@ export default function SchedulePage() {
             ) : (
               selectedDayTasks.tasks.map(task => {
                 const { projName, assigneeDisplay, coworkerDisplay, region, searchAddress } = getTaskDisplay(task);
+                const weatherDisplay = getTaskWeatherDisplay(task);
                 return (
                   <div key={task.id} className={`bg-slate-900 border border-slate-700 rounded-lg p-4 ${task.status === '完成' ? 'opacity-50' : ''}`}>
                     <div className="flex justify-between items-start mb-2">
@@ -891,7 +969,7 @@ export default function SchedulePage() {
                       {assigneeDisplay && <div>{assigneeDisplay}</div>}
                       {coworkerDisplay && <div>{coworkerDisplay}</div>}
                     </div>
-                    <div className="text-sm mt-1">
+                    <div className="text-sm mt-1 flex items-center justify-between gap-2">
                       <a 
                         href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchAddress)}`}
                         target="_blank" 
@@ -899,6 +977,15 @@ export default function SchedulePage() {
                         onClick={e => e.stopPropagation()} 
                         className="text-emerald-400 hover:text-emerald-300 underline font-bold"
                       >MAP</a>
+                      {weatherDisplay && (
+                        <span
+                          className="text-slate-300 whitespace-nowrap"
+                          title={weatherDisplay.label}
+                          aria-label={`天氣：${weatherDisplay.label}`}
+                        >
+                          {weatherDisplay.icon} {weatherDisplay.label}
+                        </span>
+                      )}
                     </div>
                     <div className="text-xs text-slate-500 mt-2 flex items-center gap-2">
                       <span className={`px-2 py-0.5 rounded-full bg-slate-800`}>{task.status || '正常'}</span>
