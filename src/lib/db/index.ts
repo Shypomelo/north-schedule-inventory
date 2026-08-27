@@ -137,7 +137,7 @@ const seSupplyAdapter = hasSupabase
         deleteSESupplyRecord: mockDbAdapter.deleteSESupplyRecord,
       };
 
-const requireScheduleTaskTypesSupabase = (methodName: string) => async () => {
+const requireScheduleTaskTypesSupabase = (methodName: string) => async (..._args: unknown[]) => {
   throw new Error(
     `Supabase is required for schedule task types in production. Refusing mock/localStorage fallback for ${methodName}.`
   );
@@ -148,17 +148,20 @@ const scheduleTaskTypesAdapter = hasSupabase
       listScheduleTaskTypes: pocSupabaseAdapter.listScheduleTaskTypes,
       createScheduleTaskType: pocSupabaseAdapter.createScheduleTaskType,
       updateScheduleTaskType: pocSupabaseAdapter.updateScheduleTaskType,
+      reorderScheduleTaskTypes: pocSupabaseAdapter.reorderScheduleTaskTypes,
     }
   : isProduction
     ? {
         listScheduleTaskTypes: requireScheduleTaskTypesSupabase('listScheduleTaskTypes'),
         createScheduleTaskType: requireScheduleTaskTypesSupabase('createScheduleTaskType'),
         updateScheduleTaskType: requireScheduleTaskTypesSupabase('updateScheduleTaskType'),
+        reorderScheduleTaskTypes: requireScheduleTaskTypesSupabase('reorderScheduleTaskTypes'),
       }
     : {
         listScheduleTaskTypes: mockDbAdapter.listScheduleTaskTypes,
         createScheduleTaskType: mockDbAdapter.createScheduleTaskType,
         updateScheduleTaskType: mockDbAdapter.updateScheduleTaskType,
+        reorderScheduleTaskTypes: mockDbAdapter.reorderScheduleTaskTypes,
       };
 
 const syncToGoogle = async (action: 'CREATE' | 'UPDATE' | 'DELETE', task: any, skipGoogleSync?: boolean) => {

@@ -1442,6 +1442,26 @@ export const pocSupabaseAdapter = {
     return data as ScheduleTaskType;
   },
 
+  reorderScheduleTaskTypes: async (ids: string[]): Promise<void> => {
+    if (new Set(ids).size !== ids.length) {
+      throw new Error('Invalid task type reorder');
+    }
+
+    await Promise.all(ids.map(async (id, sort_order) => {
+      const { error } = await supabase
+        .from('schedule_task_types')
+        .update({ sort_order })
+        .eq('id', id)
+        .select('id')
+        .single();
+
+      if (error) {
+        console.error('Error reordering schedule_task_types:', error);
+        throw error;
+      }
+    }));
+  },
+
   // --- Schedule Tasks ---
   getScheduleTasks: async (): Promise<ScheduleTask[]> => {
     const { data, error } = await supabase

@@ -424,6 +424,21 @@ export const mockDbAdapter = {
     persist();
     return updated;
   },
+  reorderScheduleTaskTypes: async (ids: string[]): Promise<void> => {
+    const uniqueIds = new Set(ids);
+    if (uniqueIds.size !== ids.length || ids.length !== db.schedule_task_types.length) {
+      throw new Error('Invalid task type reorder');
+    }
+
+    const taskTypesById = new Map(db.schedule_task_types.map(taskType => [taskType.id, taskType]));
+    const now = new Date().toISOString();
+    db.schedule_task_types = ids.map((id, sort_order) => {
+      const taskType = taskTypesById.get(id);
+      if (!taskType) throw new Error('Task type not found');
+      return { ...taskType, sort_order, updated_at: now };
+    });
+    persist();
+  },
   
   // --- Projects ---
   getProjects: async () => [...db.projects].sort((a, b) => a.name.localeCompare(b.name)),

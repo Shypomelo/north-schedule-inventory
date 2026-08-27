@@ -1,12 +1,17 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { DragEvent, FormEvent, useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ListChecks, Pencil, Plus } from 'lucide-react';
+import { GripVertical, ListChecks, Pencil, Plus } from 'lucide-react';
 import { useUser } from '@/components/UserContext';
 import { dbAdapter } from '@/lib/db';
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
 import { ScheduleTaskType } from '@/lib/db/types';
+
+type DropTarget = {
+  id: string;
+  edge: 'before' | 'after';
+};
 
 export default function AdminTaskTypesPage() {
   const router = useRouter();
@@ -18,6 +23,9 @@ export default function AdminTaskTypesPage() {
   const [editingName, setEditingName] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [isReordering, setIsReordering] = useState(false);
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadTaskTypes = useCallback(async () => {
@@ -90,6 +98,80 @@ export default function AdminTaskTypesPage() {
     }
   };
 
+  const getDropEdge = (event: DragEvent<HTMLDivElement>): DropTarget['edge'] => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    return event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after';
+  };
+
+  const resetDragState = () => {
+    setDraggedId(null);
+    setDropTarget(null);
+  };
+
+  const handleDragStart = (event: DragEvent<HTMLButtonElement>, id: string) => {
+    if (!isAdmin || isReordering || savingId !== null) {
+      event.preventDefault();
+      return;
+    }
+
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', id);
+    setDraggedId(id);
+    setDropTarget(null);
+  };
+
+  const handleDragOver = (event: DragEvent<HTMLDivElement>, id: string) => {
+    if (!draggedId || draggedId === id || isReordering) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    setDropTarget({ id, edge: getDropEdge(event) });
+  };
+
+  const handleDrop = async (event: DragEvent<HTMLDivElement>, targetId: string) => {
+    event.preventDefault();
+    if (!draggedId || draggedId === targetId || isReordering) {
+      resetDragState();
+      return;
+    }
+
+    const originalTaskTypes = taskTypes;
+    const sourceIndex = originalTaskTypes.findIndex(taskType => taskType.id === draggedId);
+    const targetIndex = originalTaskTypes.findIndex(taskType => taskType.id === targetId);
+    if (sourceIndex < 0 || targetIndex < 0) {
+      resetDragState();
+      return;
+    }
+
+    const edge = getDropEdge(event);
+    const reorderedTaskTypes = [...originalTaskTypes];
+    const [draggedTaskType] = reorderedTaskTypes.splice(sourceIndex, 1);
+    let insertIndex = targetIndex + (edge === 'after' ? 1 : 0);
+    if (sourceIndex < insertIndex) insertIndex -= 1;
+    reorderedTaskTypes.splice(insertIndex, 0, draggedTaskType);
+
+    const nextTaskTypes = reorderedTaskTypes.map((taskType, sort_order) => ({
+      ...taskType,
+      sort_order,
+    }));
+    const orderChanged = nextTaskTypes.some((taskType, index) => (
+      taskType.id !== originalTaskTypes[index]?.id
+    ));
+    resetDragState();
+    if (!orderChanged) return;
+
+    setTaskTypes(nextTaskTypes);
+    setIsReordering(true);
+    setError(null);
+    try {
+      await dbAdapter.reorderScheduleTaskTypes(nextTaskTypes.map(taskType => taskType.id));
+    } catch {
+      setTaskTypes(originalTaskTypes);
+      setError('排序更新失敗');
+    } finally {
+      setIsReordering(false);
+    }
+  };
+
   if (contextLoading || !isAdmin) {
     return <div className="p-8 text-center text-slate-400">驗證權限中...</div>;
   }
@@ -129,8 +211,29 @@ export default function AdminTaskTypesPage() {
           <div className="p-8 text-center text-slate-500">尚無任務類型</div>
         ) : (
           <div className="divide-y divide-slate-700/60">
-            {taskTypes.map(taskType => (
-              <div key={taskType.id} className="p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+            {taskTypes.map(taskType => {
+              const isDragged = draggedId === taskType.id;
+              const isDropTarget = dropTarget?.id === taskType.id;
+
+              return (
+              <div
+                key={taskType.id}
+                onDragOver={event => handleDragOver(event, taskType.id)}
+                onDrop={event => void handleDrop(event, taskType.id)}
+                className={`p-4 flex flex-col sm:flex-row sm:items-center gap-3 transition-colors ${isDragged ? 'opacity-50 bg-slate-900/60' : ''} ${isDropTarget && dropTarget.edge === 'before' ? 'border-t-2 border-emerald-400 bg-emerald-500/5' : ''} ${isDropTarget && dropTarget.edge === 'after' ? 'border-b-2 border-emerald-400 bg-emerald-500/5' : ''}`}
+              >
+                <button
+                  type="button"
+                  draggable={isAdmin && !isReordering && savingId === null}
+                  disabled={!isAdmin || isReordering || savingId !== null}
+                  onDragStart={event => handleDragStart(event, taskType.id)}
+                  onDragEnd={resetDragState}
+                  aria-label={`拖曳排序：${taskType.name}`}
+                  title="拖曳排序"
+                  className="self-start sm:self-auto shrink-0 rounded p-1.5 text-slate-400 hover:bg-slate-700 hover:text-slate-200 cursor-grab active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <GripVertical size={20} aria-hidden="true" />
+                </button>
                 <div className="w-20 shrink-0">
                   <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs ${taskType.is_active ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400' : 'border-slate-500/20 bg-slate-500/10 text-slate-400'}`}>
                     {taskType.is_active ? '啟用' : '停用'}
@@ -177,13 +280,14 @@ export default function AdminTaskTypesPage() {
                   )}
                   <button
                     type="button"
-                    disabled={savingId === taskType.id}
+                    disabled={isReordering || savingId === taskType.id}
                     onClick={() => void handleToggleActive(taskType)}
                     className={`px-3 py-2 rounded text-sm disabled:opacity-50 ${taskType.is_active ? 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300' : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300'}`}
                   >{taskType.is_active ? '停用' : '啟用'}</button>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
