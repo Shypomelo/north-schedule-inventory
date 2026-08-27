@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { InventoryItem, InventoryTransaction, InventorySerial, Project, InventoryBatch } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { X, Box, History, List, ChevronDown, ChevronUp, Pencil } from 'lucide-react';
@@ -9,6 +9,7 @@ import { getInventoryInflowQuantity, getInventoryTransactionQuantityDelta } from
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
 import { ItemForm } from './ItemForm';
 import { useUser } from './UserContext';
+import { getInventoryBatchUsageSummary, isEffectiveInventorySerial } from '@/lib/db/inventory-batch-status';
 
 interface ItemDetailModalProps {
   itemId: string | null;
@@ -75,6 +76,22 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
     return () => window.removeEventListener('click', handleClick);
   }, []);
 
+  const serialsByBatchId = useMemo(() => {
+    const grouped = new Map<string, InventorySerial[]>();
+    serials.forEach(serial => {
+      if (!serial.batch_id) return;
+      const batchSerials = grouped.get(serial.batch_id) || [];
+      batchSerials.push(serial);
+      grouped.set(serial.batch_id, batchSerials);
+    });
+    return grouped;
+  }, [serials]);
+
+  const transactionsById = useMemo(
+    () => new Map(transactions.map(transaction => [transaction.id, transaction])),
+    [transactions],
+  );
+
   if (!itemId) return null;
 
   let opening = item?.opening_quantity || 0;
@@ -102,7 +119,7 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
 
   const getBatchSourceTransaction = (batch: InventoryBatch) => {
     if (!batch.source_transaction_id) return undefined;
-    return transactions.find(tx => tx.id === batch.source_transaction_id);
+    return transactionsById.get(batch.source_transaction_id);
   };
 
   const handleManualRegisterSerial = async (e: React.FormEvent, batchId: string) => {
@@ -123,7 +140,9 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
       return;
     }
 
-    const batchSerialsCount = serials.filter(s => s.batch_id === batchId).length;
+    const batchSerialsCount = (serialsByBatchId.get(batchId) || [])
+      .filter(isEffectiveInventorySerial)
+      .length;
     if (batchSerialsCount >= batch.quantity) {
       alert('該批次待補數量已滿，無法再新增序號！');
       return;
@@ -353,15 +372,24 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
                   ) : (
                     <div className="flex flex-col gap-3">
                       {batches.map(batch => {
-                        // @ts-ignore
-                        const batchSerials = serials.filter(s => s.batch_id === batch.id);
-                        const registeredBatchSerials = batchSerials.filter(s => s.status === '在庫').length;
+                        const batchSerials = serialsByBatchId.get(batch.id) || [];
                         const isExpanded = expandedBatchId === batch.id;
                         const sourceTransaction = getBatchSourceTransaction(batch);
                         const isBatchVoided = !!sourceTransaction?.is_voided;
-                        const pendingBatchSerials = isBatchVoided
-                          ? 0
-                          : Math.max(0, batch.quantity - batchSerials.length);
+                        const usage = getInventoryBatchUsageSummary({
+                          batchQuantity: batch.quantity,
+                          requiresSerial: !!item?.requires_serial,
+                          isVoided: isBatchVoided,
+                          serials: batchSerials,
+                        });
+                        const statusClass = {
+                          '未使用': 'bg-emerald-500/20 text-emerald-300',
+                          '使用中': 'bg-amber-500/20 text-amber-300',
+                          '已用完': 'bg-red-500/20 text-red-300',
+                          '已作廢': 'bg-slate-700/70 text-slate-300',
+                          '待補序號': 'bg-orange-500/20 text-orange-300',
+                          '非序號品': 'bg-indigo-500/20 text-indigo-300',
+                        }[usage.status];
 
                         return (
                           <div key={batch.id} className={`bg-slate-800 border rounded-lg overflow-hidden ${isBatchVoided ? 'border-slate-700/50 opacity-60' : 'border-slate-700'}`}>
@@ -369,7 +397,7 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
                               className={`flex items-center justify-between p-4 cursor-pointer transition ${isBatchVoided ? 'bg-slate-900/40 hover:bg-slate-800/60' : 'hover:bg-slate-700/50'} ${isExpanded ? 'bg-slate-700/50' : ''}`}
                               onClick={() => setExpandedBatchId(isExpanded ? null : batch.id)}
                             >
-                              <div className="flex items-center gap-6 flex-1">
+                              <div className="flex items-center gap-x-6 gap-y-3 flex-wrap flex-1">
                                 <div>
                                   <div className="text-sm text-slate-400">批次號</div>
                                   <div className={`font-mono font-semibold ${isBatchVoided ? 'text-slate-500 line-through' : 'text-indigo-400'}`}>{batch.batch_number}</div>
@@ -383,28 +411,34 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
                                   <div className={isBatchVoided ? 'text-slate-500 line-through' : 'text-slate-200'}>{batch.source || '-'}</div>
                                 </div>
                                 <div>
-                                  <div className="text-sm text-slate-400">數量</div>
+                                  <div className="text-sm text-slate-400">入庫</div>
                                   <div className={`font-bold text-lg ${isBatchVoided ? 'text-slate-500 line-through' : 'text-slate-200'}`}>{batch.quantity}</div>
                                 </div>
                                 {item?.requires_serial && (
                                   <>
                                     <div>
-                                      <div className="text-sm text-slate-400">已登(庫存中)</div>
-                                      <div className="text-emerald-400 font-bold">{registeredBatchSerials}</div>
+                                      <div className="text-sm text-slate-400">序號</div>
+                                      <div className="text-slate-200 font-bold">{usage.serialQuantity}</div>
+                                    </div>
+                                    <div>
+                                      <div className="text-sm text-slate-400">已使用</div>
+                                      <div className={usage.usedQuantity > 0 ? 'text-amber-300 font-bold' : 'text-slate-400 font-bold'}>{usage.usedQuantity}</div>
+                                    </div>
+                                    <div>
+                                      <div className="text-sm text-slate-400">剩餘</div>
+                                      <div className={usage.remainingQuantity > 0 ? 'text-emerald-400 font-bold' : 'text-slate-400 font-bold'}>{usage.remainingQuantity}</div>
                                     </div>
                                     <div>
                                       <div className="text-sm text-slate-400">待補</div>
-                                      <div className={`font-bold ${pendingBatchSerials > 0 ? 'text-amber-400' : 'text-slate-400'}`}>{pendingBatchSerials}</div>
+                                      <div className={usage.pendingQuantity > 0 ? 'text-orange-300 font-bold' : 'text-slate-400 font-bold'}>{usage.pendingQuantity}</div>
                                     </div>
                                   </>
                                 )}
                               </div>
                               <div className="text-slate-400 flex items-center gap-2">
-                                {isBatchVoided && (
-                                  <span className="text-sm bg-slate-700/70 text-slate-300 px-3 py-1 rounded-full font-semibold">
-                                    已作廢
-                                  </span>
-                                )}
+                                <span className={`text-sm px-3 py-1 rounded-full font-semibold ${statusClass}`}>
+                                  {usage.status}
+                                </span>
                                 {item?.requires_serial && (
                                   <span className="text-sm bg-indigo-600/30 text-indigo-300 px-3 py-1 rounded-full">
                                     {isExpanded ? '收合序號' : '查看/補登序號'}
@@ -426,17 +460,17 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
                                       className="flex-1 bg-slate-950 border border-indigo-500/50 rounded p-2 text-slate-100 outline-none focus:border-indigo-400"
                                       value={newSerialNo}
                                       onChange={e => setNewSerialNo(e.target.value)}
-                                      disabled={isBatchVoided || pendingBatchSerials === 0}
+                                      disabled={isBatchVoided || usage.pendingQuantity === 0}
                                     />
                                     <button 
                                       type="submit" 
-                                      disabled={isBatchVoided || pendingBatchSerials === 0}
+                                      disabled={isBatchVoided || usage.pendingQuantity === 0}
                                       className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded shadow whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                       新增序號
                                     </button>
                                   </form>
-                                  {!isBatchVoided && pendingBatchSerials === 0 && (
+                                  {!isBatchVoided && usage.pendingQuantity === 0 && (
                                     <div className="text-emerald-400 text-sm mt-2 flex items-center gap-1">
                                       ✓ 此批次序號已全數補齊
                                     </div>
