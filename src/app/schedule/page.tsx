@@ -19,6 +19,22 @@ import {
 
 type ViewMode = 'week' | 'month';
 
+type ReconcileResult = {
+  success?: boolean;
+  updated?: number;
+  deleted?: number;
+  imported?: number;
+  error?: string;
+};
+
+const RECONCILE_COOLDOWN_MS = 30000;
+let reconcileInFlight: Promise<ReconcileResult | null> | null = null;
+let lastReconcileAt = 0;
+
+const isAbortError = (error: unknown) => (
+  error instanceof Error && error.name === 'AbortError'
+);
+
 const sortTasks = (taskList: ScheduleTask[]) => {
   return [...taskList].filter(t => t.status !== '取消').sort((a, b) => {
     if (a.is_tentative && !b.is_tentative) return 1;
@@ -63,9 +79,6 @@ export default function SchedulePage() {
   const [contextMenu, setContextMenu] = useState<{taskId: string, x: number, y: number} | null>(null);
   const [dayContextMenu, setDayContextMenu] = useState<{dateStr: string, x: number, y: number} | null>(null);
   const [todoContextMenu, setTodoContextMenu] = useState<{todoId: string | null, x: number, y: number} | null>(null);
-  const reconcilePromiseRef = useRef<Promise<void> | null>(null);
-  const lastReconcileAtRef = useRef(0);
-
   useEffect(() => {
     const handleClick = () => {
       setContextMenu(null);
@@ -79,14 +92,11 @@ export default function SchedulePage() {
   const [error, setError] = useState<string | null>(null);
 
   const reconcileGoogleCalendar = useCallback(async () => {
-    if (currentUser?.role === 'VIEWER') return;
+    if (currentUser?.role?.toUpperCase() === 'VIEWER') return null;
 
     const now = Date.now();
-    if (reconcilePromiseRef.current) return reconcilePromiseRef.current;
-    if (now - lastReconcileAtRef.current < 30000) return;
-
-    const reconcileController = new AbortController();
-    const reconcileTimeout = window.setTimeout(() => reconcileController.abort(), 8000);
+    if (reconcileInFlight) return reconcileInFlight;
+    if (now - lastReconcileAt < RECONCILE_COOLDOWN_MS) return null;
 
     const reconcilePromise = supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session?.access_token) return;
@@ -96,20 +106,29 @@ export default function SchedulePage() {
         headers: {
           Authorization: `Bearer ${session.access_token}`,
         },
-        signal: reconcileController.signal,
       });
-    }).then(res => res?.json()).catch(error => {
-      console.error('Google Calendar reconcile failed:', error);
+    }).then(async response => {
+      if (!response) return null;
+
+      const result = await response.json().catch(() => null) as ReconcileResult | null;
+      if (!response.ok) {
+        throw new Error(result?.error || `Google Calendar reconcile failed (${response.status})`);
+      }
+
+      return result;
+    }).catch((error: unknown) => {
+      if (!isAbortError(error)) {
+        console.error('Google Calendar reconcile failed:', error);
+      }
       return null;
     }).finally(() => {
-      lastReconcileAtRef.current = Date.now();
-      reconcilePromiseRef.current = null;
-      window.clearTimeout(reconcileTimeout);
+      lastReconcileAt = Date.now();
+      reconcileInFlight = null;
     });
 
-    reconcilePromiseRef.current = reconcilePromise;
+    reconcileInFlight = reconcilePromise;
     return reconcilePromise;
-  }, []);
+  }, [currentUser?.role]);
 
   const fetchData = useCallback(async (showLoading = true) => {
     if (showLoading) setIsLoading(true);
