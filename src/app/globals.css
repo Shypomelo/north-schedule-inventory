@@ -3,12 +3,91 @@
 @tailwind utilities;
 
 :root {
-  --background: #0f172a; /* slate-900 */
-  --foreground: #f8fafc; /* slate-50 */
+  /* Default to Dark */
+  --bg-page: #0F172A;
+  --bg-sidebar: #111827;
+  --bg-card: #182235;
+  --text-primary: #F8FAFC;
+  --text-secondary: #94A3B8;
+  --border: #263449;
+  --accent: #20D6A5;
+  --accent-hover: #17B890;
+  --danger: #FB7185;
+  --success: #34D399;
+  --warning: #FBBF24;
+  --scrollbar-thumb: #334155;
+  --scrollbar-thumb-hover: #475569;
+  --sidebar-hover: rgba(255, 255, 255, 0.05);
+}
+
+[data-theme="dark"] {
+  --bg-page: #0F172A;
+  --bg-sidebar: #111827;
+  --bg-card: #182235;
+  --text-primary: #F8FAFC;
+  --text-secondary: #94A3B8;
+  --border: #263449;
+  --accent: #20D6A5;
+  --accent-hover: #17B890;
+  --danger: #FB7185;
+  --success: #34D399;
+  --warning: #FBBF24;
+  --scrollbar-thumb: #334155;
+  --scrollbar-thumb-hover: #475569;
+  --sidebar-hover: rgba(255, 255, 255, 0.05);
+}
+
+[data-theme="light"] {
+  --bg-page: #F8FAFC;
+  --bg-sidebar: #FFFFFF;
+  --bg-card: #FFFFFF;
+  --text-primary: #0F172A;
+  --text-secondary: #64748B;
+  --border: #E2E8F0;
+  --accent: #2563EB;
+  --accent-hover: #1D4ED8;
+  --danger: #DC2626;
+  --success: #16A34A;
+  --warning: #D97706;
+  --scrollbar-thumb: #CBD5E1;
+  --scrollbar-thumb-hover: #94A3B8;
+  --sidebar-hover: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="orange"] {
+  --bg-page: #FFF7ED;
+  --bg-sidebar: #2A1B14;
+  --bg-card: #FFF3E6;
+  --text-primary: #2B2118;
+  --text-secondary: #8A6A50;
+  --border: #E8C9A7;
+  --accent: #F97316;
+  --accent-hover: #EA580C;
+  --danger: #DC2626;
+  --success: #16A34A;
+  --warning: #D97706;
+  --scrollbar-thumb: #FDBA74;
+  --scrollbar-thumb-hover: #FB923C;
+  --sidebar-hover: rgba(249, 115, 22, 0.1);
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
+  color: var(--text-primary);
+  background: var(--bg-page);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Sidebar custom thin scrollbar */
+.sidebar-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.sidebar-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar-scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  border-radius: 10px;
+}
+.sidebar-scrollbar:hover::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb-hover);
 }

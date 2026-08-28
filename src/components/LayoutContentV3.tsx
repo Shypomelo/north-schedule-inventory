@@ -14,7 +14,7 @@ export function LayoutContent({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex w-full h-full">
       {!isLoginPage && <Sidebar />}
-      <main className="flex-1 h-full overflow-auto custom-scrollbar bg-slate-900 relative">
+      <main className="flex-1 h-full overflow-auto custom-scrollbar relative">
         {!isLoginPage && currentUser && (
           <div className="absolute top-4 right-8 z-50 flex items-center gap-3 bg-slate-800/80 backdrop-blur-md px-4 py-2 rounded-full border border-slate-700 shadow-sm">
             <span className="text-sm font-medium text-slate-200">
