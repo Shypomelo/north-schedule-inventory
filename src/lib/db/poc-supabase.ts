@@ -10,6 +10,7 @@ import {
   InventoryItem,
   InventoryTransaction,
   InventorySerial,
+  InventorySerialLookupResult,
   InventoryTransactionSerial,
   InventoryBatch,
   InventoryMonthlyClosing,
@@ -195,6 +196,8 @@ const mapInventorySerial = (row: any): InventorySerial => ({
   item_id: row.item_id,
   batch_id: row.batch_id || null,
   serial_number: row.serial_number || '',
+  normalized_full: row.normalized_full || null,
+  short_key: row.short_key || null,
   status: row.status || '',
   project_id: row.project_id || null,
   notes: row.notes || null,
@@ -403,6 +406,42 @@ const fetchInventorySerialsFromSupabase = async (): Promise<InventorySerial[]> =
   }
 
   return (data || []).map(mapInventorySerial);
+};
+
+const lookupInventorySerialInSupabase = async (
+  input: string,
+  options: { itemId?: string | null; allowedStatuses?: string[] | null } = {},
+): Promise<InventorySerialLookupResult> => {
+  const { data, error } = await supabase.rpc('lookup_inventory_serial', {
+    p_input: input,
+    p_item_id: options.itemId || null,
+    p_allowed_statuses: options.allowedStatuses || null,
+  });
+
+  if (error) {
+    console.error('Error looking up inventory_serial:', error);
+    throw error;
+  }
+
+  const rows = data || [];
+  const first = rows[0];
+
+  return {
+    result_type: first?.result_type || 'no_match',
+    candidate_count: first?.candidate_count || 0,
+    filtered_candidate_count: first?.filtered_candidate_count || 0,
+    candidates: rows
+      .filter((row: any) => row.id)
+      .map((row: any) => ({
+        id: row.id,
+        item_id: row.item_id,
+        serial_number: row.serial_number || '',
+        normalized_full: row.normalized_full || null,
+        short_key: row.short_key || null,
+        status: row.status || '',
+        is_allowed_candidate: !!row.is_allowed_candidate,
+      })),
+  };
 };
 
 const fetchInventoryTransactionSerialsFromSupabase = async (): Promise<InventoryTransactionSerial[]> => {
@@ -1958,6 +1997,7 @@ export const pocSupabaseAdapter = {
   updateInventoryTransaction: updateInventoryTransactionInSupabase,
   voidInventoryTransaction: voidInventoryTransactionInSupabase,
   getInventorySerials: fetchInventorySerialsFromSupabase,
+  lookupInventorySerial: lookupInventorySerialInSupabase,
   getInventoryTransactionSerials: fetchInventoryTransactionSerialsFromSupabase,
   createInventorySerial: createInventorySerialInSupabase,
   updateInventorySerial: updateInventorySerialInSupabase,

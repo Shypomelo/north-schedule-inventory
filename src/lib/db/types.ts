@@ -278,11 +278,37 @@ export interface InventorySerial {
   item_id: string;
   batch_id: string | null;
   serial_number: string;
+  normalized_full?: string | null;
+  short_key?: string | null;
   status: SerialStatus;
   project_id: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export type InventorySerialLookupResultType =
+  | 'no_match'
+  | 'unique_match'
+  | 'potential_same_identity'
+  | 'ambiguous'
+  | 'filtered_out';
+
+export interface InventorySerialLookupCandidate {
+  id: string;
+  item_id: string;
+  serial_number: string;
+  normalized_full: string | null;
+  short_key: string | null;
+  status: SerialStatus;
+  is_allowed_candidate: boolean;
+}
+
+export interface InventorySerialLookupResult {
+  result_type: InventorySerialLookupResultType;
+  candidate_count: number;
+  filtered_candidate_count: number;
+  candidates: InventorySerialLookupCandidate[];
 }
 
 export interface InventoryTransactionSerial {

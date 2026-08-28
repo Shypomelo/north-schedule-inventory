@@ -1,4 +1,5 @@
 import { User, Project, ScheduleTask, ScheduleTaskMember, ScheduleTaskType, Todo, InventoryItem, InventoryTransaction, InventorySerial, InventoryTransactionSerial, InventoryMonthlyClosing, InventoryMonthlyClosingItem, StockCategory, ActivityLog, Contractor, InventoryBatch, SESupplyRecord } from './types';
+import { resolveInventorySerialLookupFromList } from '../inventory-serial-normalization';
 import { getInventoryTransactionQuantityDelta } from './inventory-stock';
 
 import mockProjectsData from './mock-projects.json';
@@ -810,6 +811,9 @@ export const mockDbAdapter = {
 
   // --- Inventory Serials ---
   getInventorySerials: async () => [...db.item_serials],
+  lookupInventorySerial: async (input: string, options: { itemId?: string | null; allowedStatuses?: string[] | null } = {}) => (
+    resolveInventorySerialLookupFromList(input, db.item_serials, options)
+  ),
   createInventorySerial: async (t: Omit<InventorySerial, 'id'|'created_at'|'updated_at'>) => {
     const newSerial: InventorySerial = {
       ...t,
