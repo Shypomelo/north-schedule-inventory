@@ -269,8 +269,13 @@ export interface InventoryTransaction {
   voided_reason?: string | null;
   voided_by?: string | null;
   voided_at?: string | null;
+  excluded_by_initialization_id?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export function isActiveFormalTransaction(tx: InventoryTransaction): boolean {
+  return !tx.is_voided && !tx.excluded_by_initialization_id;
 }
 
 export interface InventorySerial {

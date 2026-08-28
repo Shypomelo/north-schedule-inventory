@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { InventoryTransaction, InventoryItem, Project, InventorySerial } from '@/lib/db/types';
+import { InventoryTransaction, InventoryItem, Project, TransactionType, InventorySerial, isActiveFormalTransaction, InventorySerialLookupCandidate } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { TransactionForm } from '@/components/TransactionForm';
 import { TransactionHistoryModal } from '@/components/TransactionHistoryModal';
 import { useUser } from '@/components/UserContext';
 import { Plus } from 'lucide-react';
 import { format } from 'date-fns';
+import { normalizeSerialInput } from '@/lib/inventory-serial-normalization';
 
 const unwrapSettled = <T,>(result: PromiseSettledResult<T>): T => {
   if (result.status === 'rejected') throw result.reason;
@@ -104,46 +105,109 @@ export default function TransactionsPage() {
     fetchData();
   }, []);
 
+  const formatSerialCandidates = (candidates: InventorySerialLookupCandidate[]) => (
+    candidates
+      .map(candidate => {
+        const itemName = items.find(i => i.id === candidate.item_id)?.name || `未知品項 (${candidate.item_id.slice(0, 8)})`;
+        return `${candidate.serial_number}｜${candidate.status}｜${itemName}`;
+      })
+      .join('\n')
+  );
+
+  const resolveTransactionSerialLinks = async (
+    data: Omit<InventoryTransaction, 'id' | 'created_at' | 'updated_at'> & { category?: string },
+    serialsList: string[],
+    allowedExistingSerialIds = new Set<string>(),
+  ) => {
+    const normalizedInputs = serialsList.map(normalizeSerialInput);
+    if (new Set(normalizedInputs).size !== serialsList.length) {
+      throw new Error('輸入的序號有重複，請檢查！');
+    }
+
+    const resolvedSerials: InventorySerial[] = [];
+    for (const serialInput of serialsList) {
+      const isOutLike = data.transaction_type === 'OUT' || data.transaction_type === 'RETURN';
+      const lookup = await dbAdapter.lookupInventorySerial(serialInput, isOutLike
+        ? { itemId: data.item_id, allowedStatuses: ['在庫'] }
+        : {});
+
+      if (lookup.result_type === 'ambiguous') {
+        throw new Error(`找到多個可能相同的序號，請輸入完整序號或先確認資料：\n${formatSerialCandidates(lookup.candidates)}`);
+      }
+
+      const candidate = lookup.candidates[0];
+      const isExistingLinkedSerial = !!candidate && allowedExistingSerialIds.has(candidate.id);
+
+      if (isOutLike) {
+        if (lookup.result_type === 'no_match') {
+          throw new Error(`找不到此序號，無法出庫：\n${serialInput}`);
+        }
+        if (!candidate || (!candidate.is_allowed_candidate && !isExistingLinkedSerial)) {
+          throw new Error(candidate
+            ? `此序號目前狀態為 ${candidate.status}，不可再次出庫：\n${candidate.serial_number}`
+            : `此序號不符合本次品項或狀態條件：\n${serialInput}`);
+        }
+
+        const existing = allSerials.find(x => x.id === candidate.id) || {
+          ...candidate,
+          batch_id: null,
+          project_id: null,
+          notes: null,
+          created_at: '',
+          updated_at: '',
+        };
+        resolvedSerials.push(existing);
+        await dbAdapter.updateInventorySerial(candidate.id, {
+          status: data.transaction_type === 'OUT' ? '已出庫' : '已退回',
+          project_id: data.transaction_type === 'OUT' ? data.project_id : existing.project_id
+        });
+        continue;
+      }
+
+      if (lookup.result_type !== 'no_match') {
+        if (candidate && isExistingLinkedSerial) {
+          const existing = allSerials.find(x => x.id === candidate.id) || {
+            ...candidate,
+            batch_id: null,
+            project_id: null,
+            notes: null,
+            created_at: '',
+            updated_at: '',
+          };
+          resolvedSerials.push(existing);
+          await dbAdapter.updateInventorySerial(candidate.id, {
+            status: '在庫',
+            project_id: existing.project_id
+          });
+          continue;
+        }
+
+        throw new Error(`此序號可能已存在，請勿重複新增：\n${candidate?.serial_number || serialInput}`);
+      }
+
+      const created = await dbAdapter.createInventorySerial({
+        item_id: data.item_id,
+        batch_id: null,
+        serial_number: serialInput,
+        status: '在庫',
+        project_id: data.project_id,
+        notes: '入庫時建立'
+      });
+      resolvedSerials.push(created);
+    }
+
+    return resolvedSerials.map(serial => ({
+      serial_no: serial.serial_number,
+      serial_id: serial.id,
+      is_pending: false
+    }));
+  };
+
   const handleCreateTx = async (data: Omit<InventoryTransaction, 'id' | 'created_at' | 'updated_at'> & { category?: string }, serialsInput: string, isPendingSerial: boolean = false) => {
     setIsSubmitting(true);
     try {
       const serialsList = serialsInput.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
-      
-      // Step 8: Serial check warning
-      if (data.transaction_type === 'OUT' && serialsList.length > 0) {
-        const unknownSerials = serialsList.filter(s => !allSerials.find(x => x.serial_number === s));
-        if (unknownSerials.length > 0) {
-          if (!confirm(`警告：系統找不到以下序號的入庫紀錄：\n${unknownSerials.join(', ')}\n\n是否確定要自動建立並標記為「補登序號」(is_auto_created: true)？`)) {
-            setIsSubmitting(false);
-            return;
-          }
-        }
-      }
-
-      for (const s of serialsList) {
-        if (!allSerials.find(x => x.serial_number === s)) {
-           await dbAdapter.createInventorySerial({
-             item_id: data.item_id,
-             batch_id: null,
-             serial_number: s,
-             status: data.transaction_type === 'OUT' ? '已出庫' : '在庫',
-             project_id: data.project_id,
-             notes: data.transaction_type === 'OUT' ? '出庫時補登' : '入庫時建立'
-           });
-        } else {
-           const existing = allSerials.find(x => x.serial_number === s)!;
-           await dbAdapter.updateInventorySerial(existing.id, {
-             status: data.transaction_type === 'OUT' ? '已出庫' : data.transaction_type === 'RETURN' ? '已退回' : '在庫',
-             project_id: data.transaction_type === 'OUT' ? data.project_id : existing.project_id
-           });
-        }
-      }
-
-      const txSerials: any[] = serialsList.map(s => ({
-        serial_no: s,
-        serial_id: allSerials.find(x => x.serial_number === s)?.id || null,
-        is_pending: false
-      }));
+      const txSerials = await resolveTransactionSerialLinks(data, serialsList);
 
       let pendingCount = 0;
       const item = items.find(i => i.id === data.item_id);
@@ -175,41 +239,12 @@ export default function TransactionsPage() {
     setIsSubmitting(true);
     try {
       const serialsList = serialsInput.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
-      
-      if (data.transaction_type === 'OUT' && serialsList.length > 0) {
-        const unknownSerials = serialsList.filter(s => !allSerials.find(x => x.serial_number === s));
-        if (unknownSerials.length > 0) {
-          if (!confirm(`警告：系統找不到以下序號的入庫紀錄：\n${unknownSerials.join(', ')}\n\n是否確定要自動建立並標記為「補登序號」？`)) {
-            setIsSubmitting(false);
-            return;
-          }
-        }
-      }
-
-      for (const s of serialsList) {
-        if (!allSerials.find(x => x.serial_number === s)) {
-           await dbAdapter.createInventorySerial({
-             item_id: data.item_id,
-             batch_id: null,
-             serial_number: s,
-             status: data.transaction_type === 'OUT' ? '已出庫' : '在庫',
-             project_id: data.project_id,
-             notes: data.transaction_type === 'OUT' ? '出庫時補登' : '入庫時建立'
-           });
-        } else {
-           const existing = allSerials.find(x => x.serial_number === s)!;
-           await dbAdapter.updateInventorySerial(existing.id, {
-             status: data.transaction_type === 'OUT' ? '已出庫' : data.transaction_type === 'RETURN' ? '已退回' : '在庫',
-             project_id: data.transaction_type === 'OUT' ? data.project_id : existing.project_id
-           });
-        }
-      }
-
-      const txSerials: any[] = serialsList.map(s => ({
-        serial_no: s,
-        serial_id: allSerials.find(x => x.serial_number === s)?.id || null,
-        is_pending: false
-      }));
+      const allowedExistingSerialIds = new Set(
+        txSerialsMapping
+          .filter(ts => ts.transaction_id === editingTx.id && ts.serial_id)
+          .map(ts => ts.serial_id as string)
+      );
+      const txSerials = await resolveTransactionSerialLinks(data, serialsList, allowedExistingSerialIds);
 
       let pendingCount = 0;
       const item = items.find(i => i.id === data.item_id);
@@ -269,12 +304,12 @@ export default function TransactionsPage() {
     setIsModalOpen(true);
   };
 
-  const visibleTransactions = hideVoided ? transactions.filter(tx => !tx.is_voided) : transactions;
+  const visibleTransactions = hideVoided ? transactions.filter(tx => isActiveFormalTransaction(tx)) : transactions;
 
   return (
     <div className="max-w-7xl mx-auto flex flex-col h-full">
       <div className="flex justify-between items-center mb-8">
-        <h2 className="text-2xl font-bold text-slate-200">庫存流水帳 (異動紀錄)</h2>
+        <h2 className="text-2xl font-bold text-primary">庫存流水帳 (異動紀錄)</h2>
         <button 
           onClick={() => {
             setEditingTx(null);
@@ -282,7 +317,7 @@ export default function TransactionsPage() {
             setIsModalOpen(true);
           }}
           disabled={currentUser?.role === 'VIEWER'}
-          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded shadow transition disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded shadow transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Plus size={20} />
           新增異動 (IN/OUT/RETURN/ADJUST)
@@ -290,12 +325,12 @@ export default function TransactionsPage() {
       </div>
 
       <div className="mb-6 flex items-center justify-end">
-        <label className="flex items-center gap-2 text-sm font-semibold text-slate-300 cursor-pointer hover:text-emerald-300 transition-colors">
+        <label className="flex items-center gap-2 text-sm font-semibold text-secondary cursor-pointer hover:text-accent transition-colors">
           <input
             type="checkbox"
             checked={hideVoided}
             onChange={e => setHideVoided(e.target.checked)}
-            className="rounded bg-slate-800 border-slate-600 text-emerald-500 focus:ring-emerald-500/50"
+            className="rounded bg-card border-theme-border text-accent focus:ring-accent/50"
           />
           隱藏作廢
         </label>
@@ -307,21 +342,21 @@ export default function TransactionsPage() {
         </div>
       )}
 
-      <div className="flex-1 overflow-auto bg-slate-800/30 border border-slate-700 rounded-xl relative">
+      <div className="flex-1 overflow-auto bg-card/30 border border-theme-border rounded-xl relative">
         {isLoading ? (
-          <div className="absolute inset-0 flex items-center justify-center text-slate-400">載入中...</div>
+          <div className="absolute inset-0 flex items-center justify-center text-secondary">載入中...</div>
         ) : loadError ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-red-300 text-center px-6">
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-danger text-center px-6">
             <div className="font-semibold mb-2">Inventory transactions failed to load.</div>
-            <div className="text-sm text-red-200/80 max-w-2xl break-words">{loadError}</div>
+            <div className="text-sm text-danger/80 max-w-2xl break-words">{loadError}</div>
           </div>
         ) : visibleTransactions.length === 0 ? (
-           <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500">
+           <div className="absolute inset-0 flex flex-col items-center justify-center text-secondary/70">
              目前無異動紀錄
            </div>
         ) : (
           <table className="w-full text-left border-collapse">
-            <thead className="bg-slate-800 text-slate-300 text-sm sticky top-0 z-10 border-b border-slate-700">
+            <thead className="bg-card text-secondary text-sm sticky top-0 z-10 border-b border-theme-border">
               <tr>
                 <th className="p-4 font-semibold">日期</th>
                 <th className="p-4 font-semibold">類型</th>
@@ -335,7 +370,7 @@ export default function TransactionsPage() {
                 <th className="p-4 font-semibold text-center">操作</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-700/50 text-sm">
+            <tbody className="divide-y divide-theme-border/50 text-sm">
               {visibleTransactions.map(tx => {
                 const item = items.find(i => i.id === tx.item_id);
                 const proj = projects.find(p => p.id === tx.project_id);
@@ -343,15 +378,15 @@ export default function TransactionsPage() {
                 const itemLabel = item?.name || `未知品項 (${tx.item_id})`;
                 
                 return (
-                  <tr key={tx.id} className={`transition-colors ${tx.is_voided ? 'bg-slate-900/50 opacity-60' : 'hover:bg-slate-700/30'}`}>
-                    <td className={`p-4 text-slate-400 ${tx.is_voided ? 'line-through' : ''}`}>{format(new Date(tx.transaction_date || tx.created_at), 'yyyy/MM/dd')}</td>
+                  <tr key={tx.id} className={`transition-colors ${tx.is_voided ? 'bg-card opacity-60' : 'hover:bg-card/60'}`}>
+                    <td className={`p-4 text-secondary/80 ${tx.is_voided ? 'line-through' : ''}`}>{format(new Date(tx.transaction_date || tx.created_at), 'yyyy/MM/dd')}</td>
                     <td className="p-4">
                       <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                        tx.is_voided ? 'bg-slate-800 text-slate-500' :
-                        tx.transaction_type === 'IN' ? 'bg-emerald-900/50 text-emerald-400' :
-                        tx.transaction_type === 'OUT' ? 'bg-red-900/50 text-red-400' :
-                        tx.transaction_type === 'RETURN' ? 'bg-indigo-900/50 text-indigo-400' :
-                        'bg-amber-900/50 text-amber-400'
+                        tx.is_voided ? 'bg-theme-border text-secondary/70' :
+                        tx.transaction_type === 'IN' ? 'bg-success/20 text-success' :
+                        tx.transaction_type === 'OUT' ? 'bg-danger/20 text-danger' :
+                        tx.transaction_type === 'RETURN' ? 'bg-accent/20 text-accent' :
+                        'bg-warning/20 text-warning'
                       }`}>
                         {tx.transaction_type === 'IN' ? '入庫' :
                          tx.transaction_type === 'OUT' ? '出庫' :
@@ -359,30 +394,30 @@ export default function TransactionsPage() {
                          {tx.is_voided && ' (已作廢)'}
                       </span>
                     </td>
-                    <td className={`p-4 font-medium ${tx.is_voided ? 'text-slate-500 line-through' : 'text-slate-100'}`} title={item ? item.name : tx.item_id}>{itemLabel}</td>
-                    <td className={`p-4 text-right font-bold text-lg ${tx.is_voided ? 'text-slate-500 line-through' : isPositive ? 'text-emerald-400' : 'text-red-400'}`}>
+                    <td className={`p-4 font-medium ${tx.is_voided ? 'text-secondary/50 line-through' : 'text-primary'}`} title={item ? item.name : tx.item_id}>{itemLabel}</td>
+                    <td className={`p-4 text-right font-bold text-lg ${tx.is_voided ? 'text-secondary/50 line-through' : isPositive ? 'text-success' : 'text-danger'}`}>
                       {isPositive ? '+' : tx.transaction_type === 'ADJUST' ? '' : '-'}{Math.abs(tx.quantity)}
                     </td>
-                    <td className={`p-4 ${tx.is_voided ? 'text-slate-600 line-through' : 'text-slate-400'}`}>{tx.unit || item?.unit || '-'}</td>
-                    <td className={`p-4 ${tx.is_voided ? 'text-slate-600 line-through' : 'text-slate-300'}`}>{tx.project_name || proj?.name || '-'}</td>
-                    <td className={`p-4 ${tx.is_voided ? 'text-slate-600 line-through' : 'text-slate-300'}`}>{tx.handler || '-'}</td>
-                    <td className={`p-4 max-w-[200px] truncate ${tx.is_voided ? 'text-slate-600 line-through' : 'text-slate-400'}`} title={tx.notes || ''}>{tx.notes || '-'}</td>
-                    <td className="p-4 text-slate-500 text-xs">{format(new Date(tx.created_at), 'yyyy/MM/dd HH:mm')}</td>
+                    <td className={`p-4 ${tx.is_voided ? 'text-secondary/50 line-through' : 'text-secondary'}`}>{tx.unit || item?.unit || '-'}</td>
+                    <td className={`p-4 ${tx.is_voided ? 'text-secondary/50 line-through' : 'text-secondary/90'}`}>{tx.project_name || proj?.name || '-'}</td>
+                    <td className={`p-4 ${tx.is_voided ? 'text-secondary/50 line-through' : 'text-secondary/90'}`}>{tx.handler || '-'}</td>
+                    <td className={`p-4 max-w-[200px] truncate ${tx.is_voided ? 'text-secondary/50 line-through' : 'text-secondary'}`} title={tx.notes || ''}>{tx.notes || '-'}</td>
+                    <td className="p-4 text-secondary/60 text-xs">{format(new Date(tx.created_at), 'yyyy/MM/dd HH:mm')}</td>
                     <td className="p-4 text-center space-x-2">
                       {!tx.is_voided && (
                         <>
-                          <button onClick={() => openEditModal(tx)} disabled={currentUser?.role === 'VIEWER'} className="text-indigo-400 hover:text-indigo-300 text-xs bg-indigo-900/30 px-2 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed">編輯</button>
+                          <button onClick={() => openEditModal(tx)} disabled={currentUser?.role === 'VIEWER'} className="text-accent hover:text-accent-hover text-xs bg-accent/20 px-2 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed">編輯</button>
                           <button
                             onClick={() => handleVoidTx(tx.id)}
                             disabled={currentUser?.role === 'VIEWER' || (tx.transaction_type === 'IN' && currentUser?.role !== 'ADMIN')}
                             title={tx.transaction_type === 'IN' && currentUser?.role !== 'ADMIN' ? '僅限管理員作廢入庫紀錄' : undefined}
-                            className="text-amber-400 hover:text-amber-300 text-xs bg-amber-900/30 px-2 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="text-warning hover:text-warning/80 text-xs bg-warning/20 px-2 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             作廢
                           </button>
                         </>
                       )}
-                      <button onClick={() => setHistoryTxId(tx.id)} className="text-slate-400 hover:text-slate-300 text-xs bg-slate-800 px-2 py-1 rounded">紀錄</button>
+                      <button onClick={() => setHistoryTxId(tx.id)} className="text-secondary hover:text-primary text-xs bg-card border border-theme-border px-2 py-1 rounded">紀錄</button>
                     </td>
                   </tr>
                 );
@@ -393,9 +428,9 @@ export default function TransactionsPage() {
       </div>
 
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-800 border border-slate-700 p-6 rounded-2xl w-full max-w-3xl shadow-2xl overflow-auto max-h-[90vh]">
-            <h2 className="text-2xl font-bold text-slate-100 mb-6">{editingTx ? '修改異動紀錄' : '新增庫存異動'}</h2>
+        <div className="fixed inset-0 bg-page/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-card border border-theme-border p-6 rounded-2xl w-full max-w-3xl shadow-2xl overflow-auto max-h-[90vh]">
+            <h2 className="text-2xl font-bold text-primary mb-6">{editingTx ? '修改異動紀錄' : '新增庫存異動'}</h2>
             <TransactionForm 
               items={items.filter(i => i.is_active)}
               projects={projects.filter(p => p.is_active)}

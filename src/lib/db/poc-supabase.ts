@@ -17,6 +17,7 @@ import {
   InventoryMonthlyClosingItem,
   ActivityLog,
   SESupplyRecord,
+  isActiveFormalTransaction,
 } from './types';
 import { throwMissingCoreTablesErrorIfNeeded } from './supabase-errors';
 import { getInventoryTransactionQuantityDelta } from './inventory-stock';
@@ -155,6 +156,7 @@ const resolveUniqueInventoryItemCode = async (baseCode: string): Promise<string>
   return `${normalizedBaseCode}-${Date.now()}`;
 };
 
+
 const mapInventoryTransaction = (row: any): InventoryTransaction => ({
   id: row.id,
   item_id: row.item_id,
@@ -172,6 +174,7 @@ const mapInventoryTransaction = (row: any): InventoryTransaction => ({
   voided_reason: row.voided_reason || null,
   voided_by: row.voided_by || null,
   voided_at: row.voided_at || null,
+  excluded_by_initialization_id: row.excluded_by_initialization_id || null,
   created_at: row.created_at || new Date().toISOString(),
   updated_at: row.updated_at || new Date().toISOString(),
 });
@@ -1254,7 +1257,7 @@ const calculateInventoryBalancesFromSupabase = async (): Promise<{ item_id: stri
   });
 
   transactions.forEach((tx) => {
-    if (tx.is_voided) return;
+    if (!isActiveFormalTransaction(tx)) return;
 
     const key = tx.item_id;
     if (balances[key] === undefined) balances[key] = 0;

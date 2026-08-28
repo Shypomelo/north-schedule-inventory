@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { InventoryMonthlyClosingItem, InventoryTransaction } from '../db/types';
+import { InventoryMonthlyClosingItem, InventoryTransaction, isActiveFormalTransaction } from '../db/types';
 
 export type MonthlyClosingExportStatus = 'CLOSED' | 'OPEN';
 
@@ -107,7 +107,7 @@ export function buildMonthlyReportWorkbook(
   // Sheet C: 案場用料統計。作廢 OUT 不計入。
   const projectUsageMap: Record<string, { project: string; name: string; qty: number; unit: string; handler: string; notes: string }> = {};
   monthlyTransactions
-    .filter(transaction => transaction.transaction_type === 'OUT' && !transaction.is_voided)
+    .filter(transaction => transaction.transaction_type === 'OUT' && isActiveFormalTransaction(transaction))
     .forEach(transaction => {
       const projectName = transaction.project_name || '未指定案場';
       const itemInfo = items.find(item => item.inventory_item_id === transaction.item_id);
@@ -154,7 +154,7 @@ export function buildMonthlyReportWorkbook(
 
   // Sheet D: 流水明細。沿用既有最小規則：作廢紀錄不匯出。
   const sheetDData = monthlyTransactions
-    .filter(transaction => !transaction.is_voided)
+    .filter(transaction => isActiveFormalTransaction(transaction))
     .sort((a, b) => a.transaction_date.localeCompare(b.transaction_date))
     .map(transaction => {
       const itemInfo = items.find(item => item.inventory_item_id === transaction.item_id);

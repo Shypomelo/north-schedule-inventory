@@ -1,8 +1,10 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { InventoryTransaction, InventoryItem, Project, TransactionType, InventorySerial, InventoryBatch, User } from '@/lib/db/types';
+import { InventoryTransaction, InventoryItem, Project, TransactionType, InventorySerial, InventoryBatch, User, InventorySerialLookupCandidate } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
+import { previewInventoryInitialization } from '@/lib/db/inventory-initialization';
+import { normalizeSerialInput } from '@/lib/inventory-serial-normalization';
 import { useUser } from './UserContext';
 import { format } from 'date-fns';
 import { Plus } from 'lucide-react';
@@ -55,14 +57,31 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
   );
   const [isPendingSerial, setIsPendingSerial] = useState(initialData?.pending_serial_count ? initialData.pending_serial_count > 0 : false);
   const [selectedSerials, setSelectedSerials] = useState<string[]>(initialData?.transaction_type !== 'IN' ? initialSerials : []);
+  const [serialLookupInput, setSerialLookupInput] = useState('');
+  const [serialLookupMsg, setSerialLookupMsg] = useState<string | null>(null);
+  const [ambiguousSerialCandidates, setAmbiguousSerialCandidates] = useState<InventorySerialLookupCandidate[]>([]);
   const [editReason, setEditReason] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const isEditMode = !!initialData?.id;
 
+  const [minDate, setMinDate] = useState<string | undefined>(undefined);
+  const [initDateMsg, setInitDateMsg] = useState<string | null>(null);
+
   const [itemSearchText, setItemSearchText] = useState('');
   const [isItemDropdownOpen, setIsItemDropdownOpen] = useState(false);
   const dropdownRef = React.useRef<HTMLLabelElement>(null);
+
+  React.useEffect(() => {
+    previewInventoryInitialization([]).then(status => {
+      if (status.already_initialized && status.baseline_date) {
+        const dateObj = new Date(status.baseline_date);
+        dateObj.setDate(dateObj.getDate() + 1);
+        setMinDate(format(dateObj, 'yyyy-MM-dd'));
+        setInitDateMsg(`正式庫存自 ${format(dateObj, 'yyyy/MM/dd')} 起計算，${format(new Date(status.baseline_date), 'M/d')} 以前異動已包含於初始庫存`);
+      }
+    }).catch(e => console.error(e));
+  }, []);
 
   React.useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -87,6 +106,7 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
 
   const selectedItem = items.find(i => i.id === formData.item_id);
   const currentBalance = balances.find(b => b.item_id === formData.item_id)?.balance || 0;
+  const getItemName = (itemId: string) => items.find(i => i.id === itemId)?.name || `未知品項 (${itemId.slice(0, 8)})`;
 
   const handleItemChange = (itemId: string) => {
     const item = items.find(i => i.id === itemId);
@@ -99,7 +119,60 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
     });
     setInSerialInputs(['', '']);
     setSelectedSerials([]);
+    setSerialLookupInput('');
+    setSerialLookupMsg(null);
+    setAmbiguousSerialCandidates([]);
     setIsPendingSerial(false);
+  };
+
+  const addSelectedSerial = (serialNumber: string) => {
+    setSelectedSerials(prev => (
+      prev.includes(serialNumber) ? prev : [...prev, serialNumber]
+    ));
+  };
+
+  const handleOutSerialLookup = async () => {
+    const input = serialLookupInput.trim();
+    setSerialLookupMsg(null);
+    setAmbiguousSerialCandidates([]);
+    if (!input) return;
+    if (!formData.item_id) {
+      setSerialLookupMsg('請先選擇品項');
+      return;
+    }
+
+    try {
+      const result = await dbAdapter.lookupInventorySerial(input, {
+        itemId: formData.item_id,
+        allowedStatuses: ['在庫'],
+      });
+
+      if (result.result_type === 'no_match') {
+        setSerialLookupMsg('找不到此序號');
+        return;
+      }
+
+      if (result.result_type === 'ambiguous') {
+        setAmbiguousSerialCandidates(result.candidates);
+        setSerialLookupMsg('找到多個可能相同的序號，請確認完整序號');
+        return;
+      }
+
+      const candidate = result.candidates[0];
+      if (!candidate || !candidate.is_allowed_candidate) {
+        setSerialLookupMsg(candidate
+          ? `此序號目前狀態為 ${candidate.status}，不可再次出庫`
+          : '此序號不符合本次品項或狀態條件');
+        return;
+      }
+
+      addSelectedSerial(candidate.serial_number);
+      setSerialLookupInput('');
+      setSerialLookupMsg(`已選取 ${candidate.serial_number}`);
+    } catch (error) {
+      console.error(error);
+      setSerialLookupMsg('序號查詢失敗，請稍後重試');
+    }
   };
 
   // FIFO Logic
@@ -144,8 +217,15 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
     
     if (isEditMode && !editReason.trim()) return setErrorMsg('修改異動紀錄必須填寫修改原因');
     if (!formData.item_id) return setErrorMsg('請選擇品項');
-    if (formData.quantity === 0) return setErrorMsg('數量不能為 0');
-    if (formData.quantity < 0 && formData.transaction_type !== 'ADJUST') return setErrorMsg('除了盤點調整，其他異動數量必須大於 0');
+
+    if (formData.transaction_type === 'ADJUST') {
+      if (formData.quantity < 0) return setErrorMsg('盤點數量不能為負數');
+      if (formData.quantity - currentBalance === 0) return setErrorMsg('盤點數量與目前庫存相同，無需調整');
+      if (selectedItem?.requires_serial) return setErrorMsg('序號品目前不可直接調整數量，請透過序號入庫／出庫或後續序號修正功能處理。');
+    } else {
+      if (formData.quantity === 0) return setErrorMsg('數量不能為 0');
+      if (formData.quantity < 0) return setErrorMsg('除了盤點調整，其他異動數量必須大於 0');
+    }
     
     if (formData.transaction_type === 'OUT' && formData.quantity > currentBalance) {
       if (!confirm(`警告：目前庫存僅剩 ${currentBalance}，出庫後庫存將變為負數。確定要繼續嗎？`)) {
@@ -171,10 +251,19 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
           return setErrorMsg(`輸入的序號數量 (${inSerials.length}) 少於入庫數量 (${formData.quantity})。若確定要留待之後補登，請勾選「本次先不補齊序號，標記為待補」。`);
         }
         
-        // Check for duplicate serials within the input
-        const uniqueSerials = new Set(inSerials);
+        const uniqueSerials = new Set(inSerials.map(normalizeSerialInput));
         if (uniqueSerials.size !== inSerials.length) {
           return setErrorMsg('輸入的序號有重複，請檢查！');
+        }
+
+        for (const serial of inSerials) {
+          const lookup = await dbAdapter.lookupInventorySerial(serial);
+          if (lookup.result_type !== 'no_match') {
+            const candidates = lookup.candidates.map(c => `${c.serial_number}｜${c.status}｜${getItemName(c.item_id)}`).join('\n');
+            return setErrorMsg(lookup.result_type === 'ambiguous'
+              ? `找到多個可能相同的序號，請確認完整序號：\n${candidates}`
+              : `此序號可能已存在：${lookup.candidates[0]?.serial_number || serial}`);
+          }
         }
       } else if (formData.transaction_type === 'OUT' || formData.transaction_type === 'RETURN') {
         if (selectedSerials.length !== formData.quantity) {
@@ -202,7 +291,7 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
       item_id: formData.item_id,
       transaction_type: formData.transaction_type,
       transaction_date: formData.transaction_date,
-      quantity: formData.quantity,
+      quantity: formData.transaction_type === 'ADJUST' ? (formData.quantity - currentBalance) : formData.quantity,
       unit: formData.unit,
       project_id: matchedProject ? matchedProject.id : null,
       project_name: formData.project_name || null,
@@ -219,12 +308,12 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       {isEditMode && (
-        <div className="flex gap-4 mb-2 bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
-          <div className="text-xs text-slate-400">
+        <div className="flex gap-4 mb-2 bg-card/50 p-3 rounded-lg border border-theme-border/50">
+          <div className="text-xs text-secondary">
             <span className="font-semibold">建立時間：</span>
             {initialData.created_at ? format(new Date(initialData.created_at), 'yyyy-MM-dd HH:mm:ss') : '-'}
           </div>
-          <div className="text-xs text-slate-400">
+          <div className="text-xs text-secondary">
             <span className="font-semibold">最後修改：</span>
             {initialData.updated_at ? format(new Date(initialData.updated_at), 'yyyy-MM-dd HH:mm:ss') : '-'}
           </div>
@@ -233,7 +322,7 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         
         <label className="flex flex-col gap-1 md:col-span-2">
-          <span className="text-sm font-semibold text-slate-300">異動類型 *</span>
+          <span className="text-sm font-semibold text-secondary">異動類型 *</span>
           <div className="flex gap-4 mt-1">
             {[
               { type: 'OUT', label: '📤 出庫' },
@@ -241,7 +330,7 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
               { type: 'IN', label: '📥 入庫' },
               { type: 'ADJUST', label: '⚖️ 調整' }
             ].map(t => (
-              <label key={t.type} className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-lg border cursor-pointer transition-all ${formData.transaction_type === t.type ? 'bg-emerald-600/20 border-emerald-500 text-emerald-400 font-bold' : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-500'}`}>
+              <label key={t.type} className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-lg border cursor-pointer transition-all ${formData.transaction_type === t.type ? 'bg-success/20 border-success text-success font-bold' : 'bg-page border-theme-border text-secondary hover:border-theme-border/80'}`}>
                 <input 
                   type="radio" name="txType" className="hidden"
                   checked={formData.transaction_type === t.type}
@@ -254,26 +343,28 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
         </label>
 
         <label className="flex flex-col gap-1">
-          <span className="text-sm font-semibold text-slate-300">日期 *</span>
+          <span className="text-sm font-semibold text-secondary">日期 *</span>
           <input 
             type="date" required 
-            className="bg-slate-900 border border-slate-700 rounded p-2 focus:border-emerald-500 outline-none text-slate-100"
+            min={minDate}
+            className="bg-page border border-theme-border rounded p-2 focus:border-accent outline-none text-primary"
             value={formData.transaction_date} onChange={e => setFormData({...formData, transaction_date: e.target.value})} 
           />
+          {initDateMsg && <span className="text-xs text-warning mt-1">{initDateMsg}</span>}
         </label>
 
         <label className="flex flex-col gap-1 relative" ref={dropdownRef}>
-          <span className="text-sm font-semibold text-slate-300">品項 *</span>
+          <span className="text-sm font-semibold text-secondary">品項 *</span>
           <div 
-            className="bg-slate-900 border border-slate-700 rounded p-2 focus-within:border-emerald-500 flex items-center cursor-text"
+            className="bg-page border border-theme-border rounded p-2 focus-within:border-accent flex items-center cursor-text"
             onClick={() => setIsItemDropdownOpen(true)}
           >
             {formData.item_id && !isItemDropdownOpen ? (
-              <div className="flex-1 text-slate-100 flex justify-between items-center">
+              <div className="flex-1 text-primary flex justify-between items-center">
                 <span>{selectedItem?.name}</span>
                 <button 
                   type="button" 
-                  className="text-slate-500 hover:text-slate-300 px-2"
+                  className="text-secondary/70 hover:text-secondary px-2"
                   onClick={(e) => {
                     e.stopPropagation();
                     handleItemChange('');
@@ -287,7 +378,7 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
             ) : (
               <input 
                 type="text" 
-                className="bg-transparent outline-none w-full text-slate-100"
+                className="bg-transparent outline-none w-full text-primary"
                 placeholder={formData.item_id ? "搜尋品項..." : "(請輸入關鍵字搜尋或選擇)"}
                 value={itemSearchText}
                 onChange={e => setItemSearchText(e.target.value)}
@@ -296,14 +387,14 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
             )}
           </div>
           {isItemDropdownOpen && (
-            <div className="absolute top-full left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-slate-800 border border-slate-600 rounded shadow-xl z-50">
+            <div className="absolute top-full left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-card border border-theme-border rounded shadow-xl z-50">
               {filteredItems.length === 0 ? (
-                <div className="p-3 text-slate-400 text-sm text-center">找不到符合的品項</div>
+                <div className="p-3 text-secondary text-sm text-center">找不到符合的品項</div>
               ) : (
                 filteredItems.map(i => (
                   <div 
                     key={i.id}
-                    className={`p-3 cursor-pointer border-b border-slate-700/50 hover:bg-emerald-600/20 hover:text-emerald-400 transition-colors ${formData.item_id === i.id ? 'bg-slate-700 text-emerald-400' : 'text-slate-300'}`}
+                    className={`p-3 cursor-pointer border-b border-theme-border/50 hover:bg-success/20 hover:text-success transition-colors ${formData.item_id === i.id ? 'bg-theme-border/50 text-success' : 'text-primary'}`}
                     onMouseDown={(e) => {
                       e.preventDefault();
                       handleItemChange(i.id);
@@ -315,14 +406,14 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
                     <div className="text-xs opacity-70 mt-1 flex gap-3">
                       <span>庫存分類: {i.category}</span>
                       <span>來源: {i.source_type || '無'}</span>
-                      {i.requires_serial && <span className="text-amber-400">需序號</span>}
+                      {i.requires_serial && <span className="text-warning">需序號</span>}
                     </div>
                   </div>
                 ))
               )}
               {onAddNewItem && (
                 <div 
-                  className="p-3 text-center cursor-pointer text-emerald-400 hover:bg-emerald-600/20 transition-colors border-t border-slate-700 font-semibold"
+                  className="p-3 text-center cursor-pointer text-success hover:bg-success/20 transition-colors border-t border-theme-border font-semibold"
                   onMouseDown={(e) => {
                     e.preventDefault();
                     setIsItemDropdownOpen(false);
@@ -337,18 +428,30 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
         </label>
 
         <label className="flex flex-col gap-1">
-          <span className="text-sm font-semibold text-slate-300">數量 * {formData.transaction_type === 'ADJUST' && '(可為正負數)'}</span>
+          <span className="text-sm font-semibold text-secondary">
+            {formData.transaction_type === 'ADJUST' ? '盤點後實際庫存 *' : '數量 *'}
+          </span>
           <div className="relative flex items-center gap-2">
             <input 
               type="number" required 
-              className="bg-slate-900 border border-slate-700 rounded p-2 focus:border-emerald-500 outline-none w-full text-slate-100"
-              value={formData.quantity} onChange={e => setFormData({...formData, quantity: parseInt(e.target.value) || 0})} 
+              min={formData.transaction_type === 'ADJUST' ? 0 : 1}
+              className="bg-page border border-theme-border rounded p-2 focus:border-accent outline-none w-full text-primary"
+              value={formData.quantity}
+              onChange={e => {
+                const val = parseInt(e.target.value);
+                setFormData({...formData, quantity: isNaN(val) ? 0 : val});
+              }}
             />
-            {selectedItem && <span className="text-slate-400 font-medium whitespace-nowrap">{selectedItem.unit}</span>}
+            {selectedItem && <span className="text-secondary/80 font-medium whitespace-nowrap">{selectedItem.unit}</span>}
             {formData.item_id && (
-              <span className={`absolute right-14 top-2 text-xs font-semibold ${currentBalance > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                目前庫存: {currentBalance}
-              </span>
+              <div className={`absolute right-14 top-1 flex flex-col items-end text-xs font-semibold ${currentBalance > 0 ? 'text-success' : 'text-danger'}`}>
+                <span>目前庫存: {currentBalance}</span>
+                {formData.transaction_type === 'ADJUST' && (
+                  <span className={formData.quantity - currentBalance > 0 ? 'text-success' : formData.quantity - currentBalance < 0 ? 'text-danger' : 'text-secondary/50'}>
+                    調整差異: {formData.quantity - currentBalance > 0 ? `+${formData.quantity - currentBalance}` : formData.quantity - currentBalance}
+                  </span>
+                )}
+              </div>
             )}
           </div>
         </label>
@@ -356,9 +459,9 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
         {formData.item_id && (
           <>
             <label className="flex flex-col gap-1">
-              <span className="text-sm font-semibold text-slate-300">庫存分類</span>
+              <span className="text-sm font-semibold text-secondary">庫存分類</span>
               <select 
-                className="bg-slate-900 border border-slate-700 rounded p-2 focus:border-emerald-500 outline-none text-slate-100 disabled:opacity-60 disabled:cursor-not-allowed" 
+                className="bg-page border border-theme-border rounded p-2 focus:border-accent outline-none text-primary disabled:opacity-60 disabled:cursor-not-allowed"
                 value={formData.category} 
                 onChange={e => setFormData({...formData, category: e.target.value})}
                 disabled={formData.transaction_type !== 'IN'}
@@ -368,9 +471,9 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
               </select>
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-sm font-semibold text-slate-300">來源</span>
+              <span className="text-sm font-semibold text-secondary">來源</span>
               <select 
-                className="bg-slate-900 border border-slate-700 rounded p-2 focus:border-emerald-500 outline-none text-slate-100 disabled:opacity-60 disabled:cursor-not-allowed" 
+                className="bg-page border border-theme-border rounded p-2 focus:border-accent outline-none text-primary disabled:opacity-60 disabled:cursor-not-allowed"
                 value={formData.source} 
                 onChange={e => setFormData({...formData, source: e.target.value})}
                 disabled={formData.transaction_type !== 'IN'}
@@ -387,12 +490,12 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
         {(formData.transaction_type === 'OUT' || formData.transaction_type === 'RETURN') && (
           <>
             <label className="flex flex-col gap-1">
-              <span className="text-sm font-semibold text-amber-400">案場 ({formData.transaction_type === 'OUT' ? '出庫' : '退料'}必填) *</span>
+              <span className="text-sm font-semibold text-warning">案場 ({formData.transaction_type === 'OUT' ? '出庫' : '退料'}必填) *</span>
               <input 
                 list="projects-list"
                 required
                 placeholder="選擇或輸入案場名稱..."
-                className="bg-slate-900 border border-amber-700/50 rounded p-2 focus:border-amber-500 outline-none text-slate-100"
+                className="bg-page border border-warning/50 rounded p-2 focus:border-warning outline-none text-primary"
                 value={formData.project_name} onChange={e => setFormData({...formData, project_name: e.target.value})} 
               />
               <datalist id="projects-list">
@@ -400,9 +503,9 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
               </datalist>
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-sm font-semibold text-slate-300">{formData.transaction_type === 'OUT' ? '領料人' : '退料人'}</span>
+              <span className="text-sm font-semibold text-secondary">{formData.transaction_type === 'OUT' ? '領料人' : '退料人'}</span>
               <select 
-                className="bg-slate-900 border border-slate-700 rounded p-2 focus:border-emerald-500 outline-none text-slate-100"
+                className="bg-page border border-theme-border rounded p-2 focus:border-accent outline-none text-primary"
                 value={formData.handler} onChange={e => setFormData({...formData, handler: e.target.value})} 
               >
                 <option value="">(請選擇)</option>
@@ -413,27 +516,27 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
         )}
 
         {selectedItem?.requires_serial && (
-          <div className="flex flex-col gap-4 md:col-span-2 bg-slate-900/50 border border-indigo-500/30 rounded-xl p-4 mt-2">
-            <h4 className="font-bold text-indigo-400 flex items-center gap-2">
-              <span className="bg-indigo-500 text-white w-6 h-6 rounded-full flex items-center justify-center text-sm">#</span>
+          <div className="flex flex-col gap-4 md:col-span-2 bg-page/50 border border-accent/30 rounded-xl p-4 mt-2">
+            <h4 className="font-bold text-accent flex items-center gap-2">
+              <span className="bg-accent text-white w-6 h-6 rounded-full flex items-center justify-center text-sm">#</span>
               設備序號區塊
             </h4>
             
             {formData.transaction_type === 'IN' ? (
               <div className="flex flex-col gap-3">
-                <div className="flex justify-between items-center text-sm bg-slate-800 p-3 rounded-lg border border-slate-700">
-                  <div className="text-slate-300">入庫數量：<span className="text-white font-bold">{formData.quantity}</span></div>
-                  <div className="text-slate-300">已輸入序號：<span className="text-emerald-400 font-bold">{inSerialInputs.filter(s => s.trim()).length}</span></div>
-                  <div className="text-slate-300">待補序號：<span className="text-amber-400 font-bold">{Math.max(0, formData.quantity - inSerialInputs.filter(s => s.trim()).length)}</span></div>
+                <div className="flex justify-between items-center text-sm bg-card p-3 rounded-lg border border-theme-border">
+                  <div className="text-secondary">入庫數量：<span className="text-primary font-bold">{formData.quantity}</span></div>
+                  <div className="text-secondary">已輸入序號：<span className="text-success font-bold">{inSerialInputs.filter(s => s.trim()).length}</span></div>
+                  <div className="text-secondary">待補序號：<span className="text-warning font-bold">{Math.max(0, formData.quantity - inSerialInputs.filter(s => s.trim()).length)}</span></div>
                 </div>
                 
                 <div className="flex flex-col gap-2">
                   <div className="flex justify-between items-end">
-                    <span className="text-sm font-semibold text-slate-300">掃描或輸入序號 (每格一組)</span>
+                    <span className="text-sm font-semibold text-secondary">掃描或輸入序號 (每格一組)</span>
                     <button 
                       type="button" 
                       onClick={() => setInSerialInputs(prev => [...prev, ''])}
-                      className="text-xs flex items-center gap-1 bg-indigo-600/30 text-indigo-300 hover:bg-indigo-600/50 hover:text-white px-2 py-1 rounded transition"
+                      className="text-xs flex items-center gap-1 bg-accent/30 text-accent hover:bg-accent/50 hover:text-primary px-2 py-1 rounded transition"
                     >
                       + 新增格子
                     </button>
@@ -444,7 +547,7 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
                         key={idx}
                         type="text"
                         placeholder={`第 ${idx + 1} 個序號...`}
-                        className="serial-input bg-slate-900 border border-indigo-700/50 rounded p-2 focus:border-indigo-500 outline-none text-slate-100 w-full"
+                        className="serial-input bg-page border border-accent/50 rounded p-2 focus:border-accent outline-none text-primary w-full"
                         value={val}
                         onChange={e => {
                           const newInputs = [...inSerialInputs];
@@ -471,35 +574,88 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
                 <label className="flex items-center gap-2 mt-1 cursor-pointer">
                   <input 
                     type="checkbox" 
-                    className="w-4 h-4 accent-indigo-500 rounded" 
+                    className="w-4 h-4 accent-accent rounded"
                     checked={isPendingSerial} 
                     onChange={e => setIsPendingSerial(e.target.checked)} 
                   />
-                  <span className="text-sm font-semibold text-amber-400">本次先不補齊序號，標記為待補</span>
+                  <span className="text-sm font-semibold text-warning">本次先不補齊序號，標記為待補</span>
                 </label>
               </div>
             ) : formData.transaction_type === 'OUT' || formData.transaction_type === 'RETURN' ? (
-              <div className="md:col-span-2 space-y-4 bg-slate-800/30 p-4 rounded-xl border border-slate-700/50">
+              <div className="md:col-span-2 space-y-4 bg-card/30 p-4 rounded-xl border border-theme-border/50">
                 <div className="flex justify-between items-center">
-                  <h3 className="font-semibold text-slate-200">設備{formData.transaction_type === 'OUT' ? '出庫' : '退料'}序號選取 (FIFO)</h3>
+                  <h3 className="font-semibold text-primary">設備{formData.transaction_type === 'OUT' ? '出庫' : '退料'}序號選取 (FIFO)</h3>
                   <div className="text-sm">
-                     已選 <span className="text-indigo-400 font-bold">{selectedSerials.length}</span> / 需選 <span className="text-slate-100 font-bold">{formData.quantity}</span>
+                     已選 <span className="text-accent font-bold">{selectedSerials.length}</span> / 需選 <span className="text-primary font-bold">{formData.quantity}</span>
                   </div>
                 </div>
                 <div className="flex flex-col gap-2">
-                  <span className="text-sm text-slate-300">請從系統現有序號庫存中勾選（已自動按照入庫批次時間為您勾選最舊的序號）</span>
-                  <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-700/50 max-h-60 overflow-auto">
+                  <span className="text-sm text-secondary">請從系統現有序號庫存中勾選（已自動按照入庫批次時間為您勾選最舊的序號）</span>
+                  <div className="flex flex-col gap-2 bg-page/50 p-3 rounded-lg border border-theme-border/50">
+                    <span className="text-sm font-semibold text-secondary">搜尋 / 掃描序號</span>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={serialLookupInput}
+                        onChange={e => setSerialLookupInput(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleOutSerialLookup();
+                          }
+                        }}
+                        placeholder="輸入完整或短序號..."
+                        className="flex-1 bg-card border border-theme-border rounded p-2 focus:border-accent outline-none text-primary"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleOutSerialLookup}
+                        className="px-3 py-2 bg-accent hover:bg-accent-hover text-white rounded transition"
+                      >
+                        查詢
+                      </button>
+                    </div>
+                    {serialLookupMsg && (
+                      <div className="text-sm text-warning bg-warning/10 border border-warning/20 rounded p-2 whitespace-pre-wrap">
+                        {serialLookupMsg}
+                      </div>
+                    )}
+                    {ambiguousSerialCandidates.length > 0 && (
+                      <div className="flex flex-col gap-2">
+                        {ambiguousSerialCandidates.map(candidate => (
+                          <button
+                            key={candidate.id}
+                            type="button"
+                            disabled={!candidate.is_allowed_candidate}
+                            onClick={() => {
+                              if (!candidate.is_allowed_candidate) return;
+                              addSelectedSerial(candidate.serial_number);
+                              setAmbiguousSerialCandidates([]);
+                              setSerialLookupInput('');
+                              setSerialLookupMsg(`已選取 ${candidate.serial_number}`);
+                            }}
+                            className="text-left text-sm bg-card hover:bg-card/80 border border-theme-border rounded p-2 disabled:opacity-50 disabled:cursor-not-allowed text-secondary"
+                          >
+                            <span className="font-mono text-primary">{candidate.serial_number}</span>
+                            <span>｜{candidate.status}</span>
+                            <span>｜{getItemName(candidate.item_id)}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="bg-page/50 p-3 rounded-lg border border-theme-border/50 max-h-60 overflow-auto">
                     {availableSerialsFIFO.length === 0 ? (
-                      <div className="text-sm text-slate-500 py-2 text-center">目前無可用的庫存序號</div>
+                      <div className="text-sm text-secondary/70 py-2 text-center">目前無可用的庫存序號</div>
                     ) : (
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         {availableSerialsFIFO.map(s => {
                             const isSelected = selectedSerials.includes(s.serial_number);
                             return (
-                              <label key={s.id} className={`flex items-center gap-2 cursor-pointer p-2 rounded transition-colors ${isSelected ? 'bg-indigo-600/30 border border-indigo-500' : 'hover:bg-slate-800 border border-transparent'}`}>
+                              <label key={s.id} className={`flex items-center gap-2 cursor-pointer p-2 rounded transition-colors ${isSelected ? 'bg-accent/30 border border-accent' : 'hover:bg-card border border-transparent'}`}>
                                 <input 
                                   type="checkbox" 
-                                  className="accent-indigo-500 w-4 h-4 rounded"
+                                  className="accent-accent w-4 h-4 rounded"
                                   checked={isSelected}
                                   onChange={(e) => {
                                     if (e.target.checked) {
@@ -510,8 +666,8 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
                                   }}
                                 />
                                 <div className="flex flex-col">
-                                   <span className="text-sm text-slate-300 font-mono">{s.serial_number}</span>
-                                   <span className="text-[10px] text-slate-500">入庫: {s.in_date}</span>
+                                   <span className="text-sm text-secondary font-mono">{s.serial_number}</span>
+                                   <span className="text-[10px] text-secondary/70">入庫: {s.in_date}</span>
                                 </div>
                               </label>
                             );
@@ -520,51 +676,51 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
                     )}
                   </div>
                   {availableSerialsFIFO.length < formData.quantity && currentBalance >= formData.quantity && (
-                    <div className="mt-2 text-sm text-amber-400 bg-amber-900/20 p-2 rounded border border-amber-700/30">
+                    <div className="mt-2 text-sm text-warning bg-warning/20 p-2 rounded border border-warning/30">
                       ⚠️ 此品項有未補登的設備序號，現有序號不足本次出庫。請先至明細補登後再出庫。
                     </div>
                   )}
                 </div>
               </div>
-            ) : (
-              <div className="text-sm text-slate-400">盤點調整不需指定序號，數量將直接增減。</div>
-            )}
+            ) : formData.transaction_type === 'ADJUST' ? (
+              <div className="text-sm text-danger font-bold">序號品目前不可直接調整數量，請透過序號入庫／出庫或後續序號修正功能處理。</div>
+            ) : null}
           </div>
         )}
 
         <label className="flex flex-col gap-1 md:col-span-2">
-          <span className="text-sm font-semibold text-slate-300">備註 {formData.transaction_type === 'ADJUST' && <span className="text-red-400">* (盤點調整必填)</span>}</span>
+          <span className="text-sm font-semibold text-secondary">備註 {formData.transaction_type === 'ADJUST' && <span className="text-danger">* (盤點調整必填)</span>}</span>
           <textarea 
             required={formData.transaction_type === 'ADJUST'}
-            className="bg-slate-900 border border-slate-700 rounded p-2 focus:border-emerald-500 outline-none min-h-[60px] text-slate-100"
+            className="bg-page border border-theme-border rounded p-2 focus:border-accent outline-none min-h-[60px] text-primary"
             value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})} 
           />
         </label>
       </div>
 
-      <div className="flex flex-col gap-3 mt-6 pt-4 border-t border-slate-700/50">
+      <div className="flex flex-col gap-3 mt-6 pt-4 border-t border-theme-border/50">
         {errorMsg && (
-          <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-3 rounded-lg text-sm font-medium whitespace-pre-wrap">
+          <div className="bg-danger/10 border border-danger/20 text-danger p-3 rounded-lg text-sm font-medium whitespace-pre-wrap">
             {errorMsg}
           </div>
         )}
         <div className="flex justify-end gap-3">
-          <button type="button" onClick={onCancel} className="px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded transition">取消</button>
-          <button type="submit" disabled={isSubmitting || isViewer} className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded shadow-lg shadow-indigo-900/20 disabled:opacity-50 transition">
+          <button type="button" onClick={onCancel} className="px-4 py-2 text-secondary hover:text-primary hover:bg-card rounded transition">取消</button>
+          <button type="submit" disabled={isSubmitting || isViewer} className="px-6 py-2 bg-accent hover:bg-accent-hover text-white font-medium rounded shadow-lg shadow-black/20 disabled:opacity-50 transition">
             {isSubmitting ? '處理中...' : (isViewer ? '檢視權限' : (isEditMode ? '儲存修改' : '確認送出'))}
           </button>
         </div>
       </div>
       
       {isEditMode && (
-        <div className="mt-6 bg-amber-500/10 border border-amber-500/20 p-4 rounded-xl">
+        <div className="mt-6 bg-warning/10 border border-warning/20 p-4 rounded-xl">
           <label className="flex flex-col gap-2">
-            <span className="text-sm font-semibold text-amber-500">修改原因 (必填)</span>
+            <span className="text-sm font-semibold text-warning">修改原因 (必填)</span>
             <input 
               type="text"
               required
               placeholder="請簡述為什麼需要修改這筆紀錄 (例如: 數量誤填、案場選錯...)"
-              className="bg-slate-900/50 border border-amber-500/30 rounded p-2 focus:border-amber-500 outline-none text-amber-50 w-full"
+              className="bg-page/50 border border-warning/30 rounded p-2 focus:border-warning outline-none text-primary w-full"
               value={editReason}
               onChange={e => setEditReason(e.target.value)}
             />

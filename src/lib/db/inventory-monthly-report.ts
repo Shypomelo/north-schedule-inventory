@@ -8,6 +8,7 @@ import {
   getInventoryInflowQuantity,
   getInventoryTransactionQuantityDelta,
 } from './inventory-stock';
+import { isActiveFormalTransaction } from './types';
 
 export interface InventoryYearMonth {
   year: string;
@@ -79,7 +80,7 @@ export const calculateInventoryMonthlyReport = ({
   });
 
   transactions.forEach(transaction => {
-    if (transaction.is_voided) return;
+    if (!isActiveFormalTransaction(transaction)) return;
 
     // transaction_date is a PostgreSQL date serialized as YYYY-MM-DD.
     // Comparing its YYYY-MM prefix avoids timezone conversion at month boundaries.

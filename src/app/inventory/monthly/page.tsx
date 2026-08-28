@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useUser } from '@/components/UserContext';
-import { InventoryTransaction, InventoryItem, InventoryMonthlyClosing, InventoryMonthlyClosingItem } from '@/lib/db/types';
+import { InventoryTransaction, InventoryItem, InventoryMonthlyClosing, InventoryMonthlyClosingItem, isActiveFormalTransaction } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { format, subMonths } from 'date-fns';
 import { FileSpreadsheet, Lock, Unlock, AlertTriangle, CheckCircle, Info } from 'lucide-react';
@@ -220,7 +220,7 @@ export default function MonthlyReportPage() {
     });
 
     transactions.forEach(tx => {
-      if (tx.is_voided) return;
+      if (!isActiveFormalTransaction(tx)) return;
       const r = rows[tx.item_id];
       if (!r) return;
 
@@ -245,7 +245,7 @@ export default function MonthlyReportPage() {
     });
 
     transactions.forEach(tx => {
-      if (tx.is_voided || tx.transaction_type !== 'OUT') return;
+      if (!isActiveFormalTransaction(tx) || tx.transaction_type !== 'OUT') return;
       const r = rows[tx.item_id];
       if (!r) return;
       const ym = tx.transaction_date.substring(0, 7);
@@ -274,16 +274,16 @@ export default function MonthlyReportPage() {
 
   return (
     <div className="max-w-7xl mx-auto flex flex-col h-full gap-4">
-      <div className="flex justify-between items-center bg-slate-800 p-4 rounded-xl shadow border border-slate-700">
+      <div className="flex justify-between items-center bg-card p-4 rounded-xl shadow border border-theme-border">
         <div className="flex gap-4">
           <button 
-            className={`px-4 py-2 rounded-lg font-medium transition ${viewMode === 'MONTHLY' ? 'bg-indigo-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+            className={`px-4 py-2 rounded-lg font-medium transition ${viewMode === 'MONTHLY' ? 'bg-accent text-white' : 'bg-card/80 text-secondary hover:bg-card hover:text-primary border border-transparent'}`}
             onClick={() => setViewMode('MONTHLY')}
           >
             月結報表
           </button>
           <button 
-            className={`px-4 py-2 rounded-lg font-medium transition ${viewMode === 'ANNUAL' ? 'bg-indigo-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+            className={`px-4 py-2 rounded-lg font-medium transition ${viewMode === 'ANNUAL' ? 'bg-accent text-white' : 'bg-card/80 text-secondary hover:bg-card hover:text-primary border border-transparent'}`}
             onClick={() => setViewMode('ANNUAL')}
           >
             年度報表 (預判)
@@ -293,12 +293,12 @@ export default function MonthlyReportPage() {
 
       {viewMode === 'MONTHLY' && (
         <div className="flex-1 flex flex-col gap-4 overflow-hidden">
-          <div className="flex justify-between items-center bg-slate-800 p-4 rounded-xl border border-slate-700">
+          <div className="flex justify-between items-center bg-card p-4 rounded-xl border border-theme-border">
              <div className="flex items-center gap-4">
                <select 
                  value={selectedYear}
                  onChange={e => setSelectedYear(e.target.value)}
-                 className="bg-slate-900 border border-slate-600 rounded p-2 text-slate-200 outline-none"
+                 className="bg-page border border-theme-border rounded p-2 text-primary outline-none"
                >
                  {selectableYears.map(year => (
                    <option key={year} value={year}>{year} 年</option>
@@ -307,7 +307,7 @@ export default function MonthlyReportPage() {
                <select 
                  value={selectedMonth}
                  onChange={e => setSelectedMonth(e.target.value)}
-                 className="bg-slate-900 border border-slate-600 rounded p-2 text-slate-200 outline-none"
+                 className="bg-page border border-theme-border rounded p-2 text-primary outline-none"
                >
                  {Array.from({length: 12}).map((_, i) => {
                    const m = (i + 1).toString().padStart(2, '0');
@@ -316,16 +316,16 @@ export default function MonthlyReportPage() {
                </select>
 
                {currentClosing ? (
-                 <span className="flex items-center gap-1 text-emerald-400 bg-emerald-400/10 px-3 py-1 rounded-full text-sm font-medium">
+                 <span className="flex items-center gap-1 text-success bg-success/10 px-3 py-1 rounded-full text-sm font-medium">
                    <Lock size={16} /> 已封存 · Snapshot ({format(new Date(currentClosing.closed_at), 'MM/dd HH:mm')})
                  </span>
                ) : (
-                 <span className="flex items-center gap-1 text-amber-400 bg-amber-400/10 px-3 py-1 rounded-full text-sm font-medium">
+                 <span className="flex items-center gap-1 text-warning bg-warning/10 px-3 py-1 rounded-full text-sm font-medium">
                    <Unlock size={16} /> {selectedClosing?.status === 'OPEN' ? '已解除封存' : '未封存'} · 即時計算
                  </span>
                )}
                {!currentClosing && (
-                 <span className="text-xs text-slate-400">
+                 <span className="text-xs text-secondary">
                    {previousClosing
                      ? `期初承接 ${previousYearMonth.year}-${previousYearMonth.month} 封存期末`
                      : '期初依原始庫存與歷史異動計算'}
@@ -339,7 +339,7 @@ export default function MonthlyReportPage() {
                    <button
                      onClick={handleUnsealMonth}
                      disabled={isLoading}
-                     className="flex items-center gap-2 px-4 py-2 rounded shadow transition bg-amber-600 hover:bg-amber-500 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                     className="flex items-center gap-2 px-4 py-2 rounded shadow transition bg-warning hover:bg-warning/80 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                    >
                      <Unlock size={18} />
                      解除封存
@@ -349,7 +349,7 @@ export default function MonthlyReportPage() {
                  <button
                    onClick={handleCloseMonth}
                    disabled={currentUser?.role === 'VIEWER' || isMonthlyDataLoading || Boolean(monthlyItemsError)}
-                   className="flex items-center gap-2 px-4 py-2 rounded shadow transition bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                   className="flex items-center gap-2 px-4 py-2 rounded shadow transition bg-success hover:bg-success/80 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                  >
                    <CheckCircle size={18} />
                    封存本月
@@ -358,7 +358,7 @@ export default function MonthlyReportPage() {
                <button 
                  onClick={handleExport}
                  disabled={isMonthlyDataLoading || Boolean(monthlyItemsError) || displayData.length === 0}
-                 className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded shadow transition"
+                 className="flex items-center gap-2 bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded shadow transition"
                >
                  <FileSpreadsheet size={18} />
                  匯出 Excel
@@ -366,46 +366,46 @@ export default function MonthlyReportPage() {
              </div>
           </div>
 
-          <div className="flex-1 overflow-auto bg-slate-800/50 border border-slate-700 rounded-xl relative">
+          <div className="flex-1 overflow-auto bg-card/50 border border-theme-border rounded-xl relative">
             {isMonthlyDataLoading ? (
-              <div className="absolute inset-0 flex items-center justify-center text-slate-400">計算中...</div>
+              <div className="absolute inset-0 flex items-center justify-center text-secondary">計算中...</div>
             ) : monthlyItemsError ? (
-              <div className="absolute inset-0 flex items-center justify-center text-red-400">{monthlyItemsError}</div>
+              <div className="absolute inset-0 flex items-center justify-center text-danger">{monthlyItemsError}</div>
             ) : displayData.length === 0 ? (
-               <div className="absolute inset-0 flex items-center justify-center text-slate-500">
+               <div className="absolute inset-0 flex items-center justify-center text-secondary/70">
                  這個月份沒有任何庫存記錄與異動
                </div>
             ) : (
               <table className="w-full text-left border-collapse whitespace-nowrap">
-                <thead className="bg-slate-800 text-slate-300 text-sm sticky top-0 z-10 border-b border-slate-700 shadow-sm">
+                <thead className="bg-card text-secondary text-sm sticky top-0 z-10 border-b border-theme-border shadow-sm">
                   <tr>
                     <th className="p-3 font-semibold">分類</th>
                     <th className="p-3 font-semibold">來源</th>
                     <th className="p-3 font-semibold">品名</th>
-                    <th className="p-3 font-semibold text-right text-slate-400">期初</th>
-                    <th className="p-3 font-semibold text-right text-emerald-400">入庫</th>
-                    <th className="p-3 font-semibold text-right text-indigo-400">退料</th>
-                    <th className="p-3 font-semibold text-right text-red-400">出庫</th>
-                    <th className="p-3 font-semibold text-right text-amber-400">調整</th>
-                    <th className="p-3 font-semibold text-right text-emerald-300 text-base border-l border-slate-600">期末</th>
-                    <th className="p-3 font-semibold text-center text-slate-400 border-l border-slate-600">單位</th>
+                    <th className="p-3 font-semibold text-right text-secondary">期初</th>
+                    <th className="p-3 font-semibold text-right text-success">入庫</th>
+                    <th className="p-3 font-semibold text-right text-accent">退料</th>
+                    <th className="p-3 font-semibold text-right text-danger">出庫</th>
+                    <th className="p-3 font-semibold text-right text-warning">調整</th>
+                    <th className="p-3 font-semibold text-right text-success text-base border-l border-theme-border/50">期末</th>
+                    <th className="p-3 font-semibold text-center text-secondary border-l border-theme-border/50">單位</th>
                     <th className="p-3 font-semibold">備註</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-700/50 text-sm">
+                <tbody className="divide-y divide-theme-border/50 text-sm">
                   {displayData.map((r, i) => (
-                    <tr key={i} className="hover:bg-slate-700/30 transition-colors">
-                      <td className="p-3 text-slate-400">{r.stock_category}</td>
-                      <td className="p-3 text-slate-400">{r.source}</td>
-                      <td className="p-3 text-slate-100 font-medium">{r.item_name}</td>
-                      <td className="p-3 text-right text-slate-400">{r.opening_quantity}</td>
-                      <td className="p-3 text-right text-emerald-400">{r.monthly_in}</td>
-                      <td className="p-3 text-right text-indigo-400">{r.monthly_return}</td>
-                      <td className="p-3 text-right text-red-400">{r.monthly_out}</td>
-                      <td className="p-3 text-right text-amber-400">{r.monthly_adjust}</td>
-                      <td className="p-3 text-right font-bold text-base text-emerald-300 border-l border-slate-700/50 bg-slate-800/20">{r.closing_quantity}</td>
-                      <td className="p-3 text-center text-slate-500 border-l border-slate-700/50">{r.unit}</td>
-                      <td className="p-3 text-slate-400 max-w-[150px] truncate" title={r.notes || ''}>{r.notes}</td>
+                    <tr key={i} className="hover:bg-card/60 transition-colors">
+                      <td className="p-3 text-secondary">{r.stock_category}</td>
+                      <td className="p-3 text-secondary">{r.source}</td>
+                      <td className="p-3 text-primary font-medium">{r.item_name}</td>
+                      <td className="p-3 text-right text-secondary/80">{r.opening_quantity}</td>
+                      <td className="p-3 text-right text-success">{r.monthly_in}</td>
+                      <td className="p-3 text-right text-accent">{r.monthly_return}</td>
+                      <td className="p-3 text-right text-danger">{r.monthly_out}</td>
+                      <td className="p-3 text-right text-warning">{r.monthly_adjust}</td>
+                      <td className="p-3 text-right font-bold text-base text-success border-l border-theme-border/50 bg-card/20">{r.closing_quantity}</td>
+                      <td className="p-3 text-center text-secondary/70 border-l border-theme-border/50">{r.unit}</td>
+                      <td className="p-3 text-secondary max-w-[150px] truncate" title={r.notes || ''}>{r.notes}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -417,56 +417,56 @@ export default function MonthlyReportPage() {
 
       {viewMode === 'ANNUAL' && (
          <div className="flex-1 flex flex-col gap-4 overflow-hidden">
-           <div className="flex justify-between items-center bg-slate-800 p-4 rounded-xl border border-slate-700">
+           <div className="flex justify-between items-center bg-card p-4 rounded-xl border border-theme-border">
              <div className="flex items-center gap-4">
                <select 
                  value={selectedYear}
                  onChange={e => setSelectedYear(e.target.value)}
-                 className="bg-slate-900 border border-slate-600 rounded p-2 text-slate-200 outline-none"
+                 className="bg-page border border-theme-border rounded p-2 text-primary outline-none"
                >
                  {selectableYears.map(year => (
                    <option key={year} value={year}>{year} 年</option>
                  ))}
                </select>
-               <span className="text-slate-400 text-sm flex items-center gap-2">
+               <span className="text-secondary text-sm flex items-center gap-2">
                  <Info size={16} />
                  年度使用量統計與未來備料預判
                </span>
              </div>
            </div>
 
-           <div className="flex-1 overflow-auto bg-slate-800/50 border border-slate-700 rounded-xl relative">
+           <div className="flex-1 overflow-auto bg-card/50 border border-theme-border rounded-xl relative">
              <table className="w-full text-left border-collapse whitespace-nowrap">
-                <thead className="bg-slate-800 text-slate-300 text-xs sticky top-0 z-10 border-b border-slate-700 shadow-sm">
+                <thead className="bg-card text-secondary text-xs sticky top-0 z-10 border-b border-theme-border shadow-sm">
                   <tr>
-                    <th className="p-3 font-semibold w-[200px] sticky left-0 bg-slate-800 z-20">品名</th>
-                    <th className="p-3 font-semibold text-slate-400">來源</th>
+                    <th className="p-3 font-semibold w-[200px] sticky left-0 bg-card z-20">品名</th>
+                    <th className="p-3 font-semibold text-secondary">來源</th>
                     {Array.from({length: 12}).map((_, i) => (
-                      <th key={i} className="p-3 font-semibold text-center text-slate-400">{i+1}月</th>
+                      <th key={i} className="p-3 font-semibold text-center text-secondary">{i+1}月</th>
                     ))}
-                    <th className="p-3 font-semibold text-center text-indigo-300 border-l border-slate-600">總計</th>
-                    <th className="p-3 font-semibold text-center text-emerald-400 border-l border-slate-600">目前庫存</th>
-                    <th className="p-3 font-semibold text-center text-amber-300">近3月平均</th>
-                    <th className="p-3 font-semibold text-center text-slate-300">狀態預判</th>
+                    <th className="p-3 font-semibold text-center text-accent border-l border-theme-border">總計</th>
+                    <th className="p-3 font-semibold text-center text-success border-l border-theme-border">目前庫存</th>
+                    <th className="p-3 font-semibold text-center text-warning">近3月平均</th>
+                    <th className="p-3 font-semibold text-center text-primary">狀態預判</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-700/50 text-sm">
+                <tbody className="divide-y divide-theme-border/50 text-sm">
                   {annualData.map((r, i) => (
-                    <tr key={i} className="hover:bg-slate-700/30 transition-colors">
-                      <td className="p-3 text-slate-100 font-medium sticky left-0 bg-slate-800/90 z-10 w-[200px] truncate" title={r.item.name}>{r.item.name}</td>
-                      <td className="p-3 text-slate-400 text-xs">{r.item.source_type}</td>
+                    <tr key={i} className="hover:bg-card/60 transition-colors">
+                      <td className="p-3 text-primary font-medium sticky left-0 bg-card/90 z-10 w-[200px] truncate" title={r.item.name}>{r.item.name}</td>
+                      <td className="p-3 text-secondary/70 text-xs">{r.item.source_type}</td>
                       {r.usage.map((u: number, mIdx: number) => (
-                        <td key={mIdx} className={`p-3 text-center ${u > 0 ? 'text-red-300 font-medium' : 'text-slate-600'}`}>
+                        <td key={mIdx} className={`p-3 text-center ${u > 0 ? 'text-danger font-medium' : 'text-secondary/50'}`}>
                           {u || '-'}
                         </td>
                       ))}
-                      <td className="p-3 text-center font-bold text-indigo-300 border-l border-slate-700/50 bg-slate-800/20">{r.total}</td>
-                      <td className="p-3 text-center font-bold text-emerald-400 border-l border-slate-700/50 bg-slate-800/20">{r.currentStock}</td>
-                      <td className="p-3 text-center font-medium text-amber-300 bg-slate-800/20">{r.avg3m.toFixed(1)}</td>
-                      <td className="p-3 text-center bg-slate-800/20">
-                        {r.supportStatus === '正常' && <span className="text-emerald-400 bg-emerald-400/10 px-2 py-1 rounded text-xs">正常</span>}
-                        {r.supportStatus === '需注意' && <span className="text-amber-400 bg-amber-400/10 px-2 py-1 rounded text-xs">需注意</span>}
-                        {r.supportStatus === '備料不足' && <span className="flex items-center justify-center gap-1 text-red-400 bg-red-400/10 px-2 py-1 rounded text-xs font-bold"><AlertTriangle size={12}/> 備料不足</span>}
+                      <td className="p-3 text-center font-bold text-accent border-l border-theme-border/50 bg-card/20">{r.total}</td>
+                      <td className="p-3 text-center font-bold text-success border-l border-theme-border/50 bg-card/20">{r.currentStock}</td>
+                      <td className="p-3 text-center font-medium text-warning bg-card/20">{r.avg3m.toFixed(1)}</td>
+                      <td className="p-3 text-center bg-card/20">
+                        {r.supportStatus === '正常' && <span className="text-success bg-success/10 px-2 py-1 rounded text-xs">正常</span>}
+                        {r.supportStatus === '需注意' && <span className="text-warning bg-warning/10 px-2 py-1 rounded text-xs">需注意</span>}
+                        {r.supportStatus === '備料不足' && <span className="flex items-center justify-center gap-1 text-danger bg-danger/10 px-2 py-1 rounded text-xs font-bold"><AlertTriangle size={12}/> 備料不足</span>}
                       </td>
                     </tr>
                   ))}

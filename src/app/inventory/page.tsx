@@ -1,15 +1,18 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
-import { InventoryItem, InventoryTransaction, Project, InventorySerial, TransactionType } from '@/lib/db/types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { InventoryItem, InventoryTransaction, Project, InventorySerial, TransactionType, isActiveFormalTransaction, InventorySerialLookupCandidate } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { useUser } from '@/components/UserContext';
 import { Package, AlertTriangle, ArrowRightLeft, Plus, MousePointerClick, MoreVertical } from 'lucide-react';
 import Link from 'next/link';
 import { ItemDetailModal } from '@/components/ItemDetailModal';
 import { TransactionForm } from '@/components/TransactionForm';
+import { InventoryInitializationModal } from '@/components/InventoryInitializationModal';
+import { AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { getInventoryInflowQuantity, getInventoryTransactionQuantityDelta } from '@/lib/db/inventory-stock';
+import { normalizeSerialInput } from '@/lib/inventory-serial-normalization';
 
 interface BalanceDisplay {
   item_id: string;
@@ -71,7 +74,7 @@ export default function InventoryBalancePage() {
       let balance = item.opening_quantity || 0;
       let mtd_in = 0, mtd_out = 0, mtd_return = 0, mtd_adjust = 0;
 
-      const itemTxs = txs.filter(t => t.item_id === item.id && !t.is_voided);
+      const itemTxs = txs.filter(t => t.item_id === item.id && isActiveFormalTransaction(t));
       
       itemTxs.forEach(tx => {
         const txMonth = tx.transaction_date.substring(0, 7);
@@ -119,6 +122,8 @@ export default function InventoryBalancePage() {
     setIsLoading(false);
   };
 
+  const [isInitModalOpen, setIsInitModalOpen] = useState(false);
+
   useEffect(() => {
     loadData();
     
@@ -132,6 +137,15 @@ export default function InventoryBalancePage() {
     e.preventDefault();
     setContextMenu({ visible: true, x: e.clientX, y: e.clientY, itemId });
   };
+
+  const formatSerialCandidates = (candidates: InventorySerialLookupCandidate[]) => (
+    candidates
+      .map(candidate => {
+        const itemName = items.find(i => i.id === candidate.item_id)?.name || `未知品項 (${candidate.item_id.slice(0, 8)})`;
+        return `${candidate.serial_number}｜${candidate.status}｜${itemName}`;
+      })
+      .join('\n')
+  );
 
   const handleCreateTx = async (data: Omit<InventoryTransaction, 'id' | 'created_at' | 'updated_at'> & { category?: string }, serialsInput: string, isPendingSerial: boolean = false) => {
     setIsSubmittingTx(true);
@@ -164,41 +178,79 @@ export default function InventoryBalancePage() {
          }
       }
 
-      if (item?.requires_serial && (data.transaction_type === 'OUT' || data.transaction_type === 'RETURN') && !isPendingSerial) {
-        const unknownOrUnavailable = serialsList.filter(s => {
-          const found = allSerials.find(x => x.serial_number === s);
-          return !found || found.status !== '在庫';
-        });
-        
-        if (unknownOrUnavailable.length > 0) {
-          alert(`出庫/退回失敗！以下序號系統找不到，或其狀態並非「在庫」：\n${unknownOrUnavailable.join(', ')}`);
-          setIsSubmittingTx(false);
-          return;
-        }
+      const normalizedInputs = serialsList.map(normalizeSerialInput);
+      if (new Set(normalizedInputs).size !== serialsList.length) {
+        alert('輸入的序號有重複，請檢查！');
+        setIsSubmittingTx(false);
+        return;
       }
 
+      const resolvedSerials: { input: string; serial: InventorySerial }[] = [];
       for (const s of serialsList) {
-        if (!allSerials.find(x => x.serial_number === s)) {
-           await dbAdapter.createInventorySerial({
-             item_id: data.item_id,
-             batch_id: null,
-             serial_number: s,
-             status: data.transaction_type === 'OUT' ? '已出庫' : '在庫',
-             project_id: data.project_id,
-             notes: data.transaction_type === 'OUT' ? '出庫時補登' : '入庫時建立'
-           });
+        if (data.transaction_type === 'OUT' || data.transaction_type === 'RETURN') {
+          const lookup = await dbAdapter.lookupInventorySerial(s, {
+            itemId: data.item_id,
+            allowedStatuses: ['在庫'],
+          });
+
+          if (lookup.result_type === 'no_match') {
+            alert(`找不到此序號，無法出庫：\n${s}`);
+            setIsSubmittingTx(false);
+            return;
+          }
+          if (lookup.result_type === 'ambiguous') {
+            alert(`找到多個可能相同的序號，請輸入完整序號或先確認資料：\n${formatSerialCandidates(lookup.candidates)}`);
+            setIsSubmittingTx(false);
+            return;
+          }
+
+          const candidate = lookup.candidates[0];
+          if (!candidate || !candidate.is_allowed_candidate) {
+            alert(candidate
+              ? `此序號目前狀態為 ${candidate.status}，不可再次出庫：\n${candidate.serial_number}`
+              : `此序號不符合本次品項或狀態條件：\n${s}`);
+            setIsSubmittingTx(false);
+            return;
+          }
+
+          const existing = allSerials.find(x => x.id === candidate.id) || {
+            ...candidate,
+            batch_id: null,
+            project_id: null,
+            notes: null,
+            created_at: '',
+            updated_at: '',
+          };
+          resolvedSerials.push({ input: s, serial: existing });
+          await dbAdapter.updateInventorySerial(candidate.id, {
+            status: data.transaction_type === 'OUT' ? '已出庫' : '已退回',
+            project_id: data.transaction_type === 'OUT' ? data.project_id : existing.project_id
+          });
         } else {
-           const existing = allSerials.find(x => x.serial_number === s)!;
-           await dbAdapter.updateInventorySerial(existing.id, {
-             status: data.transaction_type === 'OUT' ? '已出庫' : data.transaction_type === 'RETURN' ? '已退回' : '在庫',
-             project_id: data.transaction_type === 'OUT' ? data.project_id : existing.project_id
-           });
+          const lookup = await dbAdapter.lookupInventorySerial(s);
+          if (lookup.result_type !== 'no_match') {
+            alert(lookup.result_type === 'ambiguous'
+              ? `找到多個可能相同的序號，請確認完整序號：\n${formatSerialCandidates(lookup.candidates)}`
+              : `此序號可能已存在，請勿重複新增：\n${lookup.candidates[0]?.serial_number || s}`);
+            setIsSubmittingTx(false);
+            return;
+          }
+
+          const created = await dbAdapter.createInventorySerial({
+            item_id: data.item_id,
+            batch_id: null,
+            serial_number: s,
+            status: '在庫',
+            project_id: data.project_id,
+            notes: '入庫時建立'
+          });
+          resolvedSerials.push({ input: s, serial: created });
         }
       }
 
-      const txSerials: any[] = serialsList.map(s => ({
-        serial_no: s,
-        serial_id: allSerials.find(x => x.serial_number === s)?.id || null,
+      const txSerials: any[] = resolvedSerials.map(({ serial }) => ({
+        serial_no: serial.serial_number,
+        serial_id: serial.id,
         is_pending: false
       }));
 
@@ -223,7 +275,6 @@ export default function InventoryBalancePage() {
       setIsSubmittingTx(false);
     }
   };
-
   const simpleBalances = balances.map(b => ({ item_id: b.item_id, balance: b.balance }));
   const txModalItem = txModal.itemId ? items.find(item => item.id === txModal.itemId) : undefined;
 
@@ -231,25 +282,35 @@ export default function InventoryBalancePage() {
     <div className="max-w-7xl mx-auto flex flex-col h-full relative">
       <div className="flex justify-between items-center mb-8">
         <div>
-          <h2 className="text-2xl font-bold text-slate-200">庫存總覽</h2>
-          <p className="text-slate-400 text-sm mt-1">
+          <h2 className="text-2xl font-bold text-primary">庫存總覽</h2>
+          <p className="text-secondary text-sm mt-1">
             本月 ({format(new Date(), 'yyyy-MM')}) 即時庫存統計。
-            <span className="text-amber-400 ml-2">提示：對品項按右鍵可以快速異動庫存！</span>
+            <span className="text-warning ml-2">提示：對品項按右鍵可以快速異動庫存！</span>
           </p>
         </div>
         <div className="flex gap-3 items-center">
-          <label className="flex items-center gap-2 text-slate-300 text-sm cursor-pointer mr-2 hover:text-emerald-400 transition-colors">
+          <label className="flex items-center gap-2 text-secondary text-sm cursor-pointer mr-2 hover:text-accent transition-colors">
             <input 
+
               type="checkbox" 
-              className="rounded bg-slate-800 border-slate-600 text-emerald-500 focus:ring-emerald-500/50"
+              className="rounded bg-card border-theme-border text-accent focus:ring-accent/50"
               checked={showZeroStock}
               onChange={(e) => setShowZeroStock(e.target.checked)}
             />
             顯示 0 庫存品項
           </label>
+          {currentUser?.role === 'ADMIN' && (
+            <button
+              onClick={() => setIsInitModalOpen(true)}
+              className="flex items-center gap-2 bg-warning hover:bg-warning/80 text-white px-4 py-2 rounded shadow transition"
+            >
+              <AlertTriangle size={18} />
+              初始化庫存
+            </button>
+          )}
           <Link 
             href="/inventory/transactions"
-            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-2 rounded shadow transition border border-slate-700"
+            className="flex items-center gap-2 bg-card hover:bg-card/80 text-primary px-4 py-2 rounded shadow transition border border-theme-border"
           >
             <ArrowRightLeft size={18} />
             查看所有流水帳
@@ -257,7 +318,7 @@ export default function InventoryBalancePage() {
           <button 
             onClick={() => setDetailItemId('NEW')}
             disabled={currentUser?.role === 'VIEWER'}
-            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded shadow transition disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded shadow transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Plus size={18} />
             新增品項
@@ -265,15 +326,15 @@ export default function InventoryBalancePage() {
         </div>
       </div>
 
-      <div className="flex gap-2 mb-6 border-b border-slate-700/50 pb-px">
+      <div className="flex gap-2 mb-6 border-b border-theme-border/50 pb-px">
         {MAIN_CATEGORIES.map(cat => (
           <button
             key={cat}
             onClick={() => setActiveCategory(cat)}
             className={`px-6 py-3 font-semibold text-sm rounded-t-lg transition-colors border-b-2 ${
-              activeCategory === cat 
-                ? 'bg-slate-800/80 text-emerald-400 border-emerald-400' 
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border-transparent'
+              activeCategory === cat
+                ? 'bg-card/80 text-accent border-accent'
+                : 'text-secondary hover:text-primary hover:bg-card/40 border-transparent'
             }`}
           >
             {cat}
@@ -281,56 +342,56 @@ export default function InventoryBalancePage() {
         ))}
       </div>
 
-      <div className="flex-1 overflow-auto bg-slate-800/30 border border-slate-700 rounded-xl relative shadow-xl">
+      <div className="flex-1 overflow-auto bg-card/30 border border-theme-border rounded-xl relative shadow-xl">
         {isLoading ? (
-          <div className="absolute inset-0 flex items-center justify-center text-slate-400">載入中...</div>
+          <div className="absolute inset-0 flex items-center justify-center text-secondary">載入中...</div>
         ) : balances.filter(b => b.category === activeCategory).length === 0 ? (
-           <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500">
+           <div className="absolute inset-0 flex flex-col items-center justify-center text-secondary/70">
              <Package size={48} className="mb-4 opacity-50" />
              <p>此分類目前無任何品項資料</p>
-             <button onClick={() => setDetailItemId('NEW')} disabled={currentUser?.role === 'VIEWER'} className="text-emerald-400 hover:underline mt-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline">
+             <button onClick={() => setDetailItemId('NEW')} disabled={currentUser?.role === 'VIEWER'} className="text-accent hover:underline mt-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline">
                點此新增品項
              </button>
            </div>
         ) : (
           <table className="w-full text-left border-collapse">
-            <thead className="bg-slate-800/80 backdrop-blur-sm text-slate-300 text-sm sticky top-0 z-10 border-b border-slate-700">
+            <thead className="bg-card/80 backdrop-blur-sm text-secondary text-sm sticky top-0 z-10 border-b border-theme-border">
               <tr>
                 <th className="p-4 font-semibold">來源</th>
                 <th className="p-4 font-semibold">品名</th>
-                <th className="p-4 font-semibold text-right text-slate-400">本月初庫</th>
-                <th className="p-4 font-semibold text-right text-emerald-400">本月入庫</th>
-                <th className="p-4 font-semibold text-right text-red-400">本月出庫</th>
-                <th className="p-4 font-semibold text-right text-indigo-400">目前庫存</th>
+                <th className="p-4 font-semibold text-right text-secondary">本月初庫</th>
+                <th className="p-4 font-semibold text-right text-success">本月入庫</th>
+                <th className="p-4 font-semibold text-right text-danger">本月出庫</th>
+                <th className="p-4 font-semibold text-right text-primary">目前庫存</th>
                 <th className="p-4 font-semibold">狀態</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-700/50 text-sm">
+            <tbody className="divide-y divide-theme-border/50 text-sm">
               {balances.filter(b => b.category === activeCategory && (showZeroStock || b.balance > 0)).map((b, i) => {
                 const isLowStock = b.balance <= b.low_stock_threshold;
                 return (
                   <tr 
                     key={i} 
-                    className="hover:bg-slate-700/40 transition-colors cursor-pointer group"
+                    className="hover:bg-card/60 transition-colors cursor-pointer group"
                     onClick={() => setDetailItemId(b.item_id)}
                     onContextMenu={(e) => handleContextMenu(e, b.item_id)}
                   >
-                    <td className="p-4 text-slate-300">{b.source}</td>
-                    <td className="p-4 text-slate-100 font-medium group-hover:text-emerald-400 transition-colors">
+                    <td className="p-4 text-secondary">{b.source}</td>
+                    <td className="p-4 text-primary font-medium group-hover:text-accent transition-colors">
                       {b.item_name}
                     </td>
-                    <td className="p-4 text-right font-semibold text-slate-400/80">{b.opening}</td>
-                    <td className="p-4 text-right font-semibold text-emerald-400/80">{b.mtd_in > 0 ? `+${b.mtd_in}` : '-'}</td>
-                    <td className="p-4 text-right font-semibold text-red-400/80">{b.mtd_out > 0 ? `-${b.mtd_out}` : '-'}</td>
-                    <td className="p-4 text-right text-xl font-bold text-slate-100">
+                    <td className="p-4 text-right font-semibold text-secondary/80">{b.opening}</td>
+                    <td className="p-4 text-right font-semibold text-success/80">{b.mtd_in > 0 ? `+${b.mtd_in}` : '-'}</td>
+                    <td className="p-4 text-right font-semibold text-danger/80">{b.mtd_out > 0 ? `-${b.mtd_out}` : '-'}</td>
+                    <td className="p-4 text-right text-xl font-bold text-primary">
                       {b.balance}
                     </td>
                     <td className="p-4">
                       {(() => {
-                        if (b.balance === 0) return <span className="inline-flex items-center bg-red-500/20 text-red-400 px-2 py-1 rounded text-xs font-semibold">無庫存</span>;
-                        if (b.requires_serial && b.pending_serials > 0) return <span className="inline-flex items-center bg-amber-500/20 text-amber-400 px-2 py-1 rounded text-xs font-semibold">待補序號</span>;
-                        if (b.low_stock_threshold > 0 && b.balance <= b.low_stock_threshold) return <span className="inline-flex items-center bg-orange-500/20 text-orange-400 px-2 py-1 rounded text-xs font-semibold">低庫存</span>;
-                        return <span className="inline-flex items-center bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded text-xs font-semibold">正常</span>;
+                        if (b.balance === 0) return <span className="inline-flex items-center bg-danger/20 text-danger px-2 py-1 rounded text-xs font-semibold">無庫存</span>;
+                        if (b.requires_serial && b.pending_serials > 0) return <span className="inline-flex items-center bg-warning/20 text-warning px-2 py-1 rounded text-xs font-semibold">待補序號</span>;
+                        if (b.low_stock_threshold > 0 && b.balance <= b.low_stock_threshold) return <span className="inline-flex items-center bg-warning/20 text-warning px-2 py-1 rounded text-xs font-semibold">低庫存</span>;
+                        return <span className="inline-flex items-center bg-success/20 text-success px-2 py-1 rounded text-xs font-semibold">正常</span>;
                       })()}
                     </td>
                   </tr>
@@ -344,34 +405,34 @@ export default function InventoryBalancePage() {
       {/* Context Menu */}
       {contextMenu.visible && (
         <div 
-          className="fixed z-50 bg-slate-800 border border-slate-600 rounded-lg shadow-2xl py-1 w-48 text-sm text-slate-200 animate-in fade-in zoom-in-95 duration-100"
+          className="fixed z-50 bg-card border border-theme-border rounded-lg shadow-2xl py-1 w-48 text-sm text-primary animate-in fade-in zoom-in-95 duration-100"
           style={{ top: contextMenu.y, left: contextMenu.x }}
           onClick={(e) => e.stopPropagation()}
         >
           <button 
-            className="w-full text-left px-4 py-2 hover:bg-emerald-600/20 hover:text-emerald-400"
+            className="w-full text-left px-4 py-2 hover:bg-success/20 hover:text-success"
             onClick={() => { setTxModal({ visible: true, type: 'IN', itemId: contextMenu.itemId }); setContextMenu({ visible: false, x: 0, y: 0, itemId: null }); }}
           >📥 入庫 (IN)</button>
           <button 
-            className="w-full text-left px-4 py-2 hover:bg-red-600/20 hover:text-red-400"
+            className="w-full text-left px-4 py-2 hover:bg-danger/20 hover:text-danger"
             onClick={() => { setTxModal({ visible: true, type: 'OUT', itemId: contextMenu.itemId }); setContextMenu({ visible: false, x: 0, y: 0, itemId: null }); }}
           >📤 出庫 (OUT)</button>
           <button 
-            className="w-full text-left px-4 py-2 hover:bg-indigo-600/20 hover:text-indigo-400"
+            className="w-full text-left px-4 py-2 hover:bg-accent/20 hover:text-accent"
             onClick={() => { setTxModal({ visible: true, type: 'RETURN', itemId: contextMenu.itemId }); setContextMenu({ visible: false, x: 0, y: 0, itemId: null }); }}
           >↩️ 退料 (RETURN)</button>
           <button 
-            className="w-full text-left px-4 py-2 hover:bg-amber-600/20 hover:text-amber-400"
+            className="w-full text-left px-4 py-2 hover:bg-warning/20 hover:text-warning"
             onClick={() => { setTxModal({ visible: true, type: 'ADJUST', itemId: contextMenu.itemId }); setContextMenu({ visible: false, x: 0, y: 0, itemId: null }); }}
           >⚖️ 調整 (ADJUST)</button>
-          <div className="h-px bg-slate-700 my-1"></div>
+          <div className="h-px bg-theme-border my-1"></div>
           <button 
-            className="w-full text-left px-4 py-2 hover:bg-slate-700 hover:text-white"
+            className="w-full text-left px-4 py-2 hover:bg-card/80 hover:text-primary"
             onClick={() => { setDetailItemId(contextMenu.itemId); setContextMenu({ visible: false, x: 0, y: 0, itemId: null }); }}
           >🔍 查看詳細資料</button>
-          <div className="h-px bg-slate-700 my-1"></div>
+          <div className="h-px bg-theme-border my-1"></div>
           <button 
-            className="w-full text-left px-4 py-2 hover:bg-emerald-600/20 hover:text-emerald-400"
+            className="w-full text-left px-4 py-2 hover:bg-success/20 hover:text-success"
             onClick={() => { setDetailItemId('NEW'); setContextMenu({ visible: false, x: 0, y: 0, itemId: null }); }}
           >➕ 新增品項</button>
         </div>
@@ -389,16 +450,16 @@ export default function InventoryBalancePage() {
       {/* Transaction Modal Wrapper */}
       {txModal.visible && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm" onClick={() => setTxModal({ visible: false, type: 'IN', itemId: null })} />
-          <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto relative shadow-2xl">
+          <div className="absolute inset-0 bg-page/80 backdrop-blur-sm" onClick={() => setTxModal({ visible: false, type: 'IN', itemId: null })} />
+          <div className="bg-card border border-theme-border rounded-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto relative shadow-2xl">
             <button 
-              className="absolute top-4 right-4 text-slate-400 hover:text-white"
+              className="absolute top-4 right-4 text-secondary hover:text-primary"
               onClick={() => setTxModal({ visible: false, type: 'IN', itemId: null })}
             >
               ✕
             </button>
-            <h3 className="text-xl font-bold text-slate-100 mb-6 flex items-center gap-2">
-              <ArrowRightLeft className="text-emerald-500" />
+            <h3 className="text-xl font-bold text-primary mb-6 flex items-center gap-2">
+              <ArrowRightLeft className="text-accent" />
               新增庫存異動
             </h3>
             <TransactionForm
@@ -425,6 +486,16 @@ export default function InventoryBalancePage() {
           </div>
         </div>
       )}
+      {/* Initialization Modal */}
+      {isInitModalOpen && (
+        <InventoryInitializationModal
+          isOpen={isInitModalOpen}
+          onClose={() => setIsInitModalOpen(false)}
+          items={items}
+          onSuccess={loadData}
+        />
+      )}
+
     </div>
   );
 }

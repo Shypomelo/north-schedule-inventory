@@ -32,53 +32,53 @@ export function TransactionHistoryModal({ transactionId, onClose }: TransactionH
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="bg-slate-800 rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden border border-slate-700 flex flex-col max-h-[85vh]">
-        <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
-          <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+      <div className="bg-card rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden border border-theme-border flex flex-col max-h-[85vh]">
+        <div className="p-4 border-b border-theme-border/50 flex justify-between items-center bg-card/50">
+          <h2 className="text-lg font-bold text-primary flex items-center gap-2">
             異動紀錄歷史
           </h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white transition">✕</button>
+          <button onClick={onClose} className="text-secondary hover:text-primary transition">✕</button>
         </div>
         
-        <div className="p-6 flex-1 overflow-auto bg-slate-900/50">
+        <div className="p-6 flex-1 overflow-auto bg-page/50">
           {isLoading ? (
-            <div className="text-slate-400 text-center py-8">載入中...</div>
+            <div className="text-secondary text-center py-8">載入中...</div>
           ) : logs.length === 0 ? (
-            <div className="text-slate-500 text-center py-8">查無相關修改紀錄</div>
+            <div className="text-secondary/70 text-center py-8">查無相關修改紀錄</div>
           ) : (
             <div className="space-y-6">
               {logs.map((log) => (
-                <div key={log.id} className="bg-slate-800 border border-slate-700 p-4 rounded-lg">
-                  <div className="flex justify-between items-start mb-2 border-b border-slate-700/50 pb-2">
+                <div key={log.id} className="bg-card border border-theme-border p-4 rounded-lg">
+                  <div className="flex justify-between items-start mb-2 border-b border-theme-border/50 pb-2">
                     <div className="flex flex-col">
-                      <span className="font-semibold text-indigo-400">
+                      <span className="font-semibold text-accent">
                         {log.action_type === 'CREATE_TRANSACTION' ? '新增異動' : 
                          log.action_type === 'UPDATE_TRANSACTION' ? '編輯紀錄' : 
                          log.action_type === 'VOID_TRANSACTION' ? '作廢紀錄' : log.action_type}
                       </span>
-                      <span className="text-sm text-slate-400 mt-1">操作人: {log.actor_name || '系統'}</span>
+                      <span className="text-sm text-secondary mt-1">操作人: {log.actor_name || '系統'}</span>
                     </div>
-                    <span className="text-xs text-slate-500">{format(new Date(log.created_at), 'yyyy/MM/dd HH:mm:ss')}</span>
+                    <span className="text-xs text-secondary/50">{format(new Date(log.created_at), 'yyyy/MM/dd HH:mm:ss')}</span>
                   </div>
                   
                   {log.message && (
                     <div className="mb-3 text-sm">
-                      <span className="text-amber-500 font-semibold">原因/備註：</span>
-                      <span className="text-slate-300 ml-2">{log.message}</span>
+                      <span className="text-warning font-semibold">原因/備註：</span>
+                      <span className="text-secondary ml-2">{log.message}</span>
                     </div>
                   )}
 
                   {log.action_type === 'UPDATE_TRANSACTION' && log.before_value && log.after_value && (
                     <div className="grid grid-cols-2 gap-4 text-xs mt-3">
-                      <div className="bg-red-900/20 border border-red-900/30 p-2 rounded">
-                        <div className="text-red-400 font-bold mb-1 border-b border-red-900/30 pb-1">修改前</div>
-                        <pre className="text-slate-400 whitespace-pre-wrap font-mono overflow-auto max-h-40">
+                      <div className="bg-danger/10 border border-danger/20 p-2 rounded">
+                        <div className="text-danger font-bold mb-1 border-b border-danger/20 pb-1">修改前</div>
+                        <pre className="text-secondary/80 whitespace-pre-wrap font-mono overflow-auto max-h-40">
                           {formatJsonDiff(log.before_value, log.after_value, false)}
                         </pre>
                       </div>
-                      <div className="bg-emerald-900/20 border border-emerald-900/30 p-2 rounded">
-                        <div className="text-emerald-400 font-bold mb-1 border-b border-emerald-900/30 pb-1">修改後</div>
-                        <pre className="text-slate-300 whitespace-pre-wrap font-mono overflow-auto max-h-40">
+                      <div className="bg-success/10 border border-success/20 p-2 rounded">
+                        <div className="text-success font-bold mb-1 border-b border-success/20 pb-1">修改後</div>
+                        <pre className="text-primary whitespace-pre-wrap font-mono overflow-auto max-h-40">
                           {formatJsonDiff(log.before_value, log.after_value, true)}
                         </pre>
                       </div>
@@ -90,8 +90,8 @@ export function TransactionHistoryModal({ transactionId, onClose }: TransactionH
           )}
         </div>
         
-        <div className="p-4 border-t border-slate-700 bg-slate-800 flex justify-end">
-          <button onClick={onClose} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded transition">
+        <div className="p-4 border-t border-theme-border/50 bg-card/50 flex justify-end">
+          <button onClick={onClose} className="px-4 py-2 bg-theme-border hover:bg-theme-border/80 text-primary rounded transition">
             關閉
           </button>
         </div>

@@ -1,4 +1,4 @@
-import { User, Project, ScheduleTask, ScheduleTaskMember, ScheduleTaskType, Todo, InventoryItem, InventoryTransaction, InventorySerial, InventoryTransactionSerial, InventoryMonthlyClosing, InventoryMonthlyClosingItem, StockCategory, ActivityLog, Contractor, InventoryBatch, SESupplyRecord } from './types';
+import { User, Project, ScheduleTask, ScheduleTaskMember, ScheduleTaskType, Todo, InventoryItem, InventoryTransaction, InventorySerial, InventoryTransactionSerial, InventoryMonthlyClosing, InventoryMonthlyClosingItem, StockCategory, ActivityLog, Contractor, InventoryBatch, SESupplyRecord, isActiveFormalTransaction } from './types';
 import { resolveInventorySerialLookupFromList } from '../inventory-serial-normalization';
 import { getInventoryTransactionQuantityDelta } from './inventory-stock';
 
@@ -690,7 +690,7 @@ export const mockDbAdapter = {
           otherLink.serial_id === ts.serial_id
           && otherLink.transaction_id !== id
           && db.inventory_transactions.some(otherTx => (
-            otherTx.id === otherLink.transaction_id && !otherTx.is_voided
+            otherTx.id === otherLink.transaction_id && isActiveFormalTransaction(otherTx)
           ))
         ));
         if ((serial && serial.status !== '在庫') || hasActiveLaterTransaction) {
@@ -857,7 +857,7 @@ export const mockDbAdapter = {
     });
 
     db.inventory_transactions.forEach(tx => {
-      if (tx.is_voided) return; // Exclude voided transactions
+      if (!isActiveFormalTransaction(tx)) return; // Exclude voided/legacy transactions
 
       const key = tx.item_id;
       if (balances[key] === undefined) balances[key] = 0;
