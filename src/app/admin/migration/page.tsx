@@ -679,14 +679,14 @@ export default function MigrationPage() {
   };
 
   if (userLoading || loading) {
-    return <div className="p-8 text-white">載入中...</div>;
+    return <div className="p-8 text-secondary">載入中...</div>;
   }
 
   if (currentUser?.role?.toLowerCase() !== 'admin') {
     return (
-      <div className="p-8 flex flex-col items-center justify-center h-full text-slate-400">
-        <AlertTriangle size={48} className="text-orange-500 mb-4" />
-        <h2 className="text-2xl font-bold text-white mb-2">權限不足</h2>
+      <div className="p-8 flex flex-col items-center justify-center h-full text-secondary">
+        <AlertTriangle size={48} className="text-warning mb-4" />
+        <h2 className="text-2xl font-bold text-primary mb-2">權限不足</h2>
         <p>只有管理員可以使用資料匯入工具。</p>
       </div>
     );
@@ -697,37 +697,37 @@ export default function MigrationPage() {
   const inventoryReadyCount = inventoryPreviews.reduce((sum, item) => sum + item.readyToInsert, 0);
 
   return (
-    <div className="p-6 max-w-7xl mx-auto text-slate-200">
+    <div className="p-6 max-w-7xl mx-auto text-primary">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-white mb-2 flex items-center gap-3">
-          <HardDrive className="text-blue-400" />
+        <h1 className="text-3xl font-bold text-primary mb-2 flex items-center gap-3">
+          <HardDrive className="text-accent" />
           資料匯入工具
         </h1>
-        <p className="text-slate-400">
+        <p className="text-secondary">
           從 localStorage 匯入資料到 Supabase。庫存匯入固定讀取 {MOCK_DB_KEY}。
         </p>
       </div>
 
       {error && (
-        <div className="bg-rose-500/10 border border-rose-500/30 text-rose-300 p-4 rounded-lg mb-6 flex items-start gap-3">
+        <div className="bg-danger/10 border border-danger/30 text-danger p-4 rounded-lg mb-6 flex items-start gap-3">
           <AlertTriangle className="shrink-0 mt-0.5" />
           <p>{error}</p>
         </div>
       )}
 
       {migrationResult && (
-        <div className="bg-emerald-500/10 border border-emerald-500/30 p-6 rounded-lg mb-8">
-          <h3 className="text-emerald-300 font-bold text-xl mb-4 flex items-center gap-2">
+        <div className="bg-success/10 border border-success/30 p-6 rounded-lg mb-8">
+          <h3 className="text-success font-bold text-xl mb-4 flex items-center gap-2">
             <Check /> 包商 / 案場匯入結果
           </h3>
-          <ul className="space-y-2 text-slate-300">
+          <ul className="space-y-2 text-secondary">
             <li>成功新增包商：{migrationResult.contractorsAdded} 筆</li>
             <li>略過包商：{migrationResult.contractorsSkipped} 筆</li>
             <li>成功新增案場：{migrationResult.projectsAdded} 筆</li>
             <li>略過案場：{migrationResult.projectsSkipped} 筆</li>
             <li>成功寫入施工進度案場數：{migrationResult.progressAdded} 筆</li>
             {migrationResult.errors > 0 && (
-              <li className="text-rose-300 font-bold mt-4">
+              <li className="text-danger font-bold mt-4">
                 錯誤：{migrationResult.errors} 筆
                 <ul className="text-sm font-normal mt-2 ml-4 list-disc space-y-1">
                   {migrationResult.errorMsgs.map((msg: string, i: number) => (
@@ -741,13 +741,13 @@ export default function MigrationPage() {
       )}
 
       {inventoryResult && (
-        <div className="bg-sky-500/10 border border-sky-500/30 p-6 rounded-lg mb-8">
-          <h3 className="text-sky-300 font-bold text-xl mb-4 flex items-center gap-2">
+        <div className="bg-accent/10 border border-accent/30 p-6 rounded-lg mb-8">
+          <h3 className="text-accent font-bold text-xl mb-4 flex items-center gap-2">
             <Database /> 庫存資料匯入結果
           </h3>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="text-slate-400 border-b border-slate-700">
+              <thead className="text-secondary border-b border-theme-border">
                 <tr>
                   <th className="text-left py-2 pr-4">資料表</th>
                   <th className="text-right py-2 px-4">成功新增</th>
@@ -758,22 +758,22 @@ export default function MigrationPage() {
               </thead>
               <tbody>
                 {inventoryResult.map((result) => (
-                  <tr key={result.table} className="border-b border-slate-800">
+                  <tr key={result.table} className="border-b border-theme-border/50">
                     <td className="py-2 pr-4">
-                      <div className="font-semibold text-white">{result.table}</div>
-                      <div className="text-xs text-slate-500">{result.label}</div>
+                      <div className="font-semibold text-primary">{result.table}</div>
+                      <div className="text-xs text-secondary/70">{result.label}</div>
                     </td>
-                    <td className="text-right py-2 px-4 text-emerald-300 font-semibold">{result.added}</td>
-                    <td className="text-right py-2 px-4">{result.skippedDuplicateId}</td>
-                    <td className="text-right py-2 px-4">{result.skippedInvalidFk}</td>
-                    <td className="text-right py-2 pl-4 text-rose-300">{result.errors.length}</td>
+                    <td className="text-right py-2 px-4 text-success font-semibold">{result.added}</td>
+                    <td className="text-right py-2 px-4 text-secondary">{result.skippedDuplicateId}</td>
+                    <td className="text-right py-2 px-4 text-secondary">{result.skippedInvalidFk}</td>
+                    <td className="text-right py-2 pl-4 text-danger">{result.errors.length}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
           {inventoryResult.some((result) => result.errors.length > 0) && (
-            <div className="mt-4 max-h-48 overflow-y-auto text-sm text-rose-300 bg-slate-950/50 border border-slate-800 rounded-lg p-3">
+            <div className="mt-4 max-h-48 overflow-y-auto text-sm text-danger bg-page/50 border border-theme-border/50 rounded-lg p-3">
               {inventoryResult.flatMap((result) => result.errors).map((msg, index) => (
                 <div key={`${msg}-${index}`}>{msg}</div>
               ))}
@@ -783,27 +783,27 @@ export default function MigrationPage() {
       )}
 
       <section className="mb-8">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-4 bg-slate-800 p-4 rounded-lg border border-slate-700">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-4 bg-card p-4 rounded-lg border border-theme-border shadow-sm">
           <div>
-            <h2 className="text-xl font-bold text-white flex items-center gap-2">
-              <Server className="text-blue-400" />
+            <h2 className="text-xl font-bold text-primary flex items-center gap-2">
+              <Server className="text-accent" />
               包商 / 案場 migration
             </h2>
-            <p className="text-sm text-slate-400 mt-1">
+            <p className="text-sm text-secondary mt-1">
               保留原本選擇新增流程，重複資料預設略過。
             </p>
           </div>
           <div className="flex items-center gap-3">
             <button
               onClick={loadPreview}
-              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm transition-colors flex items-center gap-2"
+              className="px-4 py-2 bg-card hover:bg-page border border-theme-border text-secondary hover:text-primary rounded-lg text-sm transition-colors flex items-center gap-2 font-medium"
             >
               <RefreshCw size={16} /> 重新整理
             </button>
             <button
               onClick={() => setShowConfirm(true)}
               disabled={migrating || (selectedContractors === 0 && selectedProjects === 0)}
-              className="px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 rounded-lg font-bold transition-colors"
+              className="px-5 py-2 bg-accent hover:bg-accent-hover disabled:bg-theme-border/30 disabled:text-secondary/50 text-white rounded-lg font-bold transition-colors shadow-lg shadow-accent/20"
             >
               開始匯入選取資料
             </button>
@@ -811,8 +811,8 @@ export default function MigrationPage() {
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-          <div className="bg-slate-900/50 rounded-lg border border-slate-700/50 overflow-hidden flex flex-col h-[600px]">
-            <div className="p-4 bg-slate-800/80 border-b border-slate-700/50 font-bold flex justify-between items-center">
+          <div className="bg-page/50 rounded-lg border border-theme-border/50 overflow-hidden flex flex-col h-[600px]">
+            <div className="p-4 bg-card/80 border-b border-theme-border/50 font-bold flex justify-between items-center text-primary">
               <span>包商預覽 ({contractorPreviews.length} 筆)</span>
               <button
                 onClick={() => {
@@ -821,14 +821,14 @@ export default function MigrationPage() {
                   );
                   setContractorPreviews(next);
                 }}
-                className="text-xs px-2 py-1 bg-slate-700 rounded hover:bg-slate-600 flex items-center gap-1"
+                className="text-xs px-2 py-1 bg-card hover:bg-page border border-theme-border text-secondary hover:text-primary rounded flex items-center gap-1 transition"
               >
                 <Check size={14} /> 選取新資料
               </button>
             </div>
             <div className="overflow-y-auto flex-1 p-2">
               {contractorPreviews.length === 0 ? (
-                <div className="p-8 text-center text-slate-500">沒有包商資料</div>
+                <div className="p-8 text-center text-secondary/70">沒有包商資料</div>
               ) : (
                 <div className="flex flex-col gap-2">
                   {contractorPreviews.map((cp, i) => (
@@ -836,22 +836,22 @@ export default function MigrationPage() {
                       key={cp.local.id || i}
                       className={`p-3 rounded-lg border ${
                         cp.status === 'DUPLICATE'
-                          ? 'bg-orange-500/10 border-orange-500/30'
-                          : 'bg-slate-800 border-slate-700'
+                          ? 'bg-warning/10 border-warning/30'
+                          : 'bg-card border-theme-border'
                       } flex items-center justify-between`}
                     >
                       <div className="flex-1 min-w-0 pr-4">
-                        <div className="font-bold truncate text-white">{cp.local.name}</div>
-                        <div className="text-xs text-slate-400 mt-1 flex gap-2">
-                          <span className="bg-slate-700 px-1.5 py-0.5 rounded">{cp.local.contractor_type}</span>
-                          {cp.reason && <span className="text-orange-300">{cp.reason}</span>}
+                        <div className="font-bold truncate text-primary">{cp.local.name}</div>
+                        <div className="text-xs text-secondary mt-1 flex gap-2">
+                          <span className="bg-page border border-theme-border px-1.5 py-0.5 rounded">{cp.local.contractor_type}</span>
+                          {cp.reason && <span className="text-warning">{cp.reason}</span>}
                         </div>
                       </div>
                       <select
                         value={cp.action}
                         onChange={(e) => handleContractorAction(i, e.target.value as MigrationAction)}
-                        className={`text-sm rounded border-none py-1 pl-2 pr-6 outline-none focus:ring-2 focus:ring-blue-500 ${
-                          cp.action === 'INSERT' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300'
+                        className={`text-sm rounded border-none py-1 pl-2 pr-6 outline-none focus:ring-2 focus:ring-accent ${
+                          cp.action === 'INSERT' ? 'bg-accent text-white font-medium' : 'bg-page border border-theme-border text-secondary'
                         }`}
                       >
                         <option value="SKIP">略過</option>
@@ -864,8 +864,8 @@ export default function MigrationPage() {
             </div>
           </div>
 
-          <div className="bg-slate-900/50 rounded-lg border border-slate-700/50 overflow-hidden flex flex-col h-[600px]">
-            <div className="p-4 bg-slate-800/80 border-b border-slate-700/50 font-bold flex justify-between items-center">
+          <div className="bg-page/50 rounded-lg border border-theme-border/50 overflow-hidden flex flex-col h-[600px]">
+            <div className="p-4 bg-card/80 border-b border-theme-border/50 font-bold flex justify-between items-center text-primary">
               <span>案場預覽 ({projectPreviews.length} 筆)</span>
               <button
                 onClick={() => {
@@ -874,14 +874,14 @@ export default function MigrationPage() {
                   );
                   setProjectPreviews(next);
                 }}
-                className="text-xs px-2 py-1 bg-slate-700 rounded hover:bg-slate-600 flex items-center gap-1"
+                className="text-xs px-2 py-1 bg-card hover:bg-page border border-theme-border text-secondary hover:text-primary rounded flex items-center gap-1 transition"
               >
                 <Check size={14} /> 選取新資料
               </button>
             </div>
             <div className="overflow-y-auto flex-1 p-2">
               {projectPreviews.length === 0 ? (
-                <div className="p-8 text-center text-slate-500">沒有案場資料</div>
+                <div className="p-8 text-center text-secondary/70">沒有案場資料</div>
               ) : (
                 <div className="flex flex-col gap-2">
                   {projectPreviews.map((pp, i) => (
@@ -889,27 +889,27 @@ export default function MigrationPage() {
                       key={pp.local.id || i}
                       className={`p-3 rounded-lg border ${
                         pp.status === 'DUPLICATE'
-                          ? 'bg-orange-500/10 border-orange-500/30'
-                          : 'bg-slate-800 border-slate-700'
+                          ? 'bg-warning/10 border-warning/30'
+                          : 'bg-card border-theme-border'
                       } flex items-center justify-between`}
                     >
                       <div className="flex-1 min-w-0 pr-4">
-                        <div className="font-bold truncate text-white">{pp.local.name}</div>
-                        <div className="text-xs text-slate-400 mt-1 flex flex-wrap gap-2">
+                        <div className="font-bold truncate text-primary">{pp.local.name}</div>
+                        <div className="text-xs text-secondary mt-1 flex flex-wrap gap-2">
                           {pp.local.project_code && (
-                            <span className="bg-slate-700 px-1.5 py-0.5 rounded">{pp.local.project_code}</span>
+                            <span className="bg-page border border-theme-border px-1.5 py-0.5 rounded">{pp.local.project_code}</span>
                           )}
-                          <span className="bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded">
+                          <span className="bg-accent/20 text-accent px-1.5 py-0.5 rounded font-medium">
                             {pp.local.status || '未設定'}
                           </span>
-                          {pp.reason && <span className="text-orange-300 truncate">{pp.reason}</span>}
+                          {pp.reason && <span className="text-warning truncate">{pp.reason}</span>}
                         </div>
                       </div>
                       <select
                         value={pp.action}
                         onChange={(e) => handleProjectAction(i, e.target.value as MigrationAction)}
-                        className={`text-sm rounded border-none py-1 pl-2 pr-6 outline-none focus:ring-2 focus:ring-blue-500 ${
-                          pp.action === 'INSERT' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300'
+                        className={`text-sm rounded border-none py-1 pl-2 pr-6 outline-none focus:ring-2 focus:ring-accent ${
+                          pp.action === 'INSERT' ? 'bg-accent text-white font-medium' : 'bg-page border border-theme-border text-secondary'
                         }`}
                       >
                         <option value="SKIP">略過</option>
@@ -925,28 +925,28 @@ export default function MigrationPage() {
       </section>
 
       <section className="mb-8">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-4 bg-slate-800 p-4 rounded-lg border border-slate-700">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-4 bg-card p-4 rounded-lg border border-theme-border shadow-sm">
           <div>
-            <h2 className="text-xl font-bold text-white flex items-center gap-2">
-              <Database className="text-sky-400" />
+            <h2 className="text-xl font-bold text-primary flex items-center gap-2">
+              <Database className="text-accent" />
               庫存資料匯入
             </h2>
-            <p className="text-sm text-slate-400 mt-1">
+            <p className="text-sm text-secondary mt-1">
               依 FK 順序匯入七張庫存表；既有 id 不覆蓋，直接略過。
             </p>
           </div>
           <button
             onClick={() => setShowInventoryConfirm(true)}
             disabled={inventoryMigrating || inventoryReadyCount === 0}
-            className="px-5 py-2 bg-sky-600 hover:bg-sky-500 disabled:bg-slate-700 disabled:text-slate-500 rounded-lg font-bold transition-colors flex items-center gap-2"
+            className="px-5 py-2 bg-accent hover:bg-accent-hover disabled:bg-theme-border/30 disabled:text-secondary/50 rounded-lg font-bold transition-colors flex items-center gap-2 text-white shadow-lg shadow-accent/20"
           >
             <Database size={18} /> 匯入庫存資料
           </button>
         </div>
 
-        <div className="bg-slate-900/50 rounded-lg border border-slate-700/50 overflow-hidden">
+        <div className="bg-page/50 rounded-lg border border-theme-border/50 overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-slate-800/80 text-slate-400 border-b border-slate-700/50">
+            <thead className="bg-page text-secondary border-b border-theme-border">
               <tr>
                 <th className="text-left py-3 px-4">匯入順序 / 資料表</th>
                 <th className="text-right py-3 px-4">localStorage</th>
@@ -957,17 +957,17 @@ export default function MigrationPage() {
             </thead>
             <tbody>
               {inventoryPreviews.map((preview, index) => (
-                <tr key={preview.table} className="border-b border-slate-800">
+                <tr key={preview.table} className="border-b border-theme-border/50">
                   <td className="py-3 px-4">
-                    <div className="font-semibold text-white">
+                    <div className="font-semibold text-primary">
                       {index + 1}. {preview.table}
                     </div>
-                    <div className="text-xs text-slate-500">{preview.label}</div>
+                    <div className="text-xs text-secondary/70">{preview.label}</div>
                   </td>
-                  <td className="text-right py-3 px-4">{preview.localCount}</td>
-                  <td className="text-right py-3 px-4">{preview.existingCount}</td>
-                  <td className="text-right py-3 px-4 text-orange-300">{preview.duplicateIds}</td>
-                  <td className="text-right py-3 px-4 text-emerald-300 font-semibold">{preview.readyToInsert}</td>
+                  <td className="text-right py-3 px-4 text-secondary">{preview.localCount}</td>
+                  <td className="text-right py-3 px-4 text-secondary">{preview.existingCount}</td>
+                  <td className="text-right py-3 px-4 text-warning">{preview.duplicateIds}</td>
+                  <td className="text-right py-3 px-4 text-success font-semibold">{preview.readyToInsert}</td>
                 </tr>
               ))}
             </tbody>
@@ -976,31 +976,31 @@ export default function MigrationPage() {
       </section>
 
       {showConfirm && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 border border-slate-700 rounded-lg max-w-md w-full p-6 shadow-2xl">
-            <h3 className="text-2xl font-bold text-white mb-4 flex items-center gap-3">
-              <Server className="text-blue-500" /> 確認匯入
+        <div className="fixed inset-0 bg-page/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-card border border-theme-border rounded-xl max-w-md w-full p-6 shadow-2xl">
+            <h3 className="text-2xl font-bold text-primary mb-4 flex items-center gap-3">
+              <Server className="text-accent" /> 確認匯入
             </h3>
-            <p className="text-slate-300 mb-6">
+            <p className="text-secondary mb-6">
               即將匯入選取的包商與案場資料到 Supabase。
               <br />
               <br />
-              新增包商：<strong className="text-white">{selectedContractors}</strong> 筆
+              新增包商：<strong className="text-primary">{selectedContractors}</strong> 筆
               <br />
-              新增案場：<strong className="text-white">{selectedProjects}</strong> 筆
+              新增案場：<strong className="text-primary">{selectedProjects}</strong> 筆
             </p>
             <div className="flex gap-4 justify-end">
               <button
                 onClick={() => setShowConfirm(false)}
                 disabled={migrating}
-                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-white font-medium flex items-center gap-2"
+                className="px-4 py-2 bg-card hover:bg-page border border-theme-border text-secondary hover:text-primary rounded-lg font-medium flex items-center gap-2 transition"
               >
                 <SkipForward size={16} /> 取消
               </button>
               <button
                 onClick={executeMigration}
                 disabled={migrating}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-white font-bold flex items-center gap-2"
+                className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg font-bold flex items-center gap-2 transition shadow-lg shadow-accent/20"
               >
                 {migrating ? '匯入中...' : '確認匯入'}
               </button>
@@ -1010,37 +1010,37 @@ export default function MigrationPage() {
       )}
 
       {showInventoryConfirm && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 border border-slate-700 rounded-lg max-w-lg w-full p-6 shadow-2xl">
-            <h3 className="text-2xl font-bold text-white mb-4 flex items-center gap-3">
-              <Database className="text-sky-400" /> 確認庫存匯入
+        <div className="fixed inset-0 bg-page/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-card border border-theme-border rounded-xl max-w-lg w-full p-6 shadow-2xl">
+            <h3 className="text-2xl font-bold text-primary mb-4 flex items-center gap-3">
+              <Database className="text-accent" /> 確認庫存匯入
             </h3>
-            <div className="text-slate-300 mb-6 space-y-4">
+            <div className="text-secondary mb-6 space-y-4">
               <p>
-                將從 <code className="bg-slate-900 px-1.5 py-0.5 rounded">{MOCK_DB_KEY}</code> 依指定順序匯入庫存資料。
+                將從 <code className="bg-page border border-theme-border px-1.5 py-0.5 rounded text-primary">{MOCK_DB_KEY}</code> 依指定順序匯入庫存資料。
               </p>
-              <div className="bg-slate-900/60 border border-slate-700 rounded-lg p-3 text-sm flex gap-2">
-                <Info size={16} className="text-sky-300 shrink-0 mt-0.5" />
-                <span>
+              <div className="bg-page/60 border border-theme-border rounded-lg p-3 text-sm flex gap-2">
+                <Info size={16} className="text-accent shrink-0 mt-0.5" />
+                <span className="text-secondary">
                   重複 id 會略過，不會覆蓋 Supabase 既有資料。案場關聯會優先用名稱、簡稱或案號對應到 Supabase 案場。
                 </span>
               </div>
               <p>
-                預計新增：<strong className="text-white">{inventoryReadyCount}</strong> 筆
+                預計新增：<strong className="text-primary">{inventoryReadyCount}</strong> 筆
               </p>
             </div>
             <div className="flex gap-4 justify-end">
               <button
                 onClick={() => setShowInventoryConfirm(false)}
                 disabled={inventoryMigrating}
-                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-white font-medium flex items-center gap-2"
+                className="px-4 py-2 bg-card hover:bg-page border border-theme-border text-secondary hover:text-primary rounded-lg font-medium flex items-center gap-2 transition"
               >
                 <SkipForward size={16} /> 取消
               </button>
               <button
                 onClick={executeInventoryMigration}
                 disabled={inventoryMigrating}
-                className="px-4 py-2 bg-sky-600 hover:bg-sky-500 rounded-lg text-white font-bold flex items-center gap-2"
+                className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg font-bold flex items-center gap-2 transition shadow-lg shadow-accent/20"
               >
                 {inventoryMigrating ? '匯入中...' : '確認匯入庫存'}
               </button>

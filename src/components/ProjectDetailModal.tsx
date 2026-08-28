@@ -110,59 +110,59 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium text-slate-400 mb-1">案場名稱</label>
+          <label className="block text-sm font-medium text-secondary mb-1">案場名稱</label>
           <input
             type="text"
-            className="w-full bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-700/50 text-slate-200 outline-none focus:border-emerald-500/50"
+            className="w-full bg-page px-3 py-2 rounded-lg border border-theme-border text-primary outline-none focus:border-accent"
             value={editedProject.name || ''}
             onChange={e => handleSave({ name: e.target.value })}
             disabled={currentUser?.role === 'VIEWER'}
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-400 mb-1">案場代碼</label>
+          <label className="block text-sm font-medium text-secondary mb-1">案場代碼</label>
           <input
             type="text"
-            className="w-full bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-700/50 text-slate-200 outline-none focus:border-emerald-500/50"
+            className="w-full bg-page px-3 py-2 rounded-lg border border-theme-border text-primary outline-none focus:border-accent"
             value={editedProject.project_code || ''}
             onChange={e => handleSave({ project_code: e.target.value })}
             disabled={currentUser?.role === 'VIEWER'}
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-400 mb-1">案場簡稱</label>
+          <label className="block text-sm font-medium text-secondary mb-1">案場簡稱</label>
           <input
             type="text"
-            className="w-full bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-700/50 text-slate-200 outline-none focus:border-emerald-500/50"
+            className="w-full bg-page px-3 py-2 rounded-lg border border-theme-border text-primary outline-none focus:border-accent"
             value={editedProject.short_name || ''}
             onChange={e => handleSave({ short_name: e.target.value })}
             disabled={currentUser?.role === 'VIEWER'}
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-400 mb-1">容量 (kW)</label>
+          <label className="block text-sm font-medium text-secondary mb-1">容量 (kW)</label>
           <input
             type="text"
-            className="w-full bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-700/50 text-slate-200 outline-none focus:border-emerald-500/50"
+            className="w-full bg-page px-3 py-2 rounded-lg border border-theme-border text-primary outline-none focus:border-accent"
             value={editedProject.capacity || ''}
             onChange={e => handleSave({ capacity: e.target.value })}
             disabled={currentUser?.role === 'VIEWER'}
           />
         </div>
         <div className="col-span-2">
-          <label className="block text-sm font-medium text-slate-400 mb-1">地址</label>
+          <label className="block text-sm font-medium text-secondary mb-1">地址</label>
           <input
             type="text"
-            className="w-full bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-700/50 text-slate-200 outline-none focus:border-emerald-500/50"
+            className="w-full bg-page px-3 py-2 rounded-lg border border-theme-border text-primary outline-none focus:border-accent"
             value={editedProject.address || ''}
             onChange={e => handleSave({ address: e.target.value })}
             disabled={currentUser?.role === 'VIEWER'}
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-400 mb-1">負責工程師</label>
+          <label className="block text-sm font-medium text-secondary mb-1">負責工程師</label>
           <select
-            className="w-full bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-700/50 text-slate-200 outline-none focus:border-emerald-500/50"
+            className="w-full bg-page px-3 py-2 rounded-lg border border-theme-border text-primary outline-none focus:border-accent cursor-pointer"
             value={editedProject.manager || ''}
             onChange={e => handleSave({ manager: e.target.value })}
             disabled={currentUser?.role === 'VIEWER'}
@@ -172,9 +172,9 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-400 mb-1">案場狀態</label>
+          <label className="block text-sm font-medium text-secondary mb-1">案場狀態</label>
           <select
-            className="w-full bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-700/50 text-slate-200 outline-none focus:border-emerald-500/50"
+            className="w-full bg-page px-3 py-2 rounded-lg border border-theme-border text-primary outline-none focus:border-accent cursor-pointer"
             value={editedProject.status || '開案'}
             onChange={e => handleSave({ status: e.target.value })}
             disabled={currentUser?.role === 'VIEWER'}
@@ -188,7 +188,7 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-400 mb-1">掛表日期</label>
+          <label className="block text-sm font-medium text-secondary mb-1">掛表日期</label>
           <div className="h-[38px]">
             <DateDualInput 
               baseDate={new Date().toISOString().split('T')[0]}
@@ -201,15 +201,15 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
         </div>
       </div>
 
-      <div className="pt-6 mt-6 border-t border-slate-700/50">
-        <label className="block text-sm font-medium text-slate-300 mb-4">參與工種 (勾選代表該案場包含此工程)</label>
+      <div className="pt-6 mt-6 border-t border-theme-border/50">
+        <label className="block text-sm font-medium text-secondary mb-4">參與工種 (勾選代表該案場包含此工程)</label>
         <div className="flex flex-wrap gap-4">
           {CONTRACTOR_TYPES.map(type => {
             const statusField = `${type.key}_status` as keyof Project;
             const isEnabled = editedProject[statusField] !== 'disabled';
             
             return (
-              <label key={type.key} className={`flex items-center gap-2 px-4 py-2 rounded-lg border cursor-pointer transition-colors ${isEnabled ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-slate-800/50 border-slate-700/50 text-slate-500 hover:bg-slate-800'}`}>
+              <label key={type.key} className={`flex items-center gap-2 px-4 py-2 rounded-lg border cursor-pointer transition-colors ${isEnabled ? 'bg-accent/10 border-accent/30 text-accent' : 'bg-page/50 border-theme-border/50 text-secondary hover:bg-card'}`}>
                 <input
                   type="checkbox"
                   className="hidden"
@@ -217,8 +217,8 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
                   onChange={(e) => handleSave({ [statusField]: e.target.checked ? null : 'disabled' })}
                   disabled={currentUser?.role === 'VIEWER'}
                 />
-                <div className={`w-4 h-4 rounded border flex items-center justify-center ${isEnabled ? 'bg-emerald-500 border-emerald-500' : 'border-slate-600'}`}>
-                  {isEnabled && <svg className="w-3 h-3 text-slate-900" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                <div className={`w-4 h-4 rounded border flex items-center justify-center ${isEnabled ? 'bg-accent border-accent' : 'border-theme-border'}`}>
+                  {isEnabled && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
                 </div>
                 <span className="font-medium">{type.label}</span>
               </label>
@@ -244,17 +244,17 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
         if (isDisabled) return null;
 
         return (
-          <div key={type.key} className="bg-slate-800/40 p-5 rounded-xl border border-slate-700/50">
-            <h3 className="font-semibold text-emerald-400 flex items-center gap-2 mb-4">
+          <div key={type.key} className="bg-card/40 p-5 rounded-xl border border-theme-border">
+            <h3 className="font-semibold text-accent flex items-center gap-2 mb-4">
               <Wrench size={18} />
               {type.label}工程
             </h3>
             
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
               <div>
-                <label className="block text-xs text-slate-400 mb-1">發包對象</label>
+                <label className="block text-xs text-secondary mb-1">發包對象</label>
                 <select
-                  className="w-full bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-700/50 text-sm text-slate-200 outline-none focus:border-emerald-500/50"
+                  className="w-full bg-page px-3 py-2 rounded-lg border border-theme-border text-sm text-primary outline-none focus:border-accent cursor-pointer"
                   value={contractorId || ''}
                   onChange={e => handleSave({ [idField]: e.target.value || null })}
                   disabled={currentUser?.role === 'VIEWER'}
@@ -270,20 +270,20 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
                 </select>
               </div>
               <div>
-                <label className="block text-xs text-slate-400 mb-1">預計進場日</label>
+                <label className="block text-xs text-secondary mb-1">預計進場日</label>
                 <input
                   type="date"
-                  className="w-full bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-700/50 text-sm text-slate-200 outline-none focus:border-emerald-500/50"
+                  className="w-full bg-page px-3 py-2 rounded-lg border border-theme-border text-sm text-primary outline-none focus:border-accent"
                   value={(editedProject[startField] as string) || ''}
                   onChange={e => handleSave({ [startField]: e.target.value })}
                   disabled={currentUser?.role === 'VIEWER'}
                 />
               </div>
               <div>
-                <label className="block text-xs text-slate-400 mb-1">預計完工日</label>
+                <label className="block text-xs text-secondary mb-1">預計完工日</label>
                 <input
                   type="date"
-                  className="w-full bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-700/50 text-sm text-slate-200 outline-none focus:border-emerald-500/50"
+                  className="w-full bg-page px-3 py-2 rounded-lg border border-theme-border text-sm text-primary outline-none focus:border-accent"
                   value={(editedProject[endField] as string) || ''}
                   onChange={e => handleSave({ [endField]: e.target.value })}
                   disabled={currentUser?.role === 'VIEWER'}
@@ -292,14 +292,14 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
             </div>
             
             {(contractor?.contact_person || contractor?.phone) && (
-              <div className="flex items-center gap-4 text-xs text-slate-400 bg-slate-900/30 p-2.5 rounded-lg border border-slate-800/50">
-                {contractor.contact_person && <span>聯絡人：<span className="text-slate-300">{contractor.contact_person}</span></span>}
-                {contractor.phone && <span>電話：<span className="text-slate-300">{contractor.phone}</span></span>}
+              <div className="flex items-center gap-4 text-xs text-secondary bg-page/30 p-2.5 rounded-lg border border-theme-border/50">
+                {contractor.contact_person && <span>聯絡人：<span className="text-primary font-medium">{contractor.contact_person}</span></span>}
+                {contractor.phone && <span>電話：<span className="text-primary font-medium">{contractor.phone}</span></span>}
               </div>
             )}
 
             {getConflictWarning(type.key) && (
-              <div className="mt-3 px-3 py-2 bg-rose-500/10 border border-rose-500/20 rounded-lg text-rose-400 text-xs flex items-center gap-2">
+              <div className="mt-3 px-3 py-2 bg-danger/10 border border-danger/20 rounded-lg text-danger text-xs flex items-center gap-2">
                 <AlertTriangle size={14} className="shrink-0" />
                 {getConflictWarning(type.key)}
               </div>
@@ -309,7 +309,7 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
       })}
       
       {CONTRACTOR_TYPES.every(type => editedProject[`${type.key}_status` as keyof Project] === 'disabled') && (
-        <div className="p-8 text-center text-slate-500 bg-slate-800/20 rounded-xl border border-slate-700/30 border-dashed">
+        <div className="p-8 text-center text-secondary/70 bg-page/20 rounded-xl border border-theme-border/30 border-dashed">
           基本資料中尚未勾選任何參與工種
         </div>
       )}
@@ -318,9 +318,9 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
 
   const renderNotes = () => (
     <div className="h-full flex flex-col">
-      <label className="block text-sm font-medium text-slate-400 mb-2">案場備註</label>
+      <label className="block text-sm font-medium text-secondary mb-2">案場備註</label>
       <textarea
-        className="flex-1 w-full bg-slate-900/50 p-4 rounded-xl border border-slate-700/50 text-slate-200 outline-none focus:border-emerald-500/50 resize-none leading-relaxed"
+        className="flex-1 w-full bg-page p-4 rounded-xl border border-theme-border text-primary outline-none focus:border-accent resize-none leading-relaxed"
         placeholder="輸入備註事項..."
         value={editedProject.notes || ''}
         onChange={e => handleSave({ notes: e.target.value })}
@@ -336,38 +336,38 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
   ];
 
   return (
-    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-700/60 rounded-2xl w-full max-w-4xl h-[85vh] flex flex-col shadow-2xl overflow-hidden relative">
-        <div className="p-6 border-b border-slate-700/60 bg-slate-800/40 flex items-center justify-between shrink-0">
+    <div className="fixed inset-0 bg-page/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+      <div className="bg-card border border-theme-border rounded-2xl w-full max-w-4xl h-[85vh] flex flex-col shadow-2xl overflow-hidden relative">
+        <div className="p-6 border-b border-theme-border bg-card/40 flex items-center justify-between shrink-0">
           <div>
             <div className="flex items-center gap-3">
-              <h2 className="text-2xl font-bold text-slate-100">{editedProject.name}</h2>
+              <h2 className="text-2xl font-bold text-primary">{editedProject.name}</h2>
               {saveStatus && (
-                <span className={`text-xs px-2 py-1 rounded-full ${saveStatus === '已儲存' ? 'bg-emerald-500/10 text-emerald-400' : saveStatus === '儲存失敗' ? 'bg-rose-500/10 text-rose-400' : 'bg-blue-500/10 text-blue-400'}`}>
+                <span className={`text-xs px-2 py-1 rounded-full ${saveStatus === '已儲存' ? 'bg-success/10 text-success' : saveStatus === '儲存失敗' ? 'bg-danger/10 text-danger' : 'bg-accent/10 text-accent'}`}>
                   {saveStatus}
                 </span>
               )}
             </div>
-            <div className="text-sm text-slate-400 mt-1 flex items-center gap-2">
-              <span className="px-2 py-0.5 bg-slate-800 rounded text-xs">{editedProject.status}</span>
+            <div className="text-sm text-secondary mt-1 flex items-center gap-2">
+              <span className="px-2 py-0.5 bg-page border border-theme-border rounded text-xs text-primary">{editedProject.status}</span>
               <span>{editedProject.project_code || '無代碼'}</span>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-slate-700/50 rounded-full text-slate-400 transition-colors">
+          <button onClick={onClose} className="p-2 hover:bg-page rounded-full text-secondary hover:text-primary transition-colors">
             <X size={24} />
           </button>
         </div>
 
         <div className="flex flex-1 overflow-hidden">
-          <div className="w-48 border-r border-slate-700/60 bg-slate-800/20 p-4 space-y-2 shrink-0">
+          <div className="w-48 border-r border-theme-border bg-card/20 p-4 space-y-2 shrink-0">
             {tabs.map(tab => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium text-sm
-                  ${activeTab === tab.id 
-                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
-                    : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200 border border-transparent'
+                  ${activeTab === tab.id
+                    ? 'bg-accent/10 text-accent border border-accent/20'
+                    : 'text-secondary hover:bg-page hover:text-primary border border-transparent'
                   }`}
               >
                 {tab.icon}
@@ -376,7 +376,7 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
             ))}
           </div>
 
-          <div className="flex-1 overflow-y-auto p-6 bg-slate-900/30">
+          <div className="flex-1 overflow-y-auto p-6 bg-page/30">
             {activeTab === 'basic' && renderBasicInfo()}
             {activeTab === 'progress' && renderProgress()}
             {activeTab === 'notes' && renderNotes()}

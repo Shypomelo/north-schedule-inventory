@@ -208,7 +208,6 @@ export default function ProjectsPage() {
           else expectedDates.push(new Date(expectedStr)); // fallback
         }
       });
-
       if (!p.racking_expected_start_date) {
         const d = parseDateField(p.bracket_status || "", baseDateStr);
         if (d) expectedDates.push(d);
@@ -321,7 +320,6 @@ export default function ProjectsPage() {
     }
   };
 
-  
   const handleArchiveProject = async (project: Project) => {
     if (!confirm(`確定要作廢「${project.name}」嗎？`)) return;
     try {
@@ -349,7 +347,6 @@ export default function ProjectsPage() {
       setIsSubmitting(false);
     }
   };
-
 
   const handleProjectDatesChange = async (id: string, updates: Partial<Project>) => {
     try {
@@ -384,7 +381,7 @@ export default function ProjectsPage() {
         try {
           await dbAdapter.updateProject(id, { [field]: value });
           setSaveStatus('已儲存');
-          setTimeout(() => setSaveStatus(''), 2000); // clear after 2 seconds
+          setTimeout(() => setSaveStatus(''), 2000);
         } catch (error) {
           console.error("Failed to update project inline", error);
           setSaveStatus('儲存失敗');
@@ -417,10 +414,10 @@ export default function ProjectsPage() {
 
     return (
       <div className="mb-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
-        <h2 className="text-xl font-bold text-slate-200 mb-4 px-2 border-l-4 border-emerald-500">{title} <span className="text-slate-500 text-sm font-normal ml-2">({projectsList.length})</span></h2>
-        <div className="bg-slate-800/40 border border-slate-700/60 rounded-xl overflow-hidden shadow-xl backdrop-blur-sm">
+        <h2 className="text-xl font-bold text-primary mb-4 px-2 border-l-4 border-accent">{title} <span className="text-secondary text-sm font-normal ml-2">({projectsList.length})</span></h2>
+        <div className="bg-card/40 border border-theme-border rounded-xl overflow-hidden shadow-xl backdrop-blur-sm">
           <table className="w-full text-left border-collapse min-w-[1500px]">
-            <thead className="bg-slate-900/80 text-slate-300 text-sm border-b border-slate-700/60">
+            <thead className="bg-page text-secondary text-sm border-b border-theme-border">
                 <tr>
                   <th className="p-3 font-semibold whitespace-nowrap w-[60px] text-center"></th>
                   <th className="p-3 font-semibold whitespace-nowrap min-w-[100px]">編號</th>
@@ -437,15 +434,15 @@ export default function ProjectsPage() {
                   {isSec4 && <th className="p-3 font-semibold min-w-[80px]">操作</th>}
                 </tr>
               </thead>
-            <tbody className="divide-y divide-slate-700/40 text-sm">
+            <tbody className="divide-y divide-theme-border/40 text-sm">
               {projectsList.length === 0 ? (
                 <tr>
-                  <td colSpan={100} className="p-8 text-center text-slate-500 italic">此區塊目前無資料</td>
+                  <td colSpan={100} className="p-8 text-center text-secondary/70 italic">此區塊目前無資料</td>
                 </tr>
               ) : projectsList.map(project => (
                 <tr 
                   key={project.id} 
-                  className="hover:bg-slate-700/40 transition-colors group cursor-context-menu"
+                  className="hover:bg-card/60 transition-colors group cursor-context-menu"
                   onContextMenu={(e) => {
                     e.preventDefault();
                     if (currentUser?.role === 'VIEWER') return;
@@ -455,15 +452,15 @@ export default function ProjectsPage() {
                   <td className="p-3 text-center">
                     <button 
                       onClick={() => setViewingProject(project)}
-                      className="p-1.5 rounded-md bg-slate-800 text-emerald-500 hover:bg-emerald-500 hover:text-white transition-colors"
+                      className="p-1.5 rounded-md bg-card border border-theme-border text-accent hover:bg-accent hover:text-white transition-colors"
                       title="開啟詳細資料"
                     >
                       <Maximize2 size={16} />
                     </button>
                   </td>
-                  <td className="p-3 text-slate-400 select-all">{project.project_code || project.id.slice(0, 8)}</td>
-                  <td className="p-3 text-emerald-400 font-medium select-all truncate max-w-[250px]" title={project.name}>{project.name}</td>
-                  <td className="p-3 text-slate-300">{project.capacity || '-'}</td>
+                  <td className="p-3 text-secondary select-all">{project.project_code || project.id.slice(0, 8)}</td>
+                  <td className="p-3 text-accent font-medium select-all truncate max-w-[250px]" title={project.name}>{project.name}</td>
+                  <td className="p-3 text-secondary">{project.capacity || '-'}</td>
                   
                   {/* Editable Fields */}
                   <td className="p-1">
@@ -471,7 +468,7 @@ export default function ProjectsPage() {
                       disabled={currentUser?.role === 'VIEWER'}
                       value={project.manager || ''} 
                       onChange={(e) => handleProjectInlineChange(project.id, 'manager', e.target.value)}
-                      className={`w-full bg-slate-900/50 px-2 py-1.5 rounded border border-slate-700/50 transition-colors outline-none text-slate-200 appearance-none ${currentUser?.role === 'VIEWER' ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-900 focus:bg-slate-900 focus:border-emerald-500/50 cursor-pointer'}`}
+                      className={`w-full bg-page/50 px-2 py-1.5 rounded border border-theme-border/50 transition-colors outline-none text-primary appearance-none ${currentUser?.role === 'VIEWER' ? 'opacity-50 cursor-not-allowed' : 'hover:bg-page focus:bg-page focus:border-accent cursor-pointer'}`}
                     >
                       <option value="">未指定</option>
                       {users.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
@@ -536,7 +533,7 @@ export default function ProjectsPage() {
                       disabled={currentUser?.role === 'VIEWER'}
                       type="text" value={project.notes || ''} 
                       onChange={(e) => handleProjectInlineChange(project.id, 'notes', e.target.value)}
-                      className={`w-full bg-slate-900/50 px-2 py-1.5 rounded border border-slate-700/50 transition-colors outline-none text-slate-400 placeholder:text-slate-600 ${currentUser?.role === 'VIEWER' ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-900 focus:bg-slate-900 focus:border-emerald-500/50'}`}
+                      className={`w-full bg-page/50 px-2 py-1.5 rounded border border-theme-border/50 transition-colors outline-none text-secondary placeholder:text-secondary/50 ${currentUser?.role === 'VIEWER' ? 'opacity-50 cursor-not-allowed' : 'hover:bg-page focus:bg-page focus:border-accent'}`}
                       placeholder="點擊輸入備註..."
                     />
                   </td>
@@ -545,7 +542,7 @@ export default function ProjectsPage() {
                       <button
                         onClick={(e) => { e.stopPropagation(); handleCompleteProject(project); }}
                         disabled={currentUser?.role === 'VIEWER'}
-                        className="bg-emerald-600/80 hover:bg-emerald-500 text-white px-3 py-1.5 rounded text-xs font-semibold shadow transition-colors w-full disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="bg-accent/80 hover:bg-accent text-white px-3 py-1.5 rounded text-xs font-semibold shadow transition-colors w-full disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         結案
                       </button>
@@ -564,18 +561,18 @@ export default function ProjectsPage() {
     <>
       <div className="p-8 min-w-[1600px] mx-auto flex flex-col h-full">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-slate-100">{getPageTitle()} <span className="text-lg text-slate-500 font-normal ml-2">({isActiveView ? filteredProjects.length : filteredBaseProjects.length})</span></h1>
+        <h1 className="text-3xl font-bold text-primary">{getPageTitle()} <span className="text-lg text-secondary/70 font-normal ml-2">({isActiveView ? filteredProjects.length : filteredBaseProjects.length})</span></h1>
         
         <div className="flex items-center gap-4">
           {isActiveView && saveStatus && (
-            <span className={`text-sm ${saveStatus === '已儲存' ? 'text-emerald-400' : saveStatus === '儲存失敗' ? 'text-rose-400' : 'text-slate-400'}`}>
+            <span className={`text-sm ${saveStatus === '已儲存' ? 'text-success' : saveStatus === '儲存失敗' ? 'text-danger' : 'text-accent'}`}>
               {saveStatus}
             </span>
           )}
           {isActiveView && (
             <button
               onClick={handleBackup}
-              className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-slate-200 px-4 py-2.5 rounded-lg shadow-lg transition transform hover:-translate-y-0.5 border border-slate-600"
+              className="flex items-center gap-2 bg-card hover:bg-page text-secondary hover:text-primary px-4 py-2.5 rounded-lg shadow transition border border-theme-border font-medium"
             >
               建立備份
             </button>
@@ -584,7 +581,7 @@ export default function ProjectsPage() {
             <button 
               onClick={() => setIsActiveFormOpen(true)}
               disabled={currentUser?.role === 'VIEWER'}
-              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-lg shadow-lg shadow-emerald-600/20 transition transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+              className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-5 py-2.5 rounded-lg shadow-lg shadow-accent/20 transition disabled:opacity-50 disabled:cursor-not-allowed font-medium"
             >
               <Plus size={20} />
               新增進行中案場
@@ -593,7 +590,7 @@ export default function ProjectsPage() {
             <button 
               onClick={() => { setEditingProject(null); setIsFormModalOpen(true); }}
               disabled={currentUser?.role === 'VIEWER'}
-              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-lg shadow-lg shadow-emerald-600/20 transition transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+              className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-5 py-2.5 rounded-lg shadow-lg shadow-accent/20 transition disabled:opacity-50 disabled:cursor-not-allowed font-medium"
             >
               <Plus size={20} />
               新增所有案場
@@ -603,43 +600,43 @@ export default function ProjectsPage() {
       </div>
 
       {!isActiveView && (
-        <div className="bg-slate-800/60 border border-slate-700/60 p-4 rounded-xl mb-6 flex flex-col md:flex-row gap-4 backdrop-blur-sm shrink-0">
-          <div className="flex-1 flex items-center gap-3 bg-slate-900/50 rounded-lg px-3 border border-slate-700/50">
-            <Search className="text-slate-400" size={20} />
+        <div className="bg-card/60 border border-theme-border p-4 rounded-xl mb-6 flex flex-col md:flex-row gap-4 backdrop-blur-sm shrink-0">
+          <div className="flex-1 flex items-center gap-3 bg-page/50 rounded-lg px-3 border border-theme-border/50">
+            <Search className="text-secondary" size={20} />
             <input 
               type="text" 
               placeholder="搜尋名稱、代碼、縣市、行政區或地址..."
-              className="bg-transparent border-none outline-none text-slate-200 w-full placeholder:text-slate-500 py-2.5"
+              className="bg-transparent border-none outline-none text-primary w-full placeholder:text-secondary/50 py-2.5"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
             />
           </div>
           
           <div className="flex gap-3 overflow-x-auto">
-            <div className="flex items-center gap-2 bg-slate-900/50 rounded-lg px-3 py-1 border border-slate-700/50 min-w-max">
-              <Filter size={16} className="text-slate-400" />
+            <div className="flex items-center gap-2 bg-page/50 rounded-lg px-3 py-1 border border-theme-border/50 min-w-max">
+              <Filter size={16} className="text-secondary" />
               <select 
-                className="bg-transparent text-slate-200 outline-none text-sm appearance-none py-1.5 cursor-pointer"
+                className="bg-transparent text-primary outline-none text-sm appearance-none py-1.5 cursor-pointer"
                 value={filterCity} onChange={e => setFilterCity(e.target.value)}
               >
                 <option value="">全部縣市</option>
                 {cities.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
-            <div className="flex items-center gap-2 bg-slate-900/50 rounded-lg px-3 py-1 border border-slate-700/50 min-w-max">
-              <Filter size={16} className="text-slate-400" />
+            <div className="flex items-center gap-2 bg-page/50 rounded-lg px-3 py-1 border border-theme-border/50 min-w-max">
+              <Filter size={16} className="text-secondary" />
               <select 
-                className="bg-transparent text-slate-200 outline-none text-sm appearance-none py-1.5 cursor-pointer"
+                className="bg-transparent text-primary outline-none text-sm appearance-none py-1.5 cursor-pointer"
                 value={filterWarrantyStatus} onChange={e => setFilterWarrantyStatus(e.target.value)}
               >
                 <option value="">所有保固狀態</option>
                 {warrantyStatuses.map(r => <option key={r} value={r}>{r}</option>)}
               </select>
             </div>
-            <div className="flex items-center gap-2 bg-slate-900/50 rounded-lg px-3 py-1 border border-slate-700/50 min-w-max">
-              <Filter size={16} className="text-slate-400" />
+            <div className="flex items-center gap-2 bg-page/50 rounded-lg px-3 py-1 border border-theme-border/50 min-w-max">
+              <Filter size={16} className="text-secondary" />
               <select 
-                className="bg-transparent text-slate-200 outline-none text-sm appearance-none py-1.5 cursor-pointer"
+                className="bg-transparent text-primary outline-none text-sm appearance-none py-1.5 cursor-pointer"
                 value={filterInverterBrand} onChange={e => setFilterInverterBrand(e.target.value)}
               >
                 <option value="">所有逆變器廠牌</option>
@@ -652,26 +649,26 @@ export default function ProjectsPage() {
 
       <div className="flex-1 overflow-auto relative">
         {error ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-rose-400">
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-danger">
             <p className="mb-2 text-xl font-bold">載入失敗</p>
             <p>{error}</p>
-            <button onClick={() => fetchProjects()} className="mt-4 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded">重試</button>
+            <button onClick={() => fetchProjects()} className="mt-4 px-4 py-2 bg-card hover:bg-page border border-theme-border text-secondary hover:text-primary rounded-lg transition">重試</button>
           </div>
         ) : isLoading ? (
-          <div className="absolute inset-0 flex items-center justify-center text-slate-400">載入中...</div>
+          <div className="absolute inset-0 flex items-center justify-center text-secondary">載入中...</div>
         ) : isActiveView ? (
           
           <div className="pb-8 flex flex-col h-full">
-            <div className="flex gap-4 mb-6 border-b border-slate-700/50 pb-2 shrink-0">
+            <div className="flex gap-4 mb-6 border-b border-theme-border/50 pb-2 shrink-0">
               <button 
                 onClick={() => setActiveTab('report')}
-                className={`px-4 py-2 font-medium transition-colors border-b-2 -mb-[10px] ${activeTab === 'report' ? 'text-emerald-400 border-emerald-500' : 'text-slate-400 border-transparent hover:text-slate-300'}`}
+                className={`px-4 py-2 font-medium transition-colors border-b-2 -mb-[10px] ${activeTab === 'report' ? 'text-accent border-accent' : 'text-secondary border-transparent hover:text-primary'}`}
               >
                 週回報表
               </button>
               <button 
                 onClick={() => setActiveTab('gantt')}
-                className={`px-4 py-2 font-medium transition-colors border-b-2 -mb-[10px] ${activeTab === 'gantt' ? 'text-emerald-400 border-emerald-500' : 'text-slate-400 border-transparent hover:text-slate-300'}`}
+                className={`px-4 py-2 font-medium transition-colors border-b-2 -mb-[10px] ${activeTab === 'gantt' ? 'text-accent border-accent' : 'text-secondary border-transparent hover:text-primary'}`}
               >
                 包商排工 (甘特圖)
               </button>
@@ -696,14 +693,14 @@ export default function ProjectsPage() {
           </div>
 
         ) : filteredBaseProjects.length === 0 ? (
-           <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 gap-2">
+           <div className="absolute inset-0 flex flex-col items-center justify-center text-secondary/70 gap-2">
              <Search size={32} className="opacity-20" />
              <p>找不到相符的案場</p>
            </div>
         ) : (
-          <div className="bg-slate-800/40 border border-slate-700/60 rounded-xl overflow-hidden shadow-xl backdrop-blur-sm">
+          <div className="bg-card/40 border border-theme-border rounded-xl overflow-hidden shadow-xl backdrop-blur-sm">
             <table className="w-full text-left border-collapse min-w-[1400px]">
-              <thead className="bg-slate-900/80 text-slate-300 text-sm sticky top-0 z-10 border-b border-slate-700/60 backdrop-blur-md">
+              <thead className="bg-page text-secondary text-sm sticky top-0 z-10 border-b border-theme-border backdrop-blur-md">
                   <tr>
                     <th className="p-4 font-semibold whitespace-nowrap w-[100px]">狀態</th>
                     <th className="p-4 font-semibold whitespace-nowrap w-[120px]">保固狀態</th>
@@ -714,41 +711,41 @@ export default function ProjectsPage() {
                     <th className="p-4 font-semibold min-w-[300px]">備註</th>
                   </tr>
                 </thead>
-              <tbody className="divide-y divide-slate-700/40 text-sm">
+              <tbody className="divide-y divide-theme-border/40 text-sm">
                 {filteredBaseProjects.map(project => {
                   const shortWarranty = project.warranty_status ? project.warranty_status.split('(')[0].trim() : '-';
                   
                   return (
                     <tr 
                       key={project.id} 
-                      className="hover:bg-slate-700/40 transition-colors cursor-pointer group"
+                      className="hover:bg-card/60 transition-colors cursor-pointer group"
                       onClick={() => { setEditingProject(project); setIsFormModalOpen(true); }}
                     >
-                      <td className="p-4">
+                      <td className="p-4 text-primary">
                         {project.status || '-'}
                       </td>
                       <td className="p-4">
-                        <span className="px-2 py-1 bg-indigo-500/10 text-indigo-400 rounded-md text-xs font-medium border border-indigo-500/20 whitespace-nowrap">
+                        <span className="px-2 py-1 bg-accent/10 text-accent rounded-md text-xs font-medium border border-accent/20 whitespace-nowrap">
                           {shortWarranty}
                         </span>
                       </td>
-                      <td className="p-4 text-slate-100 font-medium group-hover:text-emerald-400 transition-colors">
+                      <td className="p-4 text-primary font-medium group-hover:text-accent transition-colors">
                         <div className="flex items-center gap-2 truncate max-w-[250px]" title={project.name}>
-                          {!project.is_active && <span className="w-2 h-2 rounded-full bg-slate-500 shrink-0" title="已停用"></span>}
+                          {!project.is_active && <span className="w-2 h-2 rounded-full bg-secondary/60 shrink-0" title="已停用"></span>}
                           <span className="truncate">{project.name}</span>
                         </div>
                       </td>
-                      <td className="p-4 text-slate-300">{project.contact_name || '-'}</td>
-                      <td className="p-4 text-slate-300">{project.contact_phone || '-'}</td>
+                      <td className="p-4 text-secondary">{project.contact_name || '-'}</td>
+                      <td className="p-4 text-secondary">{project.contact_phone || '-'}</td>
                       <td className="p-4">
                         {project.address ? (
-                          <button onClick={(e) => openGoogleMaps(e, project.address!)} className="text-slate-400 hover:text-indigo-400 flex items-start gap-1 transition-colors text-left w-full" title={project.address}>
+                          <button onClick={(e) => openGoogleMaps(e, project.address!)} className="text-secondary hover:text-accent flex items-start gap-1 transition-colors text-left w-full" title={project.address}>
                             <MapPin size={14} className="mt-0.5 flex-shrink-0" /> 
                             <span className="truncate">{project.address}</span>
                           </button>
-                        ) : <span className="text-slate-500">-</span>}
+                        ) : <span className="text-secondary/70">-</span>}
                       </td>
-                      <td className="p-4 text-slate-400">
+                      <td className="p-4 text-secondary">
                         <div className="truncate max-w-[300px]" title={project.notes || ''}>{project.notes || '-'}</div>
                       </td>
                     </tr>
@@ -775,62 +772,62 @@ export default function ProjectsPage() {
       )}
 
       {isActiveFormOpen && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-slate-800 border border-slate-700/60 p-6 rounded-2xl w-full max-w-2xl my-8 shadow-2xl relative">
-            <h2 className="text-2xl font-bold text-slate-100 mb-6">新增進行中案場</h2>
+        <div className="fixed inset-0 bg-page/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-card border border-theme-border p-6 rounded-2xl w-full max-w-2xl my-8 shadow-2xl relative">
+            <h2 className="text-2xl font-bold text-primary mb-6">新增進行中案場</h2>
             <form onSubmit={handleCreateActive} className="flex flex-col gap-4">
               <div className="grid grid-cols-2 gap-4">
                 <label className="flex flex-col gap-1">
-                  <span className="text-sm text-slate-300">案場代碼</span>
-                  <input name="project_code" type="text" className="p-2 bg-slate-900 border border-slate-700 rounded text-slate-100" />
+                  <span className="text-sm text-secondary">案場代碼</span>
+                  <input name="project_code" type="text" className="p-2 bg-page border border-theme-border rounded text-primary outline-none focus:border-accent" />
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="text-sm text-slate-300">案場名稱 *</span>
-                  <input name="name" type="text" required className="p-2 bg-slate-900 border border-slate-700 rounded text-slate-100" />
+                  <span className="text-sm text-secondary">案場名稱 *</span>
+                  <input name="name" type="text" required className="p-2 bg-page border border-theme-border rounded text-primary outline-none focus:border-accent" />
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="text-sm text-slate-300">容量 KW</span>
-                  <input name="capacity" type="text" className="p-2 bg-slate-900 border border-slate-700 rounded text-slate-100" />
+                  <span className="text-sm text-secondary">容量 KW</span>
+                  <input name="capacity" type="text" className="p-2 bg-page border border-theme-border rounded text-primary outline-none focus:border-accent" />
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="text-sm text-slate-300">人員</span>
-                  <select name="manager" className="p-2 bg-slate-900 border border-slate-700 rounded text-slate-100 cursor-pointer">
+                  <span className="text-sm text-secondary">人員</span>
+                  <select name="manager" className="p-2 bg-page border border-theme-border rounded text-primary outline-none focus:border-accent cursor-pointer">
                     <option value="">未指定</option>
                     {users.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
                   </select>
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="text-sm text-slate-300">支架</span>
-                  <input name="bracket_status" type="text" className="p-2 bg-slate-900 border border-slate-700 rounded text-slate-100" />
+                  <span className="text-sm text-secondary">支架</span>
+                  <input name="bracket_status" type="text" className="p-2 bg-page border border-theme-border rounded text-primary outline-none focus:border-accent" />
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="text-sm text-slate-300">電力</span>
-                  <input name="power_status" type="text" className="p-2 bg-slate-900 border border-slate-700 rounded text-slate-100" />
+                  <span className="text-sm text-secondary">電力</span>
+                  <input name="power_status" type="text" className="p-2 bg-page border border-theme-border rounded text-primary outline-none focus:border-accent" />
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="text-sm text-slate-300">驗收</span>
-                  <input name="inspection_status" type="text" className="p-2 bg-slate-900 border border-slate-700 rounded text-slate-100" />
+                  <span className="text-sm text-secondary">驗收</span>
+                  <input name="inspection_status" type="text" className="p-2 bg-page border border-theme-border rounded text-primary outline-none focus:border-accent" />
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="text-sm text-slate-300">掛表</span>
-                  <input name="meter_status" type="text" className="p-2 bg-slate-900 border border-slate-700 rounded text-slate-100" />
+                  <span className="text-sm text-secondary">掛表</span>
+                  <input name="meter_status" type="text" className="p-2 bg-page border border-theme-border rounded text-primary outline-none focus:border-accent" />
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="text-sm text-slate-300">新設頂蓋</span>
-                  <input name="roof_status" type="text" className="p-2 bg-slate-900 border border-slate-700 rounded text-slate-100" />
+                  <span className="text-sm text-secondary">新設頂蓋</span>
+                  <input name="roof_status" type="text" className="p-2 bg-page border border-theme-border rounded text-primary outline-none focus:border-accent" />
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="text-sm text-slate-300">開工日期</span>
-                  <input name="start_date" type="text" className="p-2 bg-slate-900 border border-slate-700 rounded text-slate-100" />
+                  <span className="text-sm text-secondary">開工日期</span>
+                  <input name="start_date" type="text" className="p-2 bg-page border border-theme-border rounded text-primary outline-none focus:border-accent" />
                 </label>
               </div>
               <label className="flex flex-col gap-1">
-                <span className="text-sm text-slate-300">備註</span>
-                <textarea name="notes" className="p-2 bg-slate-900 border border-slate-700 rounded text-slate-100 min-h-[80px]"></textarea>
+                <span className="text-sm text-secondary">備註</span>
+                <textarea name="notes" className="p-2 bg-page border border-theme-border rounded text-primary outline-none focus:border-accent min-h-[80px]"></textarea>
               </label>
-              <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-slate-700">
-                <button type="button" onClick={() => setIsActiveFormOpen(false)} className="px-4 py-2 bg-slate-700 text-slate-200 rounded hover:bg-slate-600 transition">取消</button>
-                <button type="submit" disabled={isSubmitting} className="px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-500 transition">{isSubmitting ? '儲存中...' : '儲存'}</button>
+              <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-theme-border">
+                <button type="button" onClick={() => setIsActiveFormOpen(false)} className="px-4 py-2 bg-card border border-theme-border text-secondary hover:text-primary rounded-lg transition font-medium">取消</button>
+                <button type="submit" disabled={isSubmitting} className="px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-hover transition font-medium disabled:opacity-50">{isSubmitting ? '儲存中...' : '儲存'}</button>
               </div>
             </form>
           </div>
@@ -838,9 +835,9 @@ export default function ProjectsPage() {
       )}
 
       {isFormModalOpen && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-slate-800 border border-slate-700/60 p-6 rounded-2xl w-full max-w-4xl my-8 shadow-2xl relative">
-            <h2 className="text-2xl font-bold text-slate-100 mb-6">{editingProject ? '編輯所有案場主檔' : '新增所有案場'}</h2>
+        <div className="fixed inset-0 bg-page/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-card border border-theme-border p-6 rounded-2xl w-full max-w-4xl my-8 shadow-2xl relative">
+            <h2 className="text-2xl font-bold text-primary mb-6">{editingProject ? '編輯所有案場主檔' : '新增所有案場'}</h2>
             <ProjectForm 
               initialData={editingProject || undefined}
               onSubmit={handleCreateOrUpdateBase}
@@ -853,25 +850,25 @@ export default function ProjectsPage() {
     </div>
       {contextMenu && (
         <div 
-          className="fixed z-[100] w-48 bg-slate-800 border border-slate-700/60 rounded-xl shadow-2xl py-2"
+          className="fixed z-[100] w-48 bg-card border border-theme-border rounded-xl shadow-2xl py-2"
           style={{ top: contextMenu.y, left: contextMenu.x }}
           onClick={(e) => e.stopPropagation()}
         >
           <button 
-            className="w-full text-left px-4 py-2 hover:bg-slate-700 text-slate-200 text-sm"
+            className="w-full text-left px-4 py-2 hover:bg-page text-primary text-sm"
             onClick={() => { setViewingProject(contextMenu.project); setContextMenu(null); }}
           >
             詳細資料
           </button>
           
           <button 
-            className="w-full text-left px-4 py-2 hover:bg-slate-700 text-emerald-400 text-sm border-t border-slate-700/50 mt-1 pt-2"
+            className="w-full text-left px-4 py-2 hover:bg-page text-accent text-sm border-t border-theme-border/50 mt-1 pt-2"
             onClick={() => { handleCompleteProject(contextMenu.project); setContextMenu(null); }}
           >
             結案
           </button>
           <button 
-            className="w-full text-left px-4 py-2 hover:bg-slate-700 text-rose-400 text-sm"
+            className="w-full text-left px-4 py-2 hover:bg-page text-danger text-sm"
             onClick={() => { handleArchiveProject(contextMenu.project); setContextMenu(null); }}
           >
             作廢 / 停用
