@@ -43,7 +43,7 @@ export function Sidebar() {
         北部工程排程系統
       </div>
       
-      <div className={`transition-all duration-300 overflow-hidden flex-shrink-0 relative ${isCollapsed ? 'w-0 h-0 opacity-0' : 'w-full opacity-100'}`}>
+      <div className={`transition-all duration-300 flex-shrink-0 relative ${isCollapsed ? 'w-0 h-0 opacity-0 overflow-hidden' : 'w-full opacity-100 overflow-visible'}`}>
         {(!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) && (
           <div className="mb-4">
             <UserSelector />
@@ -64,7 +64,7 @@ export function Sidebar() {
                 </button>
 
                 {showThemePopover && (
-                  <div className="absolute right-0 top-full mt-1 bg-[var(--bg-card)] border border-[var(--border)] shadow-xl rounded-lg p-2 z-50 min-w-[120px] flex flex-col gap-1">
+                  <div className="absolute right-0 bottom-full mb-1 bg-[var(--bg-card)] border border-[var(--border)] shadow-xl rounded-lg p-2 z-50 min-w-[120px] flex flex-col gap-1">
                     <div className="text-[10px] text-[var(--text-secondary)] font-bold mb-1 uppercase tracking-wider px-2">主題 Theme</div>
                     <button
                       onClick={() => { setTheme('dark'); setShowThemePopover(false); }}
