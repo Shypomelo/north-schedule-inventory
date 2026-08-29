@@ -49,12 +49,15 @@ export type ManualGoogleEventSkipReason =
   | 'missing_summary'
   | 'missing_creator_email'
   | 'creator_not_active_team_member'
+  | 'no_project_match'
+  | 'ambiguous_project_match'
   | 'unsupported_multi_day_event'
   | 'invalid_time';
 
 export type GoogleImportMember = {
   id: string;
   email: string;
+  google_calendar_email: string | null;
   name: string;
 };
 
@@ -155,10 +158,16 @@ const normalizeExactText = (value: string | null | undefined): string => (
   (value || '').trim().toLocaleLowerCase('zh-TW')
 );
 
+const normalizeEmail = (value: string | null | undefined): string => (
+  (value || '').trim().toLowerCase()
+);
+
 const findExactProject = (
   event: calendar_v3.Schema$Event,
   projects: GoogleImportProject[],
-): GoogleImportProject | null => {
+):
+  | { ok: true; project: GoogleImportProject }
+  | { ok: false; reason: 'no_project_match' | 'ambiguous_project_match' } => {
   const summary = (event.summary || '').trim();
   const bracketMatch = summary.match(/^【([^】]+)】/);
   const summaryKeys = new Set(
@@ -180,7 +189,11 @@ const findExactProject = (
     return summaryMatches || locationMatches;
   });
 
-  return matches.length === 1 ? matches[0] : null;
+  if (matches.length === 1) return { ok: true, project: matches[0] };
+  return {
+    ok: false,
+    reason: matches.length === 0 ? 'no_project_match' : 'ambiguous_project_match',
+  };
 };
 
 const getManualGoogleEventTiming = (
@@ -255,12 +268,18 @@ export function mapManualGoogleEvent(
   const title = (event.summary || '').trim();
   if (!title) return { ok: false, reason: 'missing_summary' };
 
-  const creatorEmail = normalizeExactText(event.creator?.email);
+  const creatorEmail = normalizeEmail(event.creator?.email);
   if (!creatorEmail) return { ok: false, reason: 'missing_creator_email' };
 
-  const memberMatches = options.activeMembers.filter(
-    member => normalizeExactText(member.email) === creatorEmail,
+  const calendarEmailMatches = options.activeMembers.filter(
+    member => normalizeEmail(member.google_calendar_email) === creatorEmail,
   );
+  const systemEmailMatches = options.activeMembers.filter(
+    member => normalizeEmail(member.email) === creatorEmail,
+  );
+  const memberMatches = calendarEmailMatches.length > 0
+    ? calendarEmailMatches
+    : systemEmailMatches;
   if (memberMatches.length !== 1) {
     return { ok: false, reason: 'creator_not_active_team_member' };
   }
@@ -269,15 +288,18 @@ export function mapManualGoogleEvent(
   if (!timingResult.ok) return timingResult;
 
   const member = memberMatches[0];
-  const project = findExactProject(event, options.projects);
+  const projectMatch = findExactProject(event, options.projects);
+  if (!projectMatch.ok) return projectMatch;
+
+  const project = projectMatch.project;
   const notes = (event.description || '').trim() || null;
   const address = (event.location || '').trim() || null;
 
   return {
     ok: true,
     task: {
-      project_id: project?.id || null,
-      project_name: project?.project_name || '無案場',
+      project_id: project.id,
+      project_name: project.project_name,
       task_type: '其他',
       title,
       notes,

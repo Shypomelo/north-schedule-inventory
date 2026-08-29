@@ -123,6 +123,7 @@ export async function POST(req: Request) {
     let deleted = 0;
     let skipped = 0;
     let imported = 0;
+    let skipped_system_created = 0;
     const skippedEvents: SkippedEvent[] = [];
     const failures: Array<{ taskId: string; eventId: string; message: string }> = [];
 
@@ -242,7 +243,7 @@ export async function POST(req: Request) {
       const [{ data: members, error: membersError }, { data: projects, error: projectsError }] = await Promise.all([
         supabase
           .from('team_members')
-          .select('id, email, name')
+          .select('id, email, name, google_calendar_email')
           .eq('is_active', true)
           .is('deleted_at', null),
         supabase
@@ -256,6 +257,7 @@ export async function POST(req: Request) {
 
       for (const event of listedEvents) {
         if (isSystemManagedGoogleEvent(event)) {
+          skipped_system_created += 1;
           continue;
         }
 
@@ -303,6 +305,7 @@ export async function POST(req: Request) {
       deleted,
       skipped,
       imported,
+      skipped_system_created,
       skippedEvents,
       failures,
     });

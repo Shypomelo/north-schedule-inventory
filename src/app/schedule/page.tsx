@@ -6,7 +6,7 @@ import { dbAdapter, isGoogleRemoteDeletedError } from '@/lib/db';
 import { ScheduleTaskForm } from '@/components/ScheduleTaskForm';
 import { TodoForm } from '@/components/TodoForm';
 import { startOfWeek, addDays, subDays, format, isSameDay, startOfMonth, endOfMonth, getDay } from 'date-fns';
-import { ChevronLeft, ChevronRight, Plus, X, ArrowLeft } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, X, ArrowLeft, RefreshCw } from 'lucide-react';
 import { useUser } from '@/components/UserContext';
 import { getDatabaseErrorMessage, isMissingCoreTablesError } from '@/lib/db/supabase-errors';
 import { supabase } from '@/lib/db/supabaseClient';
@@ -24,6 +24,9 @@ type ReconcileResult = {
   updated?: number;
   deleted?: number;
   imported?: number;
+  skipped?: number;
+  skipped_system_created?: number;
+  skippedEvents?: { eventId: string; reason: string }[];
   error?: string;
 };
 
@@ -47,6 +50,12 @@ const sortTasks = (taskList: ScheduleTask[]) => {
     };
     return timeWeight(a).localeCompare(timeWeight(b));
   });
+};
+
+const formatTaskTime = (task: ScheduleTask): string => {
+  if (task.is_all_day) return '全天';
+  if (task.start_time && task.end_time) return `${task.start_time}–${task.end_time}`;
+  return task.start_time || '未指定時間';
 };
 
 export default function SchedulePage() {
@@ -129,6 +138,51 @@ export default function SchedulePage() {
     reconcileInFlight = reconcilePromise;
     return reconcilePromise;
   }, [currentUser?.role]);
+
+  const handleManualSync = async () => {
+    try {
+      setIsLoading(true);
+      const res = await reconcileGoogleCalendar();
+      if (res) {
+        if (res.success === false) {
+          alert(`同步失敗：${res.error || '未知錯誤'}`);
+        } else {
+          const skippedInvalidCreator = res.skippedEvents?.filter((e: any) => e.reason === 'creator_not_active_team_member' || e.reason === 'missing_creator_email')?.length || 0;
+          const skippedNoProjectMatch = res.skippedEvents?.filter((e: any) => e.reason === 'no_project_match')?.length || 0;
+          const skippedAmbiguous = res.skippedEvents?.filter((e: any) => e.reason === 'ambiguous_project_match')?.length || 0;
+          const skippedMultiDay = res.skippedEvents?.filter((e: any) => e.reason === 'unsupported_multi_day_event')?.length || 0;
+          const skippedInvalidTime = res.skippedEvents?.filter((e: any) => e.reason === 'invalid_time')?.length || 0;
+          const skippedAlreadyImported = res.skippedEvents?.filter((e: any) => e.reason === 'already_imported')?.length || 0;
+          const categorizedReasons = new Set([
+            'creator_not_active_team_member',
+            'missing_creator_email',
+            'no_project_match',
+            'ambiguous_project_match',
+            'unsupported_multi_day_event',
+            'invalid_time',
+            'already_imported',
+          ]);
+          const skippedOther = res.skippedEvents?.filter((e: any) => !categorizedReasons.has(e.reason))?.length || 0;
+
+          alert(`同步完成
+新增：${res.imported || 0}
+已存在：${skippedAlreadyImported}
+略過 (系統建立)：${res.skipped_system_created || 0}
+略過 (無效人員)：${skippedInvalidCreator}
+略過 (無法匹配案場)：${skippedNoProjectMatch}
+略過 (模糊案場)：${skippedAmbiguous}
+略過 (跨日事件)：${skippedMultiDay}
+略過 (時間無效)：${skippedInvalidTime}
+略過 (其他)：${(res.skipped || 0) + skippedOther}`);
+        }
+        await fetchData(false);
+      }
+    } catch (e: any) {
+      alert(`同步失敗：${e.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const fetchData = useCallback(async (showLoading = true) => {
     if (showLoading) setIsLoading(true);
@@ -671,14 +725,24 @@ export default function SchedulePage() {
           </div>
         </div>
 
-        <button 
-          onClick={() => { setEditingTask(null); setConvertingTodoId(null); setEditingTaskMembers([]); setIsFormOpen(true); }}
-          disabled={currentUser?.role === 'VIEWER'}
-          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded shadow transition disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <Plus size={20} />
-          新增任務
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleManualSync}
+            disabled={currentUser?.role === 'VIEWER' || isLoading}
+            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded shadow transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
+            重新同步 Google 日曆
+          </button>
+          <button
+            onClick={() => { setEditingTask(null); setConvertingTodoId(null); setEditingTaskMembers([]); setIsFormOpen(true); }}
+            disabled={currentUser?.role === 'VIEWER'}
+            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded shadow transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Plus size={20} />
+            新增任務
+          </button>
+        </div>
       </div>
 
       {error ? (
@@ -752,13 +816,10 @@ export default function SchedulePage() {
                             }`}
                           >
                             <div className={`text-xs font-semibold truncate ${isDone || isRescheduled ? 'text-slate-400' : task.is_tentative ? 'text-amber-300' : 'text-slate-200'}`}>
-                              {isDone ? '✓ ' : ''}{isRescheduled ? '【改期】 ' : ''}{task.is_tentative ? '[暫] ' : ''}{projName}
+                              {isDone ? '✓ ' : ''}{isRescheduled ? '【改期】 ' : ''}{task.is_tentative ? '[暫] ' : ''}{task.title || '無標題'} {formatTaskTime(task)}
                             </div>
                             <div className={`text-[11px] mt-0.5 font-bold truncate ${isDone || isRescheduled ? 'text-slate-500' : 'text-indigo-300'}`}>
-                              {region}[{task.task_type}] {task.is_all_day ? '全天' : (task.start_time && task.end_time ? `${task.start_time}–${task.end_time}` : (task.start_time || ''))}
-                            </div>
-                            <div className={`text-[11px] mt-0.5 truncate ${isDone || isRescheduled ? 'text-slate-500' : 'text-slate-300'}`}>
-                              {task.title || '無備註'}
+                              {region}[{task.task_type}] {projName}
                             </div>
                             {(assigneeDisplay || coworkerDisplay) && (
                               <div className={`text-[11px] mt-0.5 space-y-0.5 ${isDone || isRescheduled ? 'text-slate-600' : 'text-slate-400'}`}>
@@ -896,7 +957,7 @@ export default function SchedulePage() {
                           const isDone = task.status === '完成';
                           const isRescheduled = task.status === '改期';
                           return (
-                            <div 
+                            <div
                               key={task.id}
                               draggable={currentUser?.role !== 'VIEWER'}
                               onDragStart={(e) => handleDragStart(e, task.id, 'task')}
@@ -909,16 +970,17 @@ export default function SchedulePage() {
                                 setEditingTaskMembers(members.filter(m => m.task_id === task.id).map(m => m.user_id));
                                 setIsFormOpen(true);
                               }}
-                              className={`text-[10px] px-1 py-0.5 rounded cursor-pointer truncate ${
+                              className={`text-[10px] px-1 py-0.5 rounded cursor-pointer ${
                                 isDone ? 'bg-slate-800 text-slate-500 opacity-50' : 
                                 isRescheduled ? 'bg-slate-800 text-slate-500 border border-dashed border-slate-500 opacity-60' :
                                 task.is_tentative ? 'bg-amber-900/50 text-amber-300' : 
                                 'bg-indigo-900/50 text-indigo-300'
                               }`}
                             >
-                              {isDone ? '✓ ' : ''}{isRescheduled ? '【改期】 ' : ''}{task.is_tentative ? '[暫]' : ''}
-                              <span className="font-bold">[{task.task_type}]</span> {getTaskDisplay(task).projName}
-                              {task.title ? ` - ${task.title}` : ''}
+                              <div className="font-semibold truncate">
+                                {isDone ? '✓ ' : ''}{isRescheduled ? '【改期】 ' : ''}{task.is_tentative ? '[暫] ' : ''}{task.title || '無標題'} {formatTaskTime(task)}
+                              </div>
+                              <div className="truncate opacity-80">[{task.task_type}] {getTaskDisplay(task).projName}</div>
                             </div>
                           );
                         })}
@@ -959,10 +1021,7 @@ export default function SchedulePage() {
                 const weatherDisplay = getTaskWeatherDisplay(task);
                 return (
                   <div key={task.id} className={`bg-slate-900 border border-slate-700 rounded-lg p-4 ${task.status === '完成' ? 'opacity-50' : ''}`}>
-                    <div className="flex justify-between items-start mb-2">
-                      <div className="text-sm text-slate-400 font-mono">
-                        {task.is_all_day ? '全天' : task.start_time ? `${task.start_time} - ${task.end_time}` : '未指定時間'}
-                      </div>
+                    <div className="flex justify-end items-start mb-2">
                       <div className="flex items-center gap-2">
                         <button 
                           onClick={() => handleReturnToTodo(task)} 
@@ -981,9 +1040,9 @@ export default function SchedulePage() {
                       </div>
                     </div>
                     <div className={`font-semibold text-lg ${task.status === '完成' ? 'line-through text-slate-500' : 'text-slate-200'}`}>
-                      {task.status === '完成' ? '✓ ' : ''}{task.is_tentative ? '[暫] ' : ''}{projName}
+                      {task.status === '完成' ? '✓ ' : ''}{task.is_tentative ? '[暫] ' : ''}{task.title || '無標題'} {formatTaskTime(task)}
                     </div>
-                    <div className="text-sm text-indigo-400 mt-1 font-bold">{region}[{task.task_type}] {task.title ? task.title : '無備註'}</div>
+                    <div className="text-sm text-indigo-400 mt-1 font-bold">{region}[{task.task_type}] {projName}</div>
                     <div className="text-sm text-slate-300 mt-1">
                       {assigneeDisplay && <div>{assigneeDisplay}</div>}
                       {coworkerDisplay && <div>{coworkerDisplay}</div>}
