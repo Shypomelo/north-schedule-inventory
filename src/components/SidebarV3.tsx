@@ -64,7 +64,7 @@ export function Sidebar() {
                 </button>
 
                 {showThemePopover && (
-                  <div className="absolute right-0 bottom-full mb-1 bg-[var(--bg-card)] border border-[var(--border)] shadow-xl rounded-lg p-2 z-50 min-w-[120px] flex flex-col gap-1">
+                  <div className="absolute right-0 top-full mt-1 bg-[var(--bg-card)] border border-[var(--border)] shadow-xl rounded-lg p-2 z-50 min-w-[120px] flex flex-col gap-1">
                     <div className="text-[10px] text-[var(--text-secondary)] font-bold mb-1 uppercase tracking-wider px-2">主題 Theme</div>
                     <button
                       onClick={() => { setTheme('dark'); setShowThemePopover(false); }}
