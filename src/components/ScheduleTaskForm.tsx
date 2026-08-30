@@ -259,13 +259,13 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
   const coworkerUsers = users;
   const startTimeParts = splitTime(formData.start_time);
   const endTimeParts = splitTime(formData.end_time);
-  const timeSelectClassName = "bg-slate-900 border border-slate-700 rounded p-1.5 focus:border-emerald-500 outline-none font-mono text-center";
+  const timeSelectClassName = "bg-[var(--input-bg)] text-[var(--input-text)] border border-[var(--input-border)] rounded p-1.5 focus:border-[var(--accent)] outline-none font-mono text-center";
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3 text-[var(--modal-text)]">
       {/* 標題與暫定 */}
-      <div className="flex justify-between items-center mb-1 pb-2 border-b border-slate-700">
-        <h2 className="text-lg font-bold text-slate-100">{initialData?.id ? '編輯任務' : '新增任務'}</h2>
+      <div className="flex justify-between items-center mb-1 pb-2 border-b border-[var(--border)]">
+        <h2 className="text-lg font-bold text-[var(--modal-text)]">{initialData?.id ? '編輯任務' : '新增任務'}</h2>
         <label className="flex items-center gap-2 cursor-pointer">
           <input 
             type="checkbox" 
@@ -280,10 +280,10 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
         
         {/* 第一列：案場 */}
         <div className="flex flex-col gap-1 md:col-span-2 relative" ref={wrapperRef}>
-          <span className="font-semibold text-slate-300">案場 (可快選既有案場或手動輸入新案場) *</span>
+          <span className="font-semibold text-[var(--modal-text)]">案場 (可快選既有案場或手動輸入新案場) *</span>
           <input 
             type="text"
-            className="bg-slate-900 border border-slate-700 rounded p-1.5 focus:border-emerald-500 outline-none w-full placeholder:text-slate-500"
+            className="bg-[var(--input-bg)] text-[var(--input-text)] border border-[var(--input-border)] rounded p-1.5 focus:border-[var(--accent)] outline-none w-full placeholder:text-[var(--input-placeholder)]"
             placeholder="請輸入或選擇案場名稱..."
             value={projectNameInput}
             onChange={e => handleProjectSearch(e.target.value)}
@@ -291,12 +291,12 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
             onClick={() => setIsDropdownOpen(true)}
           />
           {isDropdownOpen && projectNameInput.trim() !== '' && filteredProjects.length === 0 && (
-            <div className="absolute top-[100%] left-0 z-[100] w-full mt-1 bg-slate-800 border border-slate-600 rounded-md shadow-2xl p-2 text-sm text-slate-400">
-              找不到既有案場，將直接使用「<span className="text-emerald-400 font-bold">{projectNameInput}</span>」作為案場名稱。
+            <div className="absolute top-[100%] left-0 z-[100] w-full mt-1 bg-[var(--modal-bg)] border border-[var(--border)] rounded-md shadow-2xl p-2 text-sm text-[var(--modal-muted)]">
+              找不到既有案場，將直接使用「<span className="text-[var(--accent)] font-bold">{projectNameInput}</span>」作為案場名稱。
             </div>
           )}
           {isDropdownOpen && filteredProjects.length > 0 && (
-            <div className="absolute top-[100%] left-0 z-[100] w-full mt-1 max-h-64 overflow-y-auto bg-slate-800 border border-slate-600 rounded-md shadow-2xl custom-scrollbar">
+            <div className="absolute top-[100%] left-0 z-[100] w-full mt-1 max-h-64 overflow-y-auto bg-[var(--modal-bg)] border border-[var(--border)] rounded-md shadow-2xl custom-scrollbar">
               {filteredProjects.map(p => {
                 const code = p.project_code || '無代碼';
                 const cap = p.capacity ? `${p.capacity} kW` : '- kW';
@@ -304,17 +304,17 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
                 return (
                   <div 
                     key={p.id}
-                    className="p-2.5 border-b border-slate-700/50 last:border-b-0 hover:bg-slate-700 cursor-pointer transition-colors"
+                    className="p-2.5 border-b border-[var(--border)] last:border-b-0 hover:bg-[var(--surface-secondary)] cursor-pointer transition-colors"
                     onClick={() => selectProject(p)}
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 text-sm">
-                      <span className="font-medium text-emerald-400 whitespace-nowrap">{p.name}</span>
-                      <span className="hidden sm:inline text-slate-500">｜</span>
-                      <div className="flex items-center gap-2 text-slate-300 text-xs sm:text-sm truncate">
+                      <span className="font-medium text-[var(--accent)] whitespace-nowrap">{p.name}</span>
+                      <span className="hidden sm:inline text-[var(--text-muted)]">｜</span>
+                      <div className="flex items-center gap-2 text-[var(--modal-text)] text-xs sm:text-sm truncate">
                         <span className="whitespace-nowrap text-sky-300/80" title={p.address || ''}>{location}</span>
-                        <span className="text-slate-500">｜</span>
+                        <span className="text-[var(--text-muted)]">｜</span>
                         <span className="whitespace-nowrap">{code}</span>
-                        <span className="text-slate-500">｜</span>
+                        <span className="text-[var(--text-muted)]">｜</span>
                         <span className="whitespace-nowrap text-amber-400/80">{cap}</span>
                       </div>
                     </div>
@@ -327,11 +327,11 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
 
         {/* 第二列：任務類型 + 任務標題 */}
         <label className="flex flex-col gap-1 mt-1">
-          <span className="font-semibold text-slate-300">任務類型 *</span>
+          <span className="font-semibold text-[var(--modal-text)]">任務類型 *</span>
           <select 
             required
             disabled={taskTypesLoading || Boolean(taskTypesError)}
-            className="bg-slate-900 border border-slate-700 rounded p-1.5 focus:border-emerald-500 outline-none"
+            className="bg-[var(--input-bg)] text-[var(--input-text)] border border-[var(--input-border)] rounded p-1.5 focus:border-[var(--accent)] outline-none"
             value={formData.task_type} onChange={e => setFormData({...formData, task_type: e.target.value})} 
           >
             {taskTypesLoading && <option value="">載入中...</option>}
@@ -346,20 +346,20 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
         </label>
 
         <label className="flex flex-col gap-1 mt-1">
-          <span className="font-semibold text-slate-300">任務備註</span>
+          <span className="font-semibold text-[var(--modal-text)]">任務備註</span>
           <input 
             type="text" 
-            className="bg-slate-900 border border-slate-700 rounded p-1.5 focus:border-emerald-500 outline-none"
+            className="bg-[var(--input-bg)] text-[var(--input-text)] border border-[var(--input-border)] rounded p-1.5 focus:border-[var(--accent)] outline-none"
             value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} 
           />
         </label>
 
         {/* 第三列：任務日期 + 全天任務 */}
         <label className="flex flex-col gap-1 mt-1">
-          <span className="font-semibold text-slate-300">任務日期 *</span>
+          <span className="font-semibold text-[var(--modal-text)]">任務日期 *</span>
           <input 
             type="date" required 
-            className="bg-slate-900 border border-slate-700 rounded p-1.5 focus:border-emerald-500 outline-none"
+            className="bg-[var(--input-bg)] text-[var(--input-text)] border border-[var(--input-border)] rounded p-1.5 focus:border-[var(--accent)] outline-none"
             value={formData.task_date} onChange={e => setFormData({...formData, task_date: e.target.value})} 
           />
         </label>
@@ -368,13 +368,13 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
           <label className="flex items-center gap-2 cursor-pointer">
             <input 
               type="checkbox" 
-              className="w-4 h-4 accent-emerald-500 cursor-pointer rounded border-slate-700"
+              className="w-4 h-4 accent-[var(--accent)] cursor-pointer rounded border-[var(--input-border)]"
               checked={formData.is_all_day} 
               onChange={e => setFormData(prev => ({
                 ...prev, is_all_day: e.target.checked, start_time: e.target.checked ? null : prev.start_time, end_time: e.target.checked ? null : prev.end_time
               }))} 
             />
-            <span className="font-semibold text-slate-300">全天任務</span>
+            <span className="font-semibold text-[var(--modal-text)]">全天任務</span>
           </label>
         </div>
 
@@ -382,7 +382,7 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
         {!formData.is_all_day && (
           <>
             <label className="flex flex-col gap-1 mt-1">
-              <span className="font-semibold text-slate-300">開始時間</span>
+              <span className="font-semibold text-[var(--modal-text)]">開始時間</span>
               <div className="flex items-center gap-1 max-w-[240px]">
                 <select
                   className={`${timeSelectClassName} w-[70px]`}
@@ -402,7 +402,7 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
                     {OTHER_TIME_HOURS.map(hour => <option key={hour} value={hour}>{hour}</option>)}
                   </select>
                 )}
-                <span className="text-slate-500 font-mono">:</span>
+                <span className="text-[var(--modal-muted)] font-mono">:</span>
                 <select
                   className={`${timeSelectClassName} w-[70px]`}
                   value={TIME_MINUTES.includes(startTimeParts.minute) ? startTimeParts.minute : ''}
@@ -414,7 +414,7 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
               </div>
             </label>
             <label className="flex flex-col gap-1 mt-1">
-              <span className="font-semibold text-slate-300">結束時間</span>
+              <span className="font-semibold text-[var(--modal-text)]">結束時間</span>
               <div className="flex items-center gap-1 max-w-[240px]">
                 <select
                   className={`${timeSelectClassName} w-[70px]`}
@@ -434,7 +434,7 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
                     {OTHER_TIME_HOURS.map(hour => <option key={hour} value={hour}>{hour}</option>)}
                   </select>
                 )}
-                <span className="text-slate-500 font-mono">:</span>
+                <span className="text-[var(--modal-muted)] font-mono">:</span>
                 <select
                   className={`${timeSelectClassName} w-[70px]`}
                   value={TIME_MINUTES.includes(endTimeParts.minute) ? endTimeParts.minute : ''}
@@ -451,10 +451,10 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
 
         {/* 第五列：主要負責人 + 任務狀態 */}
         <label className="flex flex-col gap-1 mt-1">
-          <span className="font-semibold text-slate-300">主要負責人 *</span>
+          <span className="font-semibold text-[var(--modal-text)]">主要負責人 *</span>
           <select 
             required
-            className="bg-slate-900 border border-slate-700 rounded p-1.5 focus:border-emerald-500 outline-none cursor-pointer appearance-none"
+            className="bg-[var(--input-bg)] text-[var(--input-text)] border border-[var(--input-border)] rounded p-1.5 focus:border-[var(--accent)] outline-none cursor-pointer appearance-none"
             value={formData.main_assignee_id || ''} onChange={e => setFormData({...formData, main_assignee_id: e.target.value})} 
           >
             <option value="">請選擇</option>
@@ -463,14 +463,14 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
         </label>
 
         <label className="flex flex-col gap-1 mt-1">
-          <span className="font-semibold text-slate-300">任務狀態</span>
-          <div className="flex bg-slate-900 border border-slate-700 rounded overflow-hidden">
+          <span className="font-semibold text-[var(--modal-text)]">任務狀態</span>
+          <div className="flex bg-[var(--input-bg)] border border-[var(--input-border)] rounded overflow-hidden">
             {[
               { val: '', label: '空白' },
               { val: '改期', label: '改期' },
               { val: '完成', label: '完成' }
             ].map(st => (
-              <label key={st.val} className={`flex-1 text-center py-1.5 cursor-pointer transition-colors border-r last:border-r-0 border-slate-700 ${formData.status === st.val ? 'bg-indigo-600 text-white font-bold' : 'text-slate-400 hover:bg-slate-800'}`}>
+              <label key={st.val} className={`flex-1 text-center py-1.5 cursor-pointer transition-colors border-r last:border-r-0 border-[var(--input-border)] ${formData.status === st.val ? 'bg-[var(--accent)] text-[var(--accent-text)] font-bold' : 'text-[var(--modal-muted)] hover:bg-[var(--surface-secondary)]'}`}>
                 <input 
                   type="radio" name="taskStatus" className="hidden"
                   checked={formData.status === st.val} onChange={() => setFormData({...formData, status: st.val as TaskStatus})}
@@ -483,35 +483,35 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
 
         {/* 第六列：協同人員 (橫向勾選) */}
         <div className="flex flex-col gap-1 md:col-span-2 mt-2">
-          <span className="font-semibold text-slate-300">協同人員</span>
-          <div className="flex flex-wrap gap-x-4 gap-y-2 bg-slate-900/50 p-2 rounded border border-slate-700">
+          <span className="font-semibold text-[var(--modal-text)]">協同人員</span>
+          <div className="flex flex-wrap gap-x-4 gap-y-2 bg-[var(--input-bg)] p-2 rounded border border-[var(--input-border)]">
             {coworkerUsers.map(u => (
               <label key={u.id} className="flex items-center gap-1.5 cursor-pointer">
                 <input 
                   type="checkbox" 
-                  className="w-3.5 h-3.5 accent-emerald-500 cursor-pointer rounded border-slate-700"
+                  className="w-3.5 h-3.5 accent-[var(--accent)] cursor-pointer rounded border-[var(--input-border)]"
                   checked={memberIds.includes(u.id)}
                   onChange={e => {
                     if (e.target.checked) setMemberIds(prev => [...prev, u.id]);
                     else setMemberIds(prev => prev.filter(id => id !== u.id));
                   }} 
                 />
-                <span className="text-slate-200">{u.name}</span>
+                <span className="text-[var(--input-text)]">{u.name}</span>
               </label>
             ))}
-            {coworkerUsers.length === 0 && <span className="text-slate-500 text-xs">無可選人員</span>}
+            {coworkerUsers.length === 0 && <span className="text-[var(--modal-muted)] text-xs">無可選人員</span>}
           </div>
         </div>
 
       </div>
 
-      <div className="flex justify-between items-center mt-3 pt-3 border-t border-slate-700">
-        <div className="text-red-400 text-sm font-semibold">{errorMsg || ''}</div>
+      <div className="flex justify-between items-center mt-3 pt-3 border-t border-[var(--border)]">
+        <div className="text-[var(--danger)] text-sm font-semibold">{errorMsg || ''}</div>
         <div className="flex justify-end gap-3">
-          <button type="button" onClick={onCancel} disabled={isSubmitting} className="px-4 py-1.5 rounded text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50 transition-colors">
+          <button type="button" onClick={onCancel} disabled={isSubmitting} className="px-4 py-1.5 rounded text-sm text-[var(--modal-text)] hover:bg-[var(--surface-secondary)] disabled:opacity-50 transition-colors">
             取消 (Esc)
           </button>
-          <button type="submit" disabled={isSubmitting || isViewer} className="px-5 py-1.5 rounded text-sm bg-emerald-600 hover:bg-emerald-500 text-white font-semibold disabled:opacity-50 shadow-lg shadow-emerald-500/20 transition-all">
+          <button type="submit" disabled={isSubmitting || isViewer} className="px-5 py-1.5 rounded text-sm bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-[var(--accent-text)] font-semibold disabled:opacity-50 shadow-lg transition-all">
             {isSubmitting ? '儲存中...' : (isViewer ? '檢視權限' : '儲存')}
           </button>
         </div>

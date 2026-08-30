@@ -10,6 +10,7 @@ import { ChevronLeft, ChevronRight, Plus, X, ArrowLeft, RefreshCw } from 'lucide
 import { useUser } from '@/components/UserContext';
 import { getDatabaseErrorMessage, isMissingCoreTablesError } from '@/lib/db/supabase-errors';
 import { supabase } from '@/lib/db/supabaseClient';
+import { parseTaiwanProjectLocation } from '@/lib/project-location';
 import {
   collectUniqueWeatherRequests,
   resolveTaskWeatherRequest,
@@ -56,6 +57,21 @@ const formatTaskTime = (task: ScheduleTask): string => {
   if (task.is_all_day) return '全天';
   if (task.start_time && task.end_time) return `${task.start_time}–${task.end_time}`;
   return task.start_time || '未指定時間';
+};
+
+const getScheduleDistrictLabel = (
+  task: ScheduleTask,
+  project: Project | undefined,
+): string => {
+  const location = parseTaiwanProjectLocation(project?.address)
+    || parseTaiwanProjectLocation(task.address);
+  if (!location) return '';
+
+  if (location.city === '新竹市' || location.city === '嘉義市') {
+    return `${location.city.replace(/市$/, '')}${location.district}`;
+  }
+
+  return location.district.replace(/[區鄉鎮市]$/, '');
 };
 
 export default function SchedulePage() {
@@ -660,18 +676,11 @@ export default function SchedulePage() {
     const assigneeDisplay = mainAssigneeName ? `主要：${mainAssigneeName}` : '';
     const coworkerDisplay = coworkerNames.length > 0 ? `協同：${coworkerNames.join('、')}` : '';
     
-    let regionStr = proj?.region || '';
-    if (!regionStr && (task.address || proj?.address)) {
-      const addr = task.address || proj?.address || '';
-      const match = addr.match(/.{2,3}[縣市](.{2,3})[區鄉鎮市]/);
-      if (match && match[1]) {
-        regionStr = match[1];
-      }
-    }
-    const region = regionStr ? `[${regionStr}]` : '';
+    const districtName = getScheduleDistrictLabel(task, proj);
+    const district = districtName ? `[${districtName}]` : '';
     const searchAddress = task.address || proj?.address || projName;
 
-    return { projName, assigneeDisplay, coworkerDisplay, region, searchAddress };
+    return { projName, assigneeDisplay, coworkerDisplay, district, searchAddress };
   };
 
   const getTaskWeatherDisplay = (task: ScheduleTask) => {
@@ -687,38 +696,38 @@ export default function SchedulePage() {
     <div className="p-8 h-full flex flex-col min-w-[1500px] mx-auto">
       <div className="flex justify-between items-center mb-6">
         <div className="flex items-center gap-6">
-          <h1 className="text-3xl font-bold text-slate-100">排程管理</h1>
+          <h1 className="text-3xl font-bold text-[var(--text-primary)]">排程管理</h1>
           
-          <div className="flex bg-slate-800 rounded-lg p-1 border border-slate-700">
+          <div className="flex bg-[var(--surface)] rounded-lg p-1 border border-[var(--border)]">
             <button 
               onClick={() => setViewMode('week')}
-              className={`px-4 py-1.5 text-sm font-semibold rounded-md transition ${viewMode === 'week' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+              className={`px-4 py-1.5 text-sm font-semibold rounded-md transition ${viewMode === 'week' ? 'bg-[var(--accent)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
             >
               週檢視
             </button>
             <button 
               onClick={() => setViewMode('month')}
-              className={`px-4 py-1.5 text-sm font-semibold rounded-md transition ${viewMode === 'month' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+              className={`px-4 py-1.5 text-sm font-semibold rounded-md transition ${viewMode === 'month' ? 'bg-[var(--accent)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
             >
               月檢視
             </button>
           </div>
 
-          <div className="flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-lg p-1">
+          <div className="flex items-center gap-2 bg-[var(--surface)] border border-[var(--border)] rounded-lg p-1">
             <button 
               onClick={() => setCurrentDate(viewMode === 'week' ? subDays(currentDate, 7) : addDays(currentDate, -30))} 
-              className="p-1 hover:bg-slate-700 rounded text-slate-300"
+              className="p-1 hover:bg-[var(--surface-secondary)] rounded text-[var(--text-primary)]"
             >
               <ChevronLeft size={20}/>
             </button>
-            <span className="text-sm font-semibold text-slate-200 px-2 min-w-[160px] text-center">
+            <span className="text-sm font-semibold text-[var(--text-primary)] px-2 min-w-[160px] text-center">
               {viewMode === 'week' ? 
                 `${format(weekStart, 'yyyy/MM/dd')} - ${format(addDays(weekStart, 5), 'yyyy/MM/dd')}` : 
                 format(currentDate, 'yyyy 年 MM 月')}
             </span>
             <button 
               onClick={() => setCurrentDate(viewMode === 'week' ? addDays(currentDate, 7) : addDays(currentDate, 30))} 
-              className="p-1 hover:bg-slate-700 rounded text-slate-300"
+              className="p-1 hover:bg-[var(--surface-secondary)] rounded text-[var(--text-primary)]"
             >
               <ChevronRight size={20}/>
             </button>
@@ -729,7 +738,7 @@ export default function SchedulePage() {
           <button
             onClick={handleManualSync}
             disabled={currentUser?.role === 'VIEWER' || isLoading}
-            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded shadow transition disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 bg-[var(--surface)] hover:bg-[var(--surface-secondary)] text-[var(--text-primary)] border border-[var(--accent)] px-4 py-2 rounded shadow transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
             重新同步 Google 日曆
@@ -737,7 +746,7 @@ export default function SchedulePage() {
           <button
             onClick={() => { setEditingTask(null); setConvertingTodoId(null); setEditingTaskMembers([]); setIsFormOpen(true); }}
             disabled={currentUser?.role === 'VIEWER'}
-            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded shadow transition disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-[var(--accent-text)] px-4 py-2 rounded shadow transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Plus size={20} />
             新增任務
@@ -746,19 +755,19 @@ export default function SchedulePage() {
       </div>
 
       {error ? (
-        <div className="flex-1 flex flex-col items-center justify-center text-rose-400">
+        <div className="flex-1 flex flex-col items-center justify-center text-[var(--danger)]">
           <p className="mb-2 text-xl font-bold">載入失敗</p>
           <p>{error}</p>
-          <button onClick={() => fetchData(true)} className="mt-4 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded">重試</button>
+          <button onClick={() => fetchData(true)} className="mt-4 px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-[var(--accent-text)] rounded">重試</button>
         </div>
       ) : isLoading ? (
-        <div className="flex-1 flex items-center justify-center text-slate-400">載入中...</div>
+        <div className="flex-1 flex items-center justify-center text-[var(--text-secondary)]">載入中...</div>
       ) : tasks.length === 0 && viewMode === 'week' ? (
-        <div className="flex-1 flex items-center justify-center text-slate-400">目前沒有排程，點擊右上角「新增任務」開始排程。</div>
+        <div className="flex-1 flex items-center justify-center text-[var(--text-secondary)]">目前沒有排程，點擊右上角「新增任務」開始排程。</div>
       ) : (
         <div className="flex-1 overflow-hidden flex flex-col">
           {viewMode === 'week' ? (
-            <div className="flex-1 grid grid-cols-7 border border-slate-700 rounded-xl bg-slate-800/30 overflow-hidden">
+            <div className="flex-1 grid grid-cols-7 border border-[var(--border)] rounded-xl bg-[var(--surface)] overflow-hidden">
               
               {weekDays.map((day, i) => {
                 const dateStr = format(day, 'yyyy-MM-dd');
@@ -769,7 +778,7 @@ export default function SchedulePage() {
                 return (
                   <div 
                     key={i} 
-                    className="border-r border-slate-700 flex flex-col"
+                    className="border-r border-[var(--border)] flex flex-col"
                     onDragOver={e => e.preventDefault()}
                     onDrop={e => handleDropToDate(e, dateStr)}
                     onContextMenu={e => {
@@ -781,7 +790,7 @@ export default function SchedulePage() {
                     }}
                   >
                     <div 
-                      className={`text-center py-3 border-b border-slate-700 font-semibold cursor-pointer hover:bg-slate-700/50 transition ${isSameDay(day, new Date()) ? 'text-emerald-400 bg-emerald-950/20' : 'text-slate-300'}`}
+                      className={`text-center py-3 border-b border-[var(--border)] font-semibold cursor-pointer hover:bg-[var(--surface-secondary)] transition ${isSameDay(day, new Date()) ? 'text-[var(--accent)] bg-[var(--surface-secondary)]' : 'text-[var(--text-primary)]'}`}
                       onClick={() => setSelectedDayTasks({ date: day, tasks: dayTasks })}
                     >
                       <div className="text-sm">週{['日','一','二','三','四','五','六'][day.getDay()]}</div>
@@ -789,7 +798,7 @@ export default function SchedulePage() {
                     </div>
                     <div className="flex-1 p-2 flex flex-col gap-2 overflow-y-auto">
                       {displayTasks.map(task => {
-                        const { projName, assigneeDisplay, coworkerDisplay, region, searchAddress } = getTaskDisplay(task);
+                        const { projName, assigneeDisplay, coworkerDisplay, district, searchAddress } = getTaskDisplay(task);
                         const weatherDisplay = getTaskWeatherDisplay(task);
                         const isDone = task.status === '完成';
                         const isRescheduled = task.status === '改期';
@@ -809,20 +818,20 @@ export default function SchedulePage() {
                               setIsFormOpen(true);
                             }}
                             className={`p-2 rounded cursor-pointer border shadow-sm transition transform hover:scale-[1.02] active:scale-95 ${
-                              isDone ? 'bg-slate-800 border-slate-700 opacity-40' : 
-                              isRescheduled ? 'bg-slate-800 border-dashed border-slate-500 opacity-60' :
-                              task.is_tentative ? 'bg-amber-950/40 border-amber-800/50' : 
-                              'bg-indigo-950/40 border-indigo-800/50'
+                              isDone ? 'bg-[var(--surface-secondary)] border-[var(--border)] opacity-50' :
+                              isRescheduled ? 'bg-[var(--surface-secondary)] border-dashed border-[var(--text-muted)] opacity-60' :
+                              task.is_tentative ? 'bg-[var(--surface-secondary)] border-[var(--warning)]' :
+                              'bg-[var(--surface-secondary)] border-[var(--accent)]'
                             }`}
                           >
-                            <div className={`text-xs font-semibold truncate ${isDone || isRescheduled ? 'text-slate-400' : task.is_tentative ? 'text-amber-300' : 'text-slate-200'}`}>
-                              {isDone ? '✓ ' : ''}{isRescheduled ? '【改期】 ' : ''}{task.is_tentative ? '[暫] ' : ''}{task.title || '無標題'} {formatTaskTime(task)}
+                            <div className={`text-xs font-semibold truncate ${isDone || isRescheduled ? 'text-[var(--text-muted)]' : task.is_tentative ? 'text-[var(--warning)]' : 'text-[var(--text-primary)]'}`}>
+                              {isDone ? '✓ ' : ''}{isRescheduled ? '【改期】 ' : ''}{task.is_tentative ? '[暫] ' : ''}{projName} {formatTaskTime(task)}
                             </div>
-                            <div className={`text-[11px] mt-0.5 font-bold truncate ${isDone || isRescheduled ? 'text-slate-500' : 'text-indigo-300'}`}>
-                              {region}[{task.task_type}] {projName}
+                            <div className={`text-[11px] mt-0.5 font-bold truncate ${isDone || isRescheduled ? 'text-[var(--text-muted)]' : 'text-[var(--accent)]'}`}>
+                              {district}[{task.task_type}] {task.title || '無標題'}
                             </div>
                             {(assigneeDisplay || coworkerDisplay) && (
-                              <div className={`text-[11px] mt-0.5 space-y-0.5 ${isDone || isRescheduled ? 'text-slate-600' : 'text-slate-400'}`}>
+                              <div className={`text-[11px] mt-0.5 space-y-0.5 ${isDone || isRescheduled ? 'text-[var(--text-muted)]' : 'text-[var(--text-secondary)]'}`}>
                                 {assigneeDisplay && <div className="truncate">{assigneeDisplay}</div>}
                                 {coworkerDisplay && <div className="truncate">{coworkerDisplay}</div>}
                               </div>
@@ -833,13 +842,13 @@ export default function SchedulePage() {
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 onClick={e => e.stopPropagation()}
-                                className={`underline font-bold transition-colors ${isDone || isRescheduled ? 'text-emerald-700 hover:text-emerald-600' : 'text-emerald-400 hover:text-emerald-300'}`}
+                                className="underline font-bold text-[var(--accent)] hover:text-[var(--accent-hover)] transition-colors"
                               >
                                 MAP
                               </a>
                               {weatherDisplay && (
                                 <span
-                                  className={`${isDone || isRescheduled ? 'text-slate-600' : 'text-slate-300'} whitespace-nowrap`}
+                                  className="text-[var(--text-secondary)] whitespace-nowrap"
                                   title={weatherDisplay.label}
                                   aria-label={`天氣：${weatherDisplay.label}`}
                                 >
@@ -852,7 +861,7 @@ export default function SchedulePage() {
                       })}
                       {hiddenCount > 0 && (
                         <div 
-                          className="text-center text-xs font-bold text-slate-500 hover:text-emerald-400 cursor-pointer mt-1"
+                          className="text-center text-xs font-bold text-[var(--text-muted)] hover:text-[var(--accent)] cursor-pointer mt-1"
                           onClick={() => setSelectedDayTasks({ date: day, tasks: dayTasks })}
                         >
                           +{hiddenCount} 筆
@@ -864,7 +873,7 @@ export default function SchedulePage() {
               })}
 
               <div 
-                className="flex flex-col min-h-[400px] bg-slate-800/50 relative overflow-hidden flex-1"
+                className="flex flex-col min-h-[400px] bg-[var(--surface-secondary)] relative overflow-hidden flex-1"
                 onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
                 onDrop={handleDropToTodo}
                 onContextMenu={e => {
@@ -877,9 +886,9 @@ export default function SchedulePage() {
                   }
                 }}
               >
-                <div className="text-center py-3 border-b border-slate-700 font-bold text-amber-400 bg-slate-800 flex justify-between items-center px-4 shrink-0">
+                <div className="text-center py-3 border-b border-[var(--border)] font-bold text-[var(--warning)] bg-[var(--surface)] flex justify-between items-center px-4 shrink-0">
                   <span>待辦事項</span>
-                  <button onClick={() => setIsTodoFormOpen(true)} disabled={currentUser?.role === 'VIEWER'} className="hover:bg-slate-700 p-1 rounded disabled:opacity-50 disabled:cursor-not-allowed" title="新增待辦"><Plus size={16}/></button>
+                  <button onClick={() => setIsTodoFormOpen(true)} disabled={currentUser?.role === 'VIEWER'} className="hover:bg-[var(--surface-secondary)] p-1 rounded disabled:opacity-50 disabled:cursor-not-allowed" title="新增待辦"><Plus size={16}/></button>
                 </div>
                 
                 <div className="flex-1 p-2 flex flex-col gap-2 overflow-y-auto">
@@ -901,32 +910,32 @@ export default function SchedulePage() {
                           setDayContextMenu(null);
                           setTodoContextMenu({ todoId: todo.id, x: e.clientX, y: e.clientY });
                         }}
-                        className="p-2 rounded border border-amber-500/30 bg-slate-800 shadow-sm cursor-pointer hover:border-amber-400 transition"
+                        className="p-2 rounded border border-[var(--warning)] bg-[var(--surface)] shadow-sm cursor-pointer hover:border-[var(--accent)] transition"
                       >
                         <div className="text-xs font-semibold text-amber-300 truncate">
                           {projName}
                         </div>
-                        <div className="text-xs mt-1 font-bold text-indigo-300 truncate">
+                        <div className="text-xs mt-1 font-bold text-[var(--accent)] truncate">
                           [{todo.task_type || '未分類'}]
                         </div>
-                        <div className="text-xs mt-0.5 text-slate-300 truncate">
+                        <div className="text-xs mt-0.5 text-[var(--text-primary)] truncate">
                           {todo.title}
                         </div>
                       </div>
                     );
                   })}
                   {todos.filter(t => t.status === '待安排').length === 0 && (
-                     <div className="text-xs text-slate-500 text-center mt-4">無待辦事項</div>
+                     <div className="text-xs text-[var(--text-muted)] text-center mt-4">無待辦事項</div>
                   )}
                 </div>
               </div>
 
             </div>
           ) : (
-            <div className="flex-1 flex flex-col border border-slate-700 rounded-xl bg-slate-800/30 overflow-hidden">
-              <div className="grid grid-cols-7 bg-slate-800 border-b border-slate-700">
+            <div className="flex-1 flex flex-col border border-[var(--border)] rounded-xl bg-[var(--surface)] overflow-hidden">
+              <div className="grid grid-cols-7 bg-[var(--surface-secondary)] border-b border-[var(--border)]">
                 {['一','二','三','四','五','六','日'].map(d => (
-                  <div key={d} className="text-center py-2 text-sm font-bold text-slate-400">週{d}</div>
+                  <div key={d} className="text-center py-2 text-sm font-bold text-[var(--text-secondary)]">週{d}</div>
                 ))}
               </div>
               <div className="flex-1 grid grid-cols-7 auto-rows-fr">
@@ -938,7 +947,7 @@ export default function SchedulePage() {
                   return (
                     <div 
                       key={i} 
-                      className={`border-r border-b border-slate-700 last:border-r-0 flex flex-col p-1 ${!isCurrentMonth ? 'bg-slate-900/50 opacity-50' : ''}`}
+                      className={`border-r border-b border-[var(--border)] last:border-r-0 flex flex-col p-1 ${!isCurrentMonth ? 'bg-[var(--surface-secondary)] opacity-50' : ''}`}
                       onDragOver={e => e.preventDefault()}
                       onDrop={e => handleDropToDate(e, dateStr)}
                       onContextMenu={e => {
@@ -949,11 +958,13 @@ export default function SchedulePage() {
                         setDayContextMenu({ dateStr, x: e.clientX, y: e.clientY });
                       }}
                     >
-                      <div className={`text-right text-xs p-1 font-semibold ${isSameDay(day, new Date()) ? 'text-emerald-400' : 'text-slate-400'}`}>
+                      <div className={`text-right text-xs p-1 font-semibold ${isSameDay(day, new Date()) ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'}`}>
                         {format(day, 'd')}
                       </div>
                       <div className="flex-1 overflow-y-auto flex flex-col gap-1">
                         {dayTasks.slice(0, 3).map(task => {
+                          const { projName, assigneeDisplay, coworkerDisplay, district, searchAddress } = getTaskDisplay(task);
+                          const weatherDisplay = getTaskWeatherDisplay(task);
                           const isDone = task.status === '完成';
                           const isRescheduled = task.status === '改期';
                           return (
@@ -971,22 +982,40 @@ export default function SchedulePage() {
                                 setIsFormOpen(true);
                               }}
                               className={`text-[10px] px-1 py-0.5 rounded cursor-pointer ${
-                                isDone ? 'bg-slate-800 text-slate-500 opacity-50' : 
-                                isRescheduled ? 'bg-slate-800 text-slate-500 border border-dashed border-slate-500 opacity-60' :
-                                task.is_tentative ? 'bg-amber-900/50 text-amber-300' : 
-                                'bg-indigo-900/50 text-indigo-300'
+                                isDone ? 'bg-[var(--surface-secondary)] text-[var(--text-muted)] opacity-50' :
+                                isRescheduled ? 'bg-[var(--surface-secondary)] text-[var(--text-muted)] border border-dashed border-[var(--text-muted)] opacity-60' :
+                                task.is_tentative ? 'bg-[var(--surface-secondary)] text-[var(--warning)] border border-[var(--warning)]' :
+                                'bg-[var(--surface-secondary)] text-[var(--text-primary)] border border-[var(--accent)]'
                               }`}
                             >
                               <div className="font-semibold truncate">
-                                {isDone ? '✓ ' : ''}{isRescheduled ? '【改期】 ' : ''}{task.is_tentative ? '[暫] ' : ''}{task.title || '無標題'} {formatTaskTime(task)}
+                                {isDone ? '✓ ' : ''}{isRescheduled ? '【改期】 ' : ''}{task.is_tentative ? '[暫] ' : ''}{projName} {formatTaskTime(task)}
                               </div>
-                              <div className="truncate opacity-80">[{task.task_type}] {getTaskDisplay(task).projName}</div>
+                              <div className="truncate opacity-80">{district}[{task.task_type}] {task.title || '無標題'}</div>
+                              {assigneeDisplay && <div className="truncate opacity-80">{assigneeDisplay}</div>}
+                              {coworkerDisplay && <div className="truncate opacity-80">{coworkerDisplay}</div>}
+                              <div className="mt-0.5 flex items-center justify-between gap-1">
+                                <a
+                                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchAddress)}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={e => e.stopPropagation()}
+                                  className="underline font-bold text-[var(--accent)]"
+                                >
+                                  MAP
+                                </a>
+                                {weatherDisplay && (
+                                  <span title={weatherDisplay.label} aria-label={`天氣：${weatherDisplay.label}`}>
+                                    {weatherDisplay.icon}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           );
                         })}
                         {dayTasks.length > 3 && (
                           <div 
-                            className="text-[10px] text-center text-slate-500 cursor-pointer hover:text-emerald-400"
+                            className="text-[10px] text-center text-[var(--text-muted)] cursor-pointer hover:text-[var(--accent)]"
                             onClick={() => setSelectedDayTasks({ date: day, tasks: dayTasks })}
                           >
                             +{dayTasks.length - 3}
@@ -1003,24 +1032,24 @@ export default function SchedulePage() {
       )}
 
       {selectedDayTasks && (
-        <div className="absolute top-0 right-0 h-full w-96 bg-slate-800 border-l border-slate-700 shadow-2xl flex flex-col transform transition-transform z-10">
-          <div className="flex justify-between items-center p-4 border-b border-slate-700">
-            <h2 className="text-xl font-bold text-emerald-400">
+        <div className="absolute top-0 right-0 h-full w-96 bg-[var(--surface)] border-l border-[var(--border)] shadow-2xl flex flex-col transform transition-transform z-10">
+          <div className="flex justify-between items-center p-4 border-b border-[var(--border)]">
+            <h2 className="text-xl font-bold text-[var(--accent)]">
               {format(selectedDayTasks.date, 'yyyy/MM/dd')} 任務清單
             </h2>
-            <button onClick={() => setSelectedDayTasks(null)} className="p-1 hover:bg-slate-700 rounded text-slate-300">
+            <button onClick={() => setSelectedDayTasks(null)} className="p-1 hover:bg-[var(--surface-secondary)] rounded text-[var(--text-primary)]">
               <X size={20} />
             </button>
           </div>
           <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
             {selectedDayTasks.tasks.length === 0 ? (
-              <div className="text-slate-500 text-center mt-10">尚無排程任務</div>
+              <div className="text-[var(--text-muted)] text-center mt-10">尚無排程任務</div>
             ) : (
               selectedDayTasks.tasks.map(task => {
-                const { projName, assigneeDisplay, coworkerDisplay, region, searchAddress } = getTaskDisplay(task);
+                const { projName, assigneeDisplay, coworkerDisplay, district, searchAddress } = getTaskDisplay(task);
                 const weatherDisplay = getTaskWeatherDisplay(task);
                 return (
-                  <div key={task.id} className={`bg-slate-900 border border-slate-700 rounded-lg p-4 ${task.status === '完成' ? 'opacity-50' : ''}`}>
+                  <div key={task.id} className={`bg-[var(--surface-secondary)] border border-[var(--border)] rounded-lg p-4 ${task.status === '完成' ? 'opacity-50' : ''}`}>
                     <div className="flex justify-end items-start mb-2">
                       <div className="flex items-center gap-2">
                         <button 
@@ -1034,16 +1063,16 @@ export default function SchedulePage() {
                           setEditingTask(task);
                           setEditingTaskMembers(members.filter(m => m.task_id === task.id).map(m => m.user_id));
                           setIsFormOpen(true);
-                        }} disabled={currentUser?.role === 'VIEWER'} className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed">
+                        }} disabled={currentUser?.role === 'VIEWER'} className="text-xs bg-[var(--surface)] hover:bg-[var(--surface-secondary)] text-[var(--text-primary)] px-3 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed">
                           編輯
                         </button>
                       </div>
                     </div>
-                    <div className={`font-semibold text-lg ${task.status === '完成' ? 'line-through text-slate-500' : 'text-slate-200'}`}>
-                      {task.status === '完成' ? '✓ ' : ''}{task.is_tentative ? '[暫] ' : ''}{task.title || '無標題'} {formatTaskTime(task)}
+                    <div className={`font-semibold text-lg ${task.status === '完成' ? 'line-through text-[var(--text-muted)]' : 'text-[var(--text-primary)]'}`}>
+                      {task.status === '完成' ? '✓ ' : ''}{task.is_tentative ? '[暫] ' : ''}{projName} {formatTaskTime(task)}
                     </div>
-                    <div className="text-sm text-indigo-400 mt-1 font-bold">{region}[{task.task_type}] {projName}</div>
-                    <div className="text-sm text-slate-300 mt-1">
+                    <div className="text-sm text-[var(--accent)] mt-1 font-bold">{district}[{task.task_type}] {task.title || '無標題'}</div>
+                    <div className="text-sm text-[var(--text-secondary)] mt-1">
                       {assigneeDisplay && <div>{assigneeDisplay}</div>}
                       {coworkerDisplay && <div>{coworkerDisplay}</div>}
                     </div>
@@ -1053,11 +1082,11 @@ export default function SchedulePage() {
                         target="_blank" 
                         rel="noopener noreferrer"
                         onClick={e => e.stopPropagation()} 
-                        className="text-emerald-400 hover:text-emerald-300 underline font-bold"
+                        className="text-[var(--accent)] hover:text-[var(--accent-hover)] underline font-bold"
                       >MAP</a>
                       {weatherDisplay && (
                         <span
-                          className="text-slate-300 whitespace-nowrap"
+                          className="text-[var(--text-secondary)] whitespace-nowrap"
                           title={weatherDisplay.label}
                           aria-label={`天氣：${weatherDisplay.label}`}
                         >
@@ -1065,8 +1094,8 @@ export default function SchedulePage() {
                         </span>
                       )}
                     </div>
-                    <div className="text-xs text-slate-500 mt-2 flex items-center gap-2">
-                      <span className={`px-2 py-0.5 rounded-full bg-slate-800`}>{task.status || '正常'}</span>
+                    <div className="text-xs text-[var(--text-muted)] mt-2 flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded-full bg-[var(--surface)]">{task.status || '正常'}</span>
                     </div>
                   </div>
                 );
@@ -1078,19 +1107,19 @@ export default function SchedulePage() {
 
       {contextMenu && (
         <div 
-          className="fixed bg-slate-800 border border-slate-700 shadow-xl rounded py-1 z-50 min-w-[120px]"
+          className="fixed bg-[var(--surface)] text-[var(--text-primary)] border border-[var(--border)] shadow-xl rounded py-1 z-50 min-w-[120px]"
           style={{ top: contextMenu.y, left: contextMenu.x }}
         >
           <button 
-            className="w-full text-left px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full text-left px-4 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--surface-secondary)] transition disabled:opacity-50 disabled:cursor-not-allowed"
             onClick={(e) => handleContextAction(e, 'RESCHEDULE_TASK')} disabled={currentUser?.role === 'VIEWER'}
           >改期</button>
           <button 
-            className="w-full text-left px-4 py-2 text-sm text-emerald-400 hover:bg-slate-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full text-left px-4 py-2 text-sm text-[var(--accent)] hover:bg-[var(--surface-secondary)] transition disabled:opacity-50 disabled:cursor-not-allowed"
             onClick={(e) => handleContextAction(e, 'COMPLETE_TASK')} disabled={currentUser?.role === 'VIEWER'}
           >完成</button>
           <button 
-            className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-slate-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full text-left px-4 py-2 text-sm text-[var(--danger)] hover:bg-[var(--surface-secondary)] transition disabled:opacity-50 disabled:cursor-not-allowed"
             onClick={(e) => handleContextAction(e, 'DELETE_TASK')} disabled={currentUser?.role === 'VIEWER'}
           >刪除</button>
         </div>
@@ -1098,11 +1127,11 @@ export default function SchedulePage() {
 
       {dayContextMenu && (
         <div 
-          className="fixed bg-slate-800 border border-slate-700 rounded shadow-xl py-1 z-50 text-sm min-w-[120px]"
+          className="fixed bg-[var(--surface)] border border-[var(--border)] rounded shadow-xl py-1 z-50 text-sm min-w-[120px]"
           style={{ top: dayContextMenu.y, left: dayContextMenu.x }}
         >
           <button 
-            className="w-full text-left px-4 py-2 hover:bg-slate-700 text-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full text-left px-4 py-2 hover:bg-[var(--surface-secondary)] text-[var(--accent)] disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={currentUser?.role === 'VIEWER'}
             onClick={(e) => {
               e.stopPropagation();
@@ -1119,12 +1148,12 @@ export default function SchedulePage() {
 
       {todoContextMenu && (
         <div 
-          className="fixed bg-slate-800 border border-slate-700 rounded shadow-xl py-1 z-50 text-sm min-w-[120px]"
+          className="fixed bg-[var(--surface)] border border-[var(--border)] rounded shadow-xl py-1 z-50 text-sm min-w-[120px]"
           style={{ top: todoContextMenu.y, left: todoContextMenu.x }}
         >
           {todoContextMenu.todoId ? (
             <button 
-              className="w-full text-left px-4 py-2 hover:bg-slate-700 text-red-400 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full text-left px-4 py-2 hover:bg-[var(--surface-secondary)] text-[var(--danger)] disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={currentUser?.role === 'VIEWER'}
               onClick={async (e) => {
                 e.stopPropagation();
@@ -1143,7 +1172,7 @@ export default function SchedulePage() {
             >刪除待辦</button>
           ) : (
             <button 
-              className="w-full text-left px-4 py-2 hover:bg-slate-700 text-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full text-left px-4 py-2 hover:bg-[var(--surface-secondary)] text-[var(--accent)] disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={currentUser?.role === 'VIEWER'}
               onClick={(e) => {
                 e.stopPropagation();
@@ -1156,8 +1185,8 @@ export default function SchedulePage() {
       )}
 
       {isFormOpen && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-800 border border-slate-700 p-5 rounded-2xl w-full max-w-xl max-h-[95vh] overflow-auto shadow-2xl">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[var(--modal-bg)] text-[var(--modal-text)] border border-[var(--border)] p-5 rounded-2xl w-full max-w-xl max-h-[95vh] overflow-auto shadow-2xl">
             <ScheduleTaskForm 
               initialData={editingTask || undefined}
               initialMemberIds={editingTaskMembers}
@@ -1170,9 +1199,9 @@ export default function SchedulePage() {
       )}
 
       {isTodoFormOpen && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-800 border border-slate-700 p-5 rounded-2xl w-full max-w-md shadow-2xl">
-            <h2 className="text-xl font-bold text-slate-100 mb-4">新增待辦事項</h2>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[var(--modal-bg)] text-[var(--modal-text)] border border-[var(--border)] p-5 rounded-2xl w-full max-w-md shadow-2xl">
+            <h2 className="text-xl font-bold text-[var(--modal-text)] mb-4">新增待辦事項</h2>
             <TodoForm 
               onSubmit={handleCreateTodo}
               onCancel={() => setIsTodoFormOpen(false)}

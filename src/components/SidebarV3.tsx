@@ -31,7 +31,7 @@ export function Sidebar() {
   }, []);
 
   return (
-    <aside className={`h-[100dvh] bg-[var(--bg-sidebar)] border-r border-[var(--border)] shrink-0 flex flex-col gap-4 hidden md:flex transition-all duration-300 relative ${isCollapsed ? 'w-16 p-2 items-center' : 'w-64 p-4'}`}>
+    <aside className={`h-[100dvh] bg-[var(--bg-sidebar)] border-r border-[var(--border)] shrink-0 flex flex-col gap-4 hidden md:flex transition-all duration-300 relative [--text-primary:var(--sidebar-text)] [--text-secondary:var(--sidebar-muted)] ${isCollapsed ? 'w-16 p-2 items-center' : 'w-64 p-4'}`}>
       <button 
         onClick={() => setIsCollapsed(!isCollapsed)}
         className="absolute -right-3 top-6 bg-[var(--bg-card)] border border-[var(--border)] rounded-full p-1 hover:bg-[var(--sidebar-hover)] text-[var(--text-secondary)] z-50 shadow-lg flex items-center justify-center w-6 h-6"
@@ -64,7 +64,7 @@ export function Sidebar() {
                 </button>
 
                 {showThemePopover && (
-                  <div className="absolute right-0 top-full mt-1 bg-[var(--bg-card)] border border-[var(--border)] shadow-xl rounded-lg p-2 z-50 min-w-[120px] flex flex-col gap-1">
+                  <div className="absolute right-0 top-full mt-1 bg-[var(--surface)] border border-[var(--border)] shadow-xl rounded-lg p-2 z-50 min-w-[120px] flex flex-col gap-1 [--text-primary:var(--modal-text)] [--text-secondary:var(--modal-muted)]">
                     <div className="text-[10px] text-[var(--text-secondary)] font-bold mb-1 uppercase tracking-wider px-2">主題 Theme</div>
                     <button
                       onClick={() => { setTheme('dark'); setShowThemePopover(false); }}
@@ -95,7 +95,7 @@ export function Sidebar() {
             {process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY && (
               <button 
                 onClick={logout}
-                className="text-xs w-full py-1.5 bg-[var(--danger)] bg-opacity-10 text-[var(--danger)] hover:bg-opacity-20 rounded transition-colors"
+                className="text-xs w-full py-1.5 border border-[var(--sidebar-danger)] text-[var(--sidebar-danger)] hover:bg-[var(--danger)] hover:border-[var(--danger)] hover:text-[var(--danger-text)] rounded transition-colors"
               >
                 登出
               </button>
