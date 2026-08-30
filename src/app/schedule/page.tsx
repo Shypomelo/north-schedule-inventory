@@ -63,6 +63,10 @@ type ReconcileResult = {
   error?: string;
 };
 
+type ReconcileOptions = {
+  force?: boolean;
+};
+
 const RECONCILE_COOLDOWN_MS = 30000;
 let reconcileInFlight: Promise<ReconcileResult | null> | null = null;
 let lastReconcileAt = 0;
@@ -161,12 +165,12 @@ export default function SchedulePage() {
 
   const [error, setError] = useState<string | null>(null);
 
-  const reconcileGoogleCalendar = useCallback(async () => {
+  const reconcileGoogleCalendar = useCallback(async (options: ReconcileOptions = {}) => {
     if (currentUser?.role?.toUpperCase() === 'VIEWER') return null;
 
     const now = Date.now();
     if (reconcileInFlight) return reconcileInFlight;
-    if (now - lastReconcileAt < RECONCILE_COOLDOWN_MS) return null;
+    if (!options.force && now - lastReconcileAt < RECONCILE_COOLDOWN_MS) return null;
 
     const reconcilePromise = supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session?.access_token) return;
@@ -203,7 +207,7 @@ export default function SchedulePage() {
   const handleManualSync = async () => {
     try {
       setIsLoading(true);
-      const res = await reconcileGoogleCalendar();
+      const res = await reconcileGoogleCalendar({ force: true });
       if (res) {
         if (res.success === false) {
           alert(`同步失敗：${res.error || '未知錯誤'}`);
@@ -237,6 +241,8 @@ export default function SchedulePage() {
 略過 (其他)：${(res.skipped || 0) + skippedOther}`);
         }
         await fetchData(false);
+      } else {
+        alert('目前同步暫時無法執行，請稍後再試');
       }
     } catch (e: any) {
       alert(`同步失敗：${e.message}`);
