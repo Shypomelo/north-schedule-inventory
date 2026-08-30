@@ -417,7 +417,7 @@ export default function ProjectsPage() {
         <h2 className="text-xl font-bold text-primary mb-4 px-2 border-l-4 border-accent">{title} <span className="text-secondary text-sm font-normal ml-2">({projectsList.length})</span></h2>
         <div className="bg-card/40 border border-theme-border rounded-xl overflow-hidden shadow-xl backdrop-blur-sm">
           <table className="w-full text-left border-collapse min-w-[1500px]">
-            <thead className="bg-page text-secondary text-sm border-b border-theme-border">
+            <thead className="bg-[var(--surface-secondary)] text-secondary text-sm border-b border-theme-border">
                 <tr>
                   <th className="p-3 font-semibold whitespace-nowrap w-[60px] text-center"></th>
                   <th className="p-3 font-semibold whitespace-nowrap min-w-[100px]">編號</th>
@@ -442,7 +442,7 @@ export default function ProjectsPage() {
               ) : projectsList.map(project => (
                 <tr 
                   key={project.id} 
-                  className="hover:bg-card/60 transition-colors group cursor-context-menu"
+                  className="hover:bg-[var(--surface-secondary)] transition-colors group cursor-context-menu"
                   onContextMenu={(e) => {
                     e.preventDefault();
                     if (currentUser?.role === 'VIEWER') return;
@@ -700,7 +700,7 @@ export default function ProjectsPage() {
         ) : (
           <div className="bg-card/40 border border-theme-border rounded-xl overflow-hidden shadow-xl backdrop-blur-sm">
             <table className="w-full text-left border-collapse min-w-[1400px]">
-              <thead className="bg-page text-secondary text-sm sticky top-0 z-10 border-b border-theme-border backdrop-blur-md">
+              <thead className="bg-[var(--surface-secondary)] text-secondary text-sm sticky top-0 z-10 border-b border-theme-border backdrop-blur-md">
                   <tr>
                     <th className="p-4 font-semibold whitespace-nowrap w-[100px]">狀態</th>
                     <th className="p-4 font-semibold whitespace-nowrap w-[120px]">保固狀態</th>
@@ -718,7 +718,7 @@ export default function ProjectsPage() {
                   return (
                     <tr 
                       key={project.id} 
-                      className="hover:bg-card/60 transition-colors cursor-pointer group"
+                      className="hover:bg-[var(--surface-secondary)] transition-colors cursor-pointer group"
                       onClick={() => { setEditingProject(project); setIsFormModalOpen(true); }}
                     >
                       <td className="p-4 text-primary">

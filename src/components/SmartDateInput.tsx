@@ -37,7 +37,7 @@ export function SmartDateInput({ value, baseDate, onChange, placeholder, disable
       onBlur={handleBlur}
       onChange={(e) => setLocalValue(e.target.value)}
       disabled={disabled}
-      className={`w-full bg-slate-900/50 px-2 py-1.5 rounded border border-slate-700/50 transition-colors outline-none placeholder:text-slate-600 ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-900 focus:bg-slate-900 focus:border-emerald-500/50'}`}
+      className={`w-full bg-page/50 px-2 py-1.5 rounded border border-theme-border/50 text-primary transition-colors outline-none placeholder:text-secondary/60 ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-page focus:bg-page focus:border-accent/50'}`}
       placeholder={placeholder}
     />
   );

@@ -76,11 +76,11 @@ export default function TodosPage() {
   return (
     <div className="p-8 max-w-4xl mx-auto flex flex-col h-full">
       <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold text-slate-100">待辦事項</h1>
+        <h1 className="text-3xl font-bold text-primary">待辦事項</h1>
         <button 
           onClick={() => { setEditingTodo(null); setIsModalOpen(true); }}
           disabled={currentUser?.role === 'VIEWER'}
-          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded shadow transition disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded shadow transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Plus size={20} />
           新增待辦
@@ -89,40 +89,40 @@ export default function TodosPage() {
 
       <div className="flex flex-col gap-4">
         {isLoading ? (
-          <div className="text-slate-400">載入中...</div>
+          <div className="text-secondary">載入中...</div>
         ) : todos.length === 0 ? (
-          <div className="text-slate-500 bg-slate-800/30 border border-slate-700 p-8 text-center rounded-xl">目前沒有待辦事項</div>
+          <div className="text-secondary bg-card/30 border border-theme-border p-8 text-center rounded-xl">目前沒有待辦事項</div>
         ) : (
           todos.map(todo => {
             const proj = projects.find(p => p.id === todo.project_id);
             return (
-              <div key={todo.id} className={`bg-slate-800/50 border border-slate-700 p-4 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${todo.status === '已排程' ? 'opacity-50' : 'hover:border-slate-500'}`}>
+              <div key={todo.id} className={`bg-card/50 border border-theme-border p-4 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${todo.status === '已排程' ? 'opacity-50' : 'hover:border-accent/50'}`}>
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-1">
-                    <h3 className="font-semibold text-lg text-slate-200">{todo.title}</h3>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${todo.status === '待安排' ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-600/50 text-slate-400'}`}>
+                    <h3 className="font-semibold text-lg text-primary">{todo.title}</h3>
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${todo.status === '待安排' ? 'bg-warning/20 text-warning' : 'bg-secondary/20 text-secondary'}`}>
                       {todo.status}
                     </span>
-                    {todo.task_type && <span className="text-xs bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded-full">{todo.task_type}</span>}
+                    {todo.task_type && <span className="text-xs bg-accent/20 text-accent px-2 py-0.5 rounded-full">{todo.task_type}</span>}
                   </div>
-                  {proj && <div className="text-sm text-emerald-400 mb-2">📍 {proj.name}</div>}
-                  {todo.content && <p className="text-slate-400 text-sm whitespace-pre-wrap">{todo.content}</p>}
+                  {proj && <div className="text-sm text-accent mb-2">📍 {proj.name}</div>}
+                  {todo.content && <p className="text-secondary text-sm whitespace-pre-wrap">{todo.content}</p>}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   {todo.status === '待安排' && (
                     <button 
                       onClick={() => { setEditingTodo(todo); setIsTaskModalOpen(true); }} 
                       disabled={currentUser?.role === 'VIEWER'}
-                      className="flex items-center gap-1 text-sm bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/40 px-3 py-1.5 rounded transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="flex items-center gap-1 text-sm bg-accent/20 text-accent hover:bg-accent/30 px-3 py-1.5 rounded transition disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <CalendarPlus size={16} />
                       排入排程
                     </button>
                   )}
-                  <button onClick={() => { setEditingTodo(todo); setIsModalOpen(true); }} disabled={currentUser?.role === 'VIEWER'} className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition disabled:opacity-50 disabled:cursor-not-allowed" title="編輯">
+                  <button onClick={() => { setEditingTodo(todo); setIsModalOpen(true); }} disabled={currentUser?.role === 'VIEWER'} className="p-2 text-secondary hover:text-primary hover:bg-page rounded transition disabled:opacity-50 disabled:cursor-not-allowed" title="編輯">
                     <Edit2 size={16} />
                   </button>
-                  <button onClick={() => handleDelete(todo.id)} disabled={currentUser?.role === 'VIEWER'} className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-950/50 rounded transition disabled:opacity-50 disabled:cursor-not-allowed" title="刪除">
+                  <button onClick={() => handleDelete(todo.id)} disabled={currentUser?.role === 'VIEWER'} className="p-2 text-secondary hover:text-danger hover:bg-danger/10 rounded transition disabled:opacity-50 disabled:cursor-not-allowed" title="刪除">
                     <Trash2 size={16} />
                   </button>
                 </div>
@@ -133,9 +133,9 @@ export default function TodosPage() {
       </div>
 
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-800 border border-slate-700 p-6 rounded-2xl w-full max-w-md shadow-2xl">
-            <h2 className="text-2xl font-bold text-slate-100 mb-6">{editingTodo ? '編輯待辦' : '新增待辦'}</h2>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-card border border-theme-border p-6 rounded-2xl w-full max-w-md shadow-2xl">
+            <h2 className="text-2xl font-bold text-primary mb-6">{editingTodo ? '編輯待辦' : '新增待辦'}</h2>
             <TodoForm 
               initialData={editingTodo || undefined}
               onSubmit={handleCreateOrUpdate}
@@ -147,9 +147,9 @@ export default function TodosPage() {
       )}
 
       {isTaskModalOpen && editingTodo && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-800 border border-slate-700 p-6 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-auto shadow-2xl">
-            <h2 className="text-2xl font-bold text-slate-100 mb-6">待辦轉為排程任務</h2>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-card border border-theme-border p-6 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-auto shadow-2xl">
+            <h2 className="text-2xl font-bold text-primary mb-6">待辦轉為排程任務</h2>
             <ScheduleTaskForm 
               initialData={{
                 title: editingTodo.title,

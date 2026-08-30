@@ -355,7 +355,7 @@ export default function InventoryBalancePage() {
            </div>
         ) : (
           <table className="w-full text-left border-collapse">
-            <thead className="bg-card/80 backdrop-blur-sm text-secondary text-sm sticky top-0 z-10 border-b border-theme-border">
+            <thead className="bg-[var(--surface-secondary)] backdrop-blur-sm text-secondary text-sm sticky top-0 z-10 border-b border-theme-border">
               <tr>
                 <th className="p-4 font-semibold">來源</th>
                 <th className="p-4 font-semibold">品名</th>
@@ -372,7 +372,7 @@ export default function InventoryBalancePage() {
                 return (
                   <tr 
                     key={i} 
-                    className="hover:bg-card/60 transition-colors cursor-pointer group"
+                    className="hover:bg-[var(--surface-secondary)] transition-colors cursor-pointer group"
                     onClick={() => setDetailItemId(b.item_id)}
                     onContextMenu={(e) => handleContextMenu(e, b.item_id)}
                   >

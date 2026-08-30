@@ -1,12 +1,14 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from 'react';
+import { usePathname } from 'next/navigation';
 import { UserSelector } from "@/components/UserSelector";
 import { useUser } from "@/components/UserContext";
 import { useTheme } from "@/components/ThemeContext";
 import { ChevronLeft, ChevronRight, Home, Calendar, Building2, Package, Truck, Settings, Users, Wrench, ListChecks, Palette } from "lucide-react";
 
 export function Sidebar() {
+  const pathname = usePathname();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showThemePopover, setShowThemePopover] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -16,6 +18,8 @@ export function Sidebar() {
 
   const currentRole = currentUser?.role?.toLowerCase();
   const engineeringUsers = allUsers.filter(u => u.is_active && u.category === 'ENGINEERING');
+  const isActive = (href: string, includeSubpaths = false) =>
+    pathname === href || (includeSubpaths && href !== '/' && pathname.startsWith(`${href}/`));
 
   // Close popover when clicking outside
   useEffect(() => {
@@ -31,7 +35,7 @@ export function Sidebar() {
   }, []);
 
   return (
-    <aside className={`h-[100dvh] bg-[var(--bg-sidebar)] border-r border-[var(--border)] shrink-0 flex flex-col gap-4 hidden md:flex transition-all duration-300 relative [--text-primary:var(--sidebar-text)] [--text-secondary:var(--sidebar-muted)] ${isCollapsed ? 'w-16 p-2 items-center' : 'w-64 p-4'}`}>
+    <aside className={`h-[100dvh] bg-[var(--bg-sidebar)] border-r border-[var(--sidebar-border)] shrink-0 flex flex-col gap-4 hidden md:flex transition-all duration-300 relative [--text-primary:var(--sidebar-text)] [--text-secondary:var(--sidebar-muted)] ${isCollapsed ? 'w-16 p-2 items-center' : 'w-64 p-4'}`}>
       <button 
         onClick={() => setIsCollapsed(!isCollapsed)}
         className="absolute -right-3 top-6 bg-[var(--bg-card)] border border-[var(--border)] rounded-full p-1 hover:bg-[var(--sidebar-hover)] text-[var(--text-secondary)] z-50 shadow-lg flex items-center justify-center w-6 h-6"
@@ -39,7 +43,7 @@ export function Sidebar() {
         {isCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
       </button>
 
-      <div className={`font-bold text-[var(--accent)] transition-all duration-300 overflow-hidden whitespace-nowrap flex-shrink-0 ${isCollapsed ? 'text-xs opacity-0 w-0 h-0 m-0' : 'text-xl opacity-100'}`}>
+      <div className={`font-bold text-[var(--sidebar-brand)] transition-all duration-300 overflow-hidden whitespace-nowrap flex-shrink-0 ${isCollapsed ? 'text-xs opacity-0 w-0 h-0 m-0' : 'text-xl opacity-100'}`}>
         北部工程排程系統
       </div>
       
@@ -50,7 +54,7 @@ export function Sidebar() {
           </div>
         )}
         {currentUser && (
-          <div className="bg-[var(--sidebar-hover)] p-3 rounded-lg border border-[var(--border)] relative">
+          <div className="bg-[var(--sidebar-hover)] p-3 rounded-lg border border-[var(--sidebar-border)] relative">
             <div className="flex justify-between items-start">
               <div className="text-sm font-bold text-[var(--text-primary)]">{currentUser.name}</div>
 
@@ -64,7 +68,7 @@ export function Sidebar() {
                 </button>
 
                 {showThemePopover && (
-                  <div className="absolute right-0 top-full mt-1 bg-[var(--surface)] border border-[var(--border)] shadow-xl rounded-lg p-2 z-50 min-w-[120px] flex flex-col gap-1 [--text-primary:var(--modal-text)] [--text-secondary:var(--modal-muted)]">
+                  <div className="theme-popover absolute right-0 top-full mt-1 bg-[var(--surface)] border border-[var(--border)] shadow-xl rounded-lg p-2 z-50 min-w-[120px] flex flex-col gap-1 [--text-primary:var(--modal-text)] [--text-secondary:var(--modal-muted)]">
                     <div className="text-[10px] text-[var(--text-secondary)] font-bold mb-1 uppercase tracking-wider px-2">主題 Theme</div>
                     <button
                       onClick={() => { setTheme('dark'); setShowThemePopover(false); }}
@@ -95,7 +99,7 @@ export function Sidebar() {
             {process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY && (
               <button 
                 onClick={logout}
-                className="text-xs w-full py-1.5 border border-[var(--sidebar-danger)] text-[var(--sidebar-danger)] hover:bg-[var(--danger)] hover:border-[var(--danger)] hover:text-[var(--danger-text)] rounded transition-colors"
+                className="text-xs w-full py-1.5 border border-[var(--sidebar-danger)] text-[var(--sidebar-danger)] hover:bg-[var(--sidebar-logout-hover)] hover:border-[var(--sidebar-logout-hover)] hover:text-[var(--danger-text)] rounded transition-colors"
               >
                 登出
               </button>
@@ -105,11 +109,11 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 flex flex-col gap-2 w-full overflow-y-auto overflow-x-hidden sidebar-scrollbar pb-6 pr-1">
-        <a href="/" className={`hover:bg-[var(--sidebar-hover)] rounded flex items-center ${isCollapsed ? 'justify-center p-2' : 'p-2'}`} title="儀表板">
+        <a href="/" className={`hover:bg-[var(--sidebar-hover)] rounded flex items-center ${isActive('/') ? 'bg-[var(--sidebar-active)]' : ''} ${isCollapsed ? 'justify-center p-2' : 'p-2'}`} title="儀表板">
           <Home size={18} className="shrink-0 text-[var(--text-secondary)]" />
           <span className={`ml-3 whitespace-nowrap overflow-hidden text-[var(--text-primary)] transition-all duration-300 ${isCollapsed ? 'w-0 opacity-0' : 'opacity-100'}`}>儀表板 (Dashboard)</span>
         </a>
-        <a href="/schedule" className={`hover:bg-[var(--sidebar-hover)] rounded flex items-center ${isCollapsed ? 'justify-center p-2' : 'p-2'}`} title="排程管理">
+        <a href="/schedule" className={`hover:bg-[var(--sidebar-hover)] rounded flex items-center ${isActive('/schedule', true) ? 'bg-[var(--sidebar-active)]' : ''} ${isCollapsed ? 'justify-center p-2' : 'p-2'}`} title="排程管理">
           <Calendar size={18} className="shrink-0 text-[var(--text-secondary)]" />
           <span className={`ml-3 whitespace-nowrap overflow-hidden text-[var(--text-primary)] transition-all duration-300 ${isCollapsed ? 'w-0 opacity-0' : 'opacity-100'}`}>排程管理</span>
         </a>
@@ -123,19 +127,19 @@ export function Sidebar() {
             {!isCollapsed && <span className="transition group-open:rotate-180">▾</span>}
           </summary>
           <div className={`flex flex-col gap-1 mt-1 pl-2 transition-all duration-300 overflow-hidden ${isCollapsed ? 'hidden' : 'block'}`}>
-            <a href="/projects/active" className="text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] p-2 rounded text-sm whitespace-nowrap">進行中案場</a>
+            <a href="/projects/active" className={`text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] p-2 rounded text-sm whitespace-nowrap ${isActive('/projects/active', true) ? 'bg-[var(--sidebar-active)]' : ''}`}>進行中案場</a>
             {engineeringUsers.map(u => (
-              <a key={u.id} href={`/projects/${u.id}`} className="text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] p-2 rounded text-sm whitespace-nowrap">{u.name}案場</a>
+              <a key={u.id} href={`/projects/${u.id}`} className={`text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] p-2 rounded text-sm whitespace-nowrap ${isActive(`/projects/${u.id}`, true) ? 'bg-[var(--sidebar-active)]' : ''}`}>{u.name}案場</a>
             ))}
-            <a href="/projects" className="text-[var(--text-secondary)] hover:bg-[var(--sidebar-hover)] p-2 rounded text-sm whitespace-nowrap">所有案場</a>
+            <a href="/projects" className={`text-[var(--text-secondary)] hover:bg-[var(--sidebar-hover)] p-2 rounded text-sm whitespace-nowrap ${isActive('/projects') ? 'bg-[var(--sidebar-active)]' : ''}`}>所有案場</a>
           </div>
         </details>
 
-        <a href="/inventory" className={`hover:bg-[var(--sidebar-hover)] rounded mt-2 flex items-center ${isCollapsed ? 'justify-center p-2' : 'p-2'}`} title="庫存管理">
+        <a href="/inventory" className={`hover:bg-[var(--sidebar-hover)] rounded mt-2 flex items-center ${isActive('/inventory', true) ? 'bg-[var(--sidebar-active)]' : ''} ${isCollapsed ? 'justify-center p-2' : 'p-2'}`} title="庫存管理">
           <Package size={18} className="shrink-0 text-[var(--text-secondary)]" />
           <span className={`ml-3 whitespace-nowrap overflow-hidden text-[var(--text-primary)] transition-all duration-300 ${isCollapsed ? 'w-0 opacity-0' : 'opacity-100'}`}>庫存管理</span>
         </a>
-        <a href="/se-supply" className={`hover:bg-[var(--sidebar-hover)] rounded mt-2 flex items-center ${isCollapsed ? 'justify-center p-2' : 'p-2'}`} title="SE 供貨追蹤">
+        <a href="/se-supply" className={`hover:bg-[var(--sidebar-hover)] rounded mt-2 flex items-center ${isActive('/se-supply', true) ? 'bg-[var(--sidebar-active)]' : ''} ${isCollapsed ? 'justify-center p-2' : 'p-2'}`} title="SE 供貨追蹤">
           <Truck size={18} className="shrink-0 text-[var(--text-secondary)]" />
           <span className={`ml-3 whitespace-nowrap overflow-hidden text-[var(--text-primary)] transition-all duration-300 ${isCollapsed ? 'w-0 opacity-0' : 'opacity-100'}`}>SE 供貨追蹤</span>
         </a>
@@ -150,15 +154,15 @@ export function Sidebar() {
               {!isCollapsed && <span className="transition group-open:rotate-180">▾</span>}
             </summary>
             <div className={`flex flex-col gap-1 mt-1 pl-2 transition-all duration-300 overflow-hidden ${isCollapsed ? 'hidden' : 'block'}`}>
-              <a href="/admin/users" className="text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] p-2 rounded text-sm whitespace-nowrap flex items-center gap-2">
+              <a href="/admin/users" className={`text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] p-2 rounded text-sm whitespace-nowrap flex items-center gap-2 ${isActive('/admin/users', true) ? 'bg-[var(--sidebar-active)]' : ''}`}>
                 <Users size={14} />
                 人員管理
               </a>
-              <a href="/admin/contractors" className="text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] p-2 rounded text-sm whitespace-nowrap flex items-center gap-2">
+              <a href="/admin/contractors" className={`text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] p-2 rounded text-sm whitespace-nowrap flex items-center gap-2 ${isActive('/admin/contractors', true) ? 'bg-[var(--sidebar-active)]' : ''}`}>
                 <Wrench size={14} />
                 包商管理
               </a>
-              <a href="/admin/task-types" className="text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] p-2 rounded text-sm whitespace-nowrap flex items-center gap-2">
+              <a href="/admin/task-types" className={`text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] p-2 rounded text-sm whitespace-nowrap flex items-center gap-2 ${isActive('/admin/task-types', true) ? 'bg-[var(--sidebar-active)]' : ''}`}>
                 <ListChecks size={14} />
                 任務類型管理
               </a>

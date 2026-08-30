@@ -158,7 +158,7 @@ export function DateDualInput({ expectedDate, completionDate, baseDate, onChange
     return '';
   };
 
-  let textClass = 'text-slate-200';
+  let textClass = 'text-primary';
   if (!isFocused) {
     if (expectedDate) {
       const parsed = parseDateField(expectedDate.replace(/\./g, '/'), baseDate);
@@ -192,20 +192,20 @@ export function DateDualInput({ expectedDate, completionDate, baseDate, onChange
         onKeyDown={handleKeyDown}
         disabled={disabled}
         placeholder="未指定"
-        className={`date-dual-input w-full bg-slate-900/50 px-2 py-1 rounded border border-slate-700/50 transition-colors outline-none placeholder:text-slate-600 text-sm h-[32px] ${textClass} ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-900 focus:bg-slate-900 focus:border-emerald-500/50'}`}
+        className={`date-dual-input w-full bg-page/50 px-2 py-1 rounded border border-theme-border/50 transition-colors outline-none placeholder:text-secondary/60 text-sm h-[32px] ${textClass} ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-page focus:bg-page focus:border-accent/50'}`}
       />
 
       {mounted && isFocused && popoverCoords && createPortal(
         <div 
           ref={popoverRef}
-          className="fixed mt-1 w-56 bg-slate-800 border border-slate-600 rounded-xl shadow-[0_0_40px_rgba(0,0,0,0.5)] p-4 flex flex-col gap-3 z-[99999]"
+          className="fixed mt-1 w-56 bg-card border border-theme-border rounded-xl shadow-[0_0_40px_rgba(0,0,0,0.3)] p-4 flex flex-col gap-3 z-[99999]"
           style={{ 
             top: popoverCoords.top - window.scrollY, 
             left: popoverCoords.left - window.scrollX
           }}
         >
           <div>
-            <label className="block text-xs text-slate-400 mb-1">進場日期</label>
+            <label className="block text-xs text-secondary mb-1">進場日期</label>
             <input 
               type="text" 
               value={localExpected} 
@@ -213,7 +213,7 @@ export function DateDualInput({ expectedDate, completionDate, baseDate, onChange
               onBlur={handlePopoverExpectedBlur}
               onKeyDown={e => { if(e.key==='Enter') handlePopoverExpectedBlur(); }}
               placeholder="例如 0703 或 20260703"
-              className="w-full bg-slate-900/80 border border-slate-600 rounded px-2 py-1.5 text-sm text-slate-200 outline-none focus:border-emerald-500/50"
+              className="w-full bg-page border border-theme-border rounded px-2 py-1.5 text-sm text-primary outline-none focus:border-accent/50"
             />
           </div>
           <div>
@@ -225,7 +225,7 @@ export function DateDualInput({ expectedDate, completionDate, baseDate, onChange
               onBlur={handlePopoverCompletionBlur}
               onKeyDown={e => { if(e.key==='Enter') handlePopoverCompletionBlur(); }}
               placeholder="例如 0703 或 20260703"
-              className="w-full bg-slate-900/80 border border-emerald-600/30 rounded px-2 py-1.5 text-sm text-emerald-400 outline-none focus:border-emerald-500/50"
+              className="w-full bg-page border border-success/30 rounded px-2 py-1.5 text-sm text-success outline-none focus:border-success/60"
             />
           </div>
           <div className="flex justify-end mt-1">

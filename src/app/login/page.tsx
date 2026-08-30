@@ -58,11 +58,11 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-slate-900 text-slate-50 w-full">
-      <div className="w-full max-w-md p-8 bg-slate-800 rounded-xl shadow-lg border border-slate-700">
+    <div className="flex items-center justify-center min-h-screen bg-page text-primary w-full">
+      <div className="w-full max-w-md p-8 bg-card rounded-xl shadow-lg border border-theme-border">
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-white mb-2">北部工程排程與庫存管理系統</h1>
-          <p className="text-slate-400">請登入以繼續使用系統</p>
+          <h1 className="text-2xl font-bold text-primary mb-2">北部工程排程與庫存管理系統</h1>
+          <p className="text-secondary">請登入以繼續使用系統</p>
         </div>
 
         {authError && (
@@ -75,7 +75,7 @@ export default function LoginPage() {
         <button
           onClick={handleGoogleLogin}
           disabled={isLoading}
-          className="w-full flex items-center justify-center gap-3 bg-white hover:bg-slate-100 text-slate-900 font-medium py-3 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full flex items-center justify-center gap-3 bg-white hover:bg-gray-100 text-gray-900 border border-gray-200 font-medium py-3 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <svg className="w-5 h-5" viewBox="0 0 24 24">
             <path

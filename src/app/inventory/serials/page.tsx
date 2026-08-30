@@ -133,7 +133,7 @@ export default function SerialsPage() {
         </h2>
         
         {pendingList.length === 0 ? (
-          <div className="bg-slate-800/30 border border-slate-700 p-8 rounded-xl text-center text-slate-400 flex flex-col items-center gap-2">
+          <div className="bg-card/30 border border-theme-border p-8 rounded-xl text-center text-secondary flex flex-col items-center gap-2">
             <CheckCircle2 className="text-emerald-500 mb-2" size={40} />
             目前沒有需要補登的序號！
           </div>
@@ -146,19 +146,19 @@ export default function SerialsPage() {
               const isOut = tx?.transaction_type === 'OUT';
               
               return (
-                <div key={ps.id} className="bg-slate-800 border border-amber-500/30 p-4 rounded-xl flex flex-col gap-3 shadow-lg relative overflow-hidden">
+                <div key={ps.id} className="bg-card border border-warning/30 p-4 rounded-xl flex flex-col gap-3 shadow-lg relative overflow-hidden">
                   <div className={`absolute top-0 left-0 w-1 h-full ${isOut ? 'bg-red-500' : 'bg-emerald-500'}`}></div>
                   <div className="flex justify-between items-start">
                     <div className="flex flex-col">
-                      <span className="text-sm text-slate-400">{tx?.transaction_date} ({tx?.transaction_type})</span>
-                      <span className="font-bold text-slate-200 mt-1">{item?.name}</span>
+                      <span className="text-sm text-secondary">{tx?.transaction_date} ({tx?.transaction_type})</span>
+                      <span className="font-bold text-primary mt-1">{item?.name}</span>
                     </div>
                     {isOut && <span className="bg-red-900/50 text-red-400 text-xs px-2 py-1 rounded font-semibold">出庫缺號</span>}
                     {!isOut && <span className="bg-emerald-900/50 text-emerald-400 text-xs px-2 py-1 rounded font-semibold">入庫缺號</span>}
                   </div>
                   
                   {proj && (
-                    <div className="text-sm text-slate-300">
+                    <div className="text-sm text-primary">
                       關聯案場：<span className="font-semibold text-amber-300">{proj.name}</span>
                     </div>
                   )}
@@ -175,7 +175,7 @@ export default function SerialsPage() {
                       <input 
                         type="text" name="serial" required
                         placeholder="請輸入或掃描序號..." 
-                        className="bg-slate-900 border border-slate-600 rounded px-3 py-2 w-full outline-none focus:border-amber-500 text-sm"
+                        className="bg-page border border-theme-border rounded px-3 py-2 w-full text-primary outline-none focus:border-warning text-sm"
                       />
                       <button type="submit" className="bg-amber-600 hover:bg-amber-500 text-white px-3 py-2 rounded text-sm font-semibold whitespace-nowrap transition">
                         補登
@@ -191,11 +191,11 @@ export default function SerialsPage() {
 
       {/* 已註冊序號 */}
       <div className="flex flex-col gap-4">
-        <h2 className="text-2xl font-bold text-slate-200">所有序號總覽</h2>
+        <h2 className="text-2xl font-bold text-primary">所有序號總覽</h2>
         
-        <div className="flex-1 overflow-auto bg-slate-800/30 border border-slate-700 rounded-xl max-h-[500px]">
+        <div className="flex-1 overflow-auto bg-card/30 border border-theme-border rounded-xl max-h-[500px]">
           <table className="w-full text-left border-collapse">
-            <thead className="bg-slate-800 text-slate-300 text-sm sticky top-0 z-10 border-b border-slate-700">
+            <thead className="bg-card text-secondary text-sm sticky top-0 z-10 border-b border-theme-border">
               <tr>
                 <th className="p-4 font-semibold">序號</th>
                 <th className="p-4 font-semibold">品項</th>
@@ -204,14 +204,14 @@ export default function SerialsPage() {
                 <th className="p-4 font-semibold">是否補登</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-700/50 text-sm">
+            <tbody className="divide-y divide-theme-border/50 text-sm">
               {allSerials.map(s => {
                 const item = items.find(i => i.id === s.item_id);
                 const proj = projects.find(p => p.id === s.project_id);
                 return (
-                  <tr key={s.id} className="hover:bg-slate-700/30 transition-colors">
+                  <tr key={s.id} className="hover:bg-card/60 transition-colors">
                     <td className="p-4 font-mono text-emerald-400 font-bold">{s.serial_number}</td>
-                    <td className="p-4 text-slate-300">{item?.name}</td>
+                    <td className="p-4 text-primary">{item?.name}</td>
                     <td className="p-4">
                       <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
                         s.status === '在庫' ? 'bg-emerald-500/20 text-emerald-400' :
@@ -224,7 +224,7 @@ export default function SerialsPage() {
                     </td>
                     <td className="p-4 text-amber-300">{proj?.name || '-'}</td>
                     <td className="p-4">
-                      <span className="text-slate-500">-</span>
+                      <span className="text-secondary">-</span>
                     </td>
                   </tr>
                 );

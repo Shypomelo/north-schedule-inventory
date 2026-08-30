@@ -200,41 +200,41 @@ export default function SESupplyPage() {
   };
 
   if (isLoading) {
-    return <div className="p-8 text-slate-400">載入中...</div>;
+    return <div className="p-8 text-secondary">載入中...</div>;
   }
 
   return (
     <div className="flex flex-col h-screen overflow-hidden p-4 md:p-6 pb-20">
       <div className="flex justify-between items-center mb-6 shrink-0">
         <div>
-          <h1 className="text-2xl font-bold text-slate-100">SE 供貨追蹤</h1>
-          <p className="text-slate-400 text-sm mt-1">獨立追蹤 SE 物料更換與流向，可直接點擊表格進行編輯。</p>
+          <h1 className="text-2xl font-bold text-primary">SE 供貨追蹤</h1>
+          <p className="text-secondary text-sm mt-1">獨立追蹤 SE 物料更換與流向，可直接點擊表格進行編輯。</p>
         </div>
         <button 
           onClick={exportExcel}
-          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded shadow transition font-semibold"
+          className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded shadow transition font-semibold"
         >
           <Download size={18} />
           匯出 Excel
         </button>
       </div>
 
-      <div className="flex flex-wrap gap-4 mb-4 shrink-0 bg-slate-900 p-4 rounded-lg border border-slate-800">
-        <div className="flex items-center gap-2 bg-slate-800 rounded px-3 py-1.5 flex-1 min-w-[200px]">
-          <Search size={16} className="text-slate-400" />
+      <div className="flex flex-wrap gap-4 mb-4 shrink-0 bg-card p-4 rounded-lg border border-theme-border">
+        <div className="flex items-center gap-2 bg-page rounded px-3 py-1.5 flex-1 min-w-[200px] border border-theme-border/50">
+          <Search size={16} className="text-secondary" />
           <input 
             type="text" 
             placeholder="搜尋案名 / 序號..." 
-            className="bg-transparent border-none outline-none text-slate-200 text-sm w-full"
+            className="bg-transparent border-none outline-none text-primary placeholder:text-secondary/60 text-sm w-full"
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
           />
         </div>
         
         <div className="flex items-center gap-2">
-          <Filter size={16} className="text-slate-400" />
+          <Filter size={16} className="text-secondary" />
           <select 
-            className="bg-slate-800 border-none outline-none text-slate-200 text-sm p-1.5 rounded"
+            className="bg-page border border-theme-border/50 outline-none text-primary text-sm p-1.5 rounded"
             value={filterMethod}
             onChange={e => setFilterMethod(e.target.value)}
           >
@@ -244,9 +244,9 @@ export default function SESupplyPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          <Filter size={16} className="text-slate-400" />
+          <Filter size={16} className="text-secondary" />
           <select 
-            className="bg-slate-800 border-none outline-none text-slate-200 text-sm p-1.5 rounded"
+            className="bg-page border border-theme-border/50 outline-none text-primary text-sm p-1.5 rounded"
             value={filterStatus}
             onChange={e => setFilterStatus(e.target.value)}
           >
@@ -258,9 +258,9 @@ export default function SESupplyPage() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto bg-slate-900 rounded-xl border border-slate-700 relative">
+      <div className="flex-1 overflow-auto bg-card rounded-xl border border-theme-border relative">
         <table className="w-full text-sm text-left whitespace-nowrap min-w-[1200px]">
-          <thead className="text-xs text-slate-400 bg-slate-800 sticky top-0 z-10 shadow">
+          <thead className="text-xs text-secondary bg-[var(--surface-secondary)] sticky top-0 z-10 shadow">
             <tr>
               <th className="px-3 py-3 w-10 text-center">操作</th>
               <th className="px-3 py-3 w-48">案名</th>
@@ -275,13 +275,13 @@ export default function SESupplyPage() {
               <th className="px-3 py-3 w-48">備註事項</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-800/50">
-            <tr className="bg-slate-900/50 hover:bg-slate-800/80 transition-colors">
+          <tbody className="divide-y divide-theme-border/50">
+            <tr className="bg-card/50 hover:bg-page transition-colors">
               <td colSpan={11} className="p-0">
                 <button 
                   onClick={handleAddRow}
                   disabled={currentUser?.role === 'VIEWER'}
-                  className="w-full flex items-center justify-center gap-2 py-3 text-emerald-400 hover:bg-emerald-900/20 hover:text-emerald-300 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full flex items-center justify-center gap-2 py-3 text-accent hover:bg-accent/10 hover:text-accent-hover transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Plus size={16} /> 新增一筆供貨紀錄
                 </button>
@@ -289,7 +289,7 @@ export default function SESupplyPage() {
             </tr>
             {filteredRecords.length === 0 ? (
               <tr>
-                <td colSpan={11} className="p-8 text-center text-slate-500">尚無符合條件的紀錄</td>
+                <td colSpan={11} className="p-8 text-center text-secondary">尚無符合條件的紀錄</td>
               </tr>
             ) : (
               filteredRecords.map(r => {
@@ -297,7 +297,7 @@ export default function SESupplyPage() {
                 return (
                   <tr
                     key={r.id}
-                    className="bg-slate-900 hover:bg-slate-800/50 transition-colors group"
+                    className="bg-card hover:bg-[var(--surface-secondary)] transition-colors group"
                     onContextMenu={(e) => {
                       if (currentUser?.role === 'VIEWER') return;
                       e.preventDefault();
@@ -308,7 +308,7 @@ export default function SESupplyPage() {
                       <button 
                         onClick={() => handleDeleteRow(r.id)}
                         disabled={currentUser?.role === 'VIEWER'}
-                        className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all p-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="text-secondary/50 hover:text-danger opacity-0 group-hover:opacity-100 transition-all p-1 disabled:opacity-50 disabled:cursor-not-allowed"
                         title="刪除紀錄"
                       >
                         <Trash2 size={16} />
@@ -323,7 +323,7 @@ export default function SESupplyPage() {
                         onBlur={e => handleProjectBlur(r.id, e.target.value)}
                         onKeyDown={e => handleKeyDown(e, r.id, 'project_name', e.currentTarget.value)}
                         placeholder="輸入案名..."
-                        className="w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-emerald-500 focus:bg-slate-950 rounded px-2 py-1 outline-none text-slate-200 placeholder-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full bg-transparent border border-transparent hover:border-theme-border focus:border-accent focus:bg-page rounded px-2 py-1 outline-none text-primary placeholder:text-secondary/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         disabled={currentUser?.role === 'VIEWER'}
                       />
                     </td>
@@ -335,7 +335,7 @@ export default function SESupplyPage() {
                         onBlur={e => handleCellBlur(r.id, 'old_model', e.target.value)}
                         onKeyDown={e => handleKeyDown(e, r.id, 'old_model', e.currentTarget.value)}
                         placeholder="例: SE100K"
-                        className="w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-emerald-500 focus:bg-slate-950 rounded px-2 py-1 outline-none text-slate-200 placeholder-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full bg-transparent border border-transparent hover:border-theme-border focus:border-accent focus:bg-page rounded px-2 py-1 outline-none text-primary placeholder:text-secondary/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         disabled={currentUser?.role === 'VIEWER'}
                       />
                     </td>
@@ -347,7 +347,7 @@ export default function SESupplyPage() {
                         onBlur={e => handleCellBlur(r.id, 'faulty_serial', e.target.value)}
                         onKeyDown={e => handleKeyDown(e, r.id, 'faulty_serial', e.currentTarget.value)}
                         placeholder="序號..."
-                        className="w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-emerald-500 focus:bg-slate-950 rounded px-2 py-1 outline-none text-slate-200 placeholder-slate-600 font-mono text-[13px] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full bg-transparent border border-transparent hover:border-theme-border focus:border-accent focus:bg-page rounded px-2 py-1 outline-none text-primary placeholder:text-secondary/60 font-mono text-[13px] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         disabled={currentUser?.role === 'VIEWER'}
                       />
                     </td>
@@ -360,7 +360,7 @@ export default function SESupplyPage() {
                         onBlur={e => handleCellBlur(r.id, 'fault_reason', e.target.value)}
                         onKeyDown={e => handleKeyDown(e, r.id, 'fault_reason', e.currentTarget.value)}
                         placeholder="故障原因..."
-                        className="w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-emerald-500 focus:bg-slate-950 rounded px-2 py-1 outline-none text-slate-200 placeholder-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full bg-transparent border border-transparent hover:border-theme-border focus:border-accent focus:bg-page rounded px-2 py-1 outline-none text-primary placeholder:text-secondary/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         disabled={currentUser?.role === 'VIEWER'}
                       />
                     </td>
@@ -372,7 +372,7 @@ export default function SESupplyPage() {
                         onBlur={e => handleCellBlur(r.id, 'new_serial', e.target.value)}
                         onKeyDown={e => handleKeyDown(e, r.id, 'new_serial', e.currentTarget.value)}
                         placeholder="新序號..."
-                        className="w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-emerald-500 focus:bg-slate-950 rounded px-2 py-1 outline-none text-slate-200 placeholder-slate-600 font-mono text-[13px] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full bg-transparent border border-transparent hover:border-theme-border focus:border-accent focus:bg-page rounded px-2 py-1 outline-none text-primary placeholder:text-secondary/60 font-mono text-[13px] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         disabled={currentUser?.role === 'VIEWER'}
                       />
                     </td>
@@ -385,7 +385,7 @@ export default function SESupplyPage() {
                         onBlur={e => handleCellBlur(r.id, 'receive_method', e.target.value)}
                         onKeyDown={e => handleKeyDown(e, r.id, 'receive_method', e.currentTarget.value)}
                         placeholder="選擇或輸入..."
-                        className="w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-emerald-500 focus:bg-slate-950 rounded px-2 py-1 outline-none text-slate-200 placeholder-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full bg-transparent border border-transparent hover:border-theme-border focus:border-accent focus:bg-page rounded px-2 py-1 outline-none text-primary placeholder:text-secondary/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         disabled={currentUser?.role === 'VIEWER'}
                       />
                     </td>
@@ -396,7 +396,7 @@ export default function SESupplyPage() {
                         onChange={e => handleCellChange(r.id, 'receive_date', e.target.value)}
                         onBlur={e => handleCellBlur(r.id, 'receive_date', e.target.value)}
                         onKeyDown={e => handleKeyDown(e, r.id, 'receive_date', e.currentTarget.value)}
-                        className="w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-emerald-500 focus:bg-slate-950 rounded px-2 py-1 outline-none text-slate-200 transition-colors [color-scheme:dark] disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full bg-transparent border border-transparent hover:border-theme-border focus:border-accent focus:bg-page rounded px-2 py-1 outline-none text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         disabled={currentUser?.role === 'VIEWER'}
                       />
                     </td>
@@ -407,7 +407,7 @@ export default function SESupplyPage() {
                         onChange={e => handleCellChange(r.id, 'replace_date', e.target.value)}
                         onBlur={e => handleCellBlur(r.id, 'replace_date', e.target.value)}
                         onKeyDown={e => handleKeyDown(e, r.id, 'replace_date', e.currentTarget.value)}
-                        className="w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-emerald-500 focus:bg-slate-950 rounded px-2 py-1 outline-none text-slate-200 transition-colors [color-scheme:dark] disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full bg-transparent border border-transparent hover:border-theme-border focus:border-accent focus:bg-page rounded px-2 py-1 outline-none text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         disabled={currentUser?.role === 'VIEWER'}
                       />
                     </td>
@@ -428,7 +428,7 @@ export default function SESupplyPage() {
                         onBlur={e => handleCellBlur(r.id, 'notes', e.target.value)}
                         onKeyDown={e => handleKeyDown(e, r.id, 'notes', e.currentTarget.value)}
                         placeholder="備註..."
-                        className="w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-emerald-500 focus:bg-slate-950 rounded px-2 py-1 outline-none text-slate-200 placeholder-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full bg-transparent border border-transparent hover:border-theme-border focus:border-accent focus:bg-page rounded px-2 py-1 outline-none text-primary placeholder:text-secondary/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         disabled={currentUser?.role === 'VIEWER'}
                       />
                     </td>
@@ -459,11 +459,11 @@ export default function SESupplyPage() {
 
       {contextMenu.visible && (
         <div
-          className="fixed z-50 bg-slate-800 border border-slate-700 shadow-xl rounded py-1 min-w-[120px]"
+          className="fixed z-50 bg-card border border-theme-border shadow-xl rounded py-1 min-w-[120px]"
           style={{ top: contextMenu.y, left: contextMenu.x }}
         >
           <button
-            className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-slate-700 flex items-center gap-2"
+            className="w-full text-left px-4 py-2 text-sm text-danger hover:bg-page flex items-center gap-2"
             onClick={(e) => {
               e.stopPropagation();
               if (contextMenu.recordId) handleDeleteRow(contextMenu.recordId);

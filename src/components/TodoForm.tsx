@@ -61,21 +61,21 @@ export function TodoForm({ initialData, onSubmit, onCancel, isSubmitting }: Todo
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4 text-primary">
       <div className="grid grid-cols-1 gap-4">
         <label className="flex flex-col gap-1">
-          <span className="text-sm font-semibold text-slate-300">待辦標題 *</span>
+          <span className="text-sm font-semibold text-primary">待辦標題 *</span>
           <input 
             type="text" required 
-            className="bg-slate-900 border border-slate-700 rounded p-2 focus:border-emerald-500 outline-none"
+            className="bg-[var(--input-bg)] border border-[var(--input-border)] rounded p-2 focus:border-accent outline-none"
             value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} 
           />
         </label>
         
         <label className="flex flex-col gap-1">
-          <span className="text-sm font-semibold text-slate-300">關聯案場</span>
+          <span className="text-sm font-semibold text-primary">關聯案場</span>
           <select 
-            className="bg-slate-900 border border-slate-700 rounded p-2 focus:border-emerald-500 outline-none"
+            className="bg-[var(--input-bg)] border border-[var(--input-border)] rounded p-2 focus:border-accent outline-none"
             value={formData.project_id || ''} onChange={e => setFormData({...formData, project_id: e.target.value || null})} 
           >
             <option value="">(無)</option>
@@ -84,10 +84,10 @@ export function TodoForm({ initialData, onSubmit, onCancel, isSubmitting }: Todo
         </label>
         
         <label className="flex flex-col gap-1">
-          <span className="text-sm font-semibold text-slate-300">任務類型</span>
+          <span className="text-sm font-semibold text-primary">任務類型</span>
           <select 
             disabled={taskTypesLoading || Boolean(taskTypesError)}
-            className="bg-slate-900 border border-slate-700 rounded p-2 focus:border-emerald-500 outline-none"
+            className="bg-[var(--input-bg)] border border-[var(--input-border)] rounded p-2 focus:border-accent outline-none"
             value={formData.task_type || ''} onChange={e => setFormData({...formData, task_type: e.target.value || null})} 
           >
             <option value="">{taskTypesLoading ? '載入中...' : taskTypesError || '(無)'}</option>
@@ -101,9 +101,9 @@ export function TodoForm({ initialData, onSubmit, onCancel, isSubmitting }: Todo
         </label>
 
         <label className="flex flex-col gap-1">
-          <span className="text-sm font-semibold text-slate-300">狀態</span>
+          <span className="text-sm font-semibold text-primary">狀態</span>
           <select 
-            className="bg-slate-900 border border-slate-700 rounded p-2 focus:border-emerald-500 outline-none"
+            className="bg-[var(--input-bg)] border border-[var(--input-border)] rounded p-2 focus:border-accent outline-none"
             value={formData.status} onChange={e => setFormData({...formData, status: e.target.value as any})} 
           >
             <option value="待安排">待安排</option>
@@ -113,20 +113,20 @@ export function TodoForm({ initialData, onSubmit, onCancel, isSubmitting }: Todo
         </label>
 
         <label className="flex flex-col gap-1">
-          <span className="text-sm font-semibold text-slate-300">詳細內容</span>
+          <span className="text-sm font-semibold text-primary">詳細內容</span>
           <textarea 
-            className="bg-slate-900 border border-slate-700 rounded p-2 focus:border-emerald-500 outline-none min-h-[80px]"
+            className="bg-[var(--input-bg)] border border-[var(--input-border)] rounded p-2 focus:border-accent outline-none min-h-[80px]"
             value={formData.content || ''} onChange={e => setFormData({...formData, content: e.target.value})} 
           />
         </label>
       </div>
-      <div className="flex justify-between items-center mt-4 border-t border-slate-700 pt-4">
-        <div className="text-red-400 text-sm font-semibold">{errorMsg || ''}</div>
+      <div className="flex justify-between items-center mt-4 border-t border-theme-border pt-4">
+        <div className="text-danger text-sm font-semibold">{errorMsg || ''}</div>
         <div className="flex justify-end gap-3">
-          <button type="button" onClick={onCancel} disabled={isSubmitting} className="px-4 py-2 rounded text-slate-300 hover:bg-slate-800 disabled:opacity-50">
+          <button type="button" onClick={onCancel} disabled={isSubmitting} className="px-4 py-2 rounded text-secondary hover:bg-page disabled:opacity-50">
             取消
           </button>
-          <button type="submit" disabled={isSubmitting || isViewer} className="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold disabled:opacity-50">
+          <button type="submit" disabled={isSubmitting || isViewer} className="px-4 py-2 rounded bg-accent hover:bg-accent-hover text-white font-semibold disabled:opacity-50">
             {isSubmitting ? '儲存中...' : (isViewer ? '檢視權限' : '儲存待辦')}
           </button>
         </div>

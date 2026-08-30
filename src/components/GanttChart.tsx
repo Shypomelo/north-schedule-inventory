@@ -218,7 +218,7 @@ export function GanttChart({ projects, contractors, onProjectClick }: GanttChart
                 <span className="font-bold text-orange-300 text-base">[{c.contractor.name}]</span>
                 <div className="flex flex-wrap gap-2">
                   {c.tasks.map((t: any, i: number) => (
-                    <div key={i} className="bg-slate-900/60 px-2 py-1 rounded border border-orange-500/30 flex items-center gap-2">
+                    <div key={i} className="bg-page/60 px-2 py-1 rounded border border-orange-500/30 flex items-center gap-2">
                       <button 
                         onClick={() => document.getElementById(`gantt-project-${t.project.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
                         className="font-medium text-emerald-400 hover:text-emerald-300 hover:underline cursor-pointer"
@@ -238,14 +238,14 @@ export function GanttChart({ projects, contractors, onProjectClick }: GanttChart
       )}
 
       {/* Gantt Chart Container */}
-      <div ref={scrollContainerRef} className="flex-1 overflow-auto rounded-xl border border-slate-700/50 bg-slate-800/20 shadow-xl relative">
+      <div ref={scrollContainerRef} className="flex-1 overflow-auto rounded-xl border border-theme-border/50 bg-card/20 shadow-xl relative">
         {validTasks.length === 0 ? (
-          <div className="p-8 text-center text-slate-400">目前沒有可顯示的排程資料（需有進場及完工日期）</div>
+          <div className="p-8 text-center text-secondary">目前沒有可顯示的排程資料（需有進場及完工日期）</div>
         ) : (
           <div className="inline-flex flex-col min-w-full">
             {/* Header Row (Dates) */}
-            <div className="flex sticky top-0 z-20 bg-slate-800 border-b border-slate-700/50">
-              <div className="w-48 flex-shrink-0 border-r border-slate-700/50 p-3 sticky left-0 z-30 bg-slate-800 font-medium text-slate-300">
+            <div className="flex sticky top-0 z-20 bg-card border-b border-theme-border/50">
+              <div className="w-48 flex-shrink-0 border-r border-theme-border/50 p-3 sticky left-0 z-30 bg-card font-medium text-primary">
                 案場名稱
               </div>
               <div className="flex" style={{ width: `${totalDays * 40}px` }}>
@@ -254,7 +254,7 @@ export function GanttChart({ projects, contractors, onProjectClick }: GanttChart
                   return (
                     <div 
                       key={i} 
-                      className={`w-[40px] flex-shrink-0 border-r border-slate-700/30 flex flex-col items-center justify-center text-xs ${isToday ? 'bg-emerald-500/20 text-emerald-400 font-bold' : 'text-slate-400'}`}
+                      className={`w-[40px] flex-shrink-0 border-r border-theme-border/30 flex flex-col items-center justify-center text-xs ${isToday ? 'bg-success/20 text-success font-bold' : 'text-secondary'}`}
                     >
                       <span>{format(d, 'MM/dd')}</span>
                     </div>
@@ -267,9 +267,9 @@ export function GanttChart({ projects, contractors, onProjectClick }: GanttChart
             {groupedByProject.map(([projectId, projectTasks]) => {
               const project = projectTasks[0].project;
               return (
-                <div key={projectId} id={`gantt-project-${projectId}`} className="flex border-b border-slate-700/30 hover:bg-slate-700/20 transition-colors relative">
+                <div key={projectId} id={`gantt-project-${projectId}`} className="flex border-b border-theme-border/30 hover:bg-card/60 transition-colors relative">
                   {/* Left fixed column */}
-                  <div className="w-48 flex-shrink-0 border-r border-slate-700/50 p-3 sticky left-0 z-10 bg-slate-800/95 backdrop-blur font-medium text-slate-200">
+                  <div className="w-48 flex-shrink-0 border-r border-theme-border/50 p-3 sticky left-0 z-10 bg-card/95 backdrop-blur font-medium text-primary">
                     <button 
                       onClick={() => handleProjectLeftClick(projectId)}
                       className="truncate hover:text-emerald-400 hover:underline cursor-pointer text-left w-full block" 
@@ -277,14 +277,14 @@ export function GanttChart({ projects, contractors, onProjectClick }: GanttChart
                     >
                       {project.name}
                     </button>
-                    <div className="text-xs text-slate-500 truncate">{project.manager || '未指定負責人'}</div>
+                    <div className="text-xs text-secondary truncate">{project.manager || '未指定負責人'}</div>
                   </div>
                   
                   {/* Timeline track */}
                   <div className="flex relative" style={{ width: `${totalDays * 40}px` }}>
                     {/* Background grid lines */}
                     {dates.map((_, i) => (
-                      <div key={i} className="w-[40px] flex-shrink-0 border-r border-slate-700/10" />
+                      <div key={i} className="w-[40px] flex-shrink-0 border-r border-theme-border/10" />
                     ))}
 
                     {/* Today indicator line */}
