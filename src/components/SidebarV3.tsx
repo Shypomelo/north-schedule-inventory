@@ -54,7 +54,7 @@ export function Sidebar() {
           </div>
         )}
         {currentUser && (
-          <div className="bg-[var(--sidebar-hover)] p-3 rounded-lg border border-[var(--sidebar-border)] relative">
+          <div className="bg-[var(--sidebar-user-card)] p-3 rounded-lg border border-[var(--sidebar-border)] relative">
             <div className="flex justify-between items-start">
               <div className="text-sm font-bold text-[var(--text-primary)]">{currentUser.name}</div>
 

@@ -39,6 +39,7 @@
   --scrollbar-thumb: #334155;
   --scrollbar-thumb-hover: #475569;
   --sidebar-hover: rgba(255, 255, 255, 0.05);
+  --sidebar-user-card: rgba(255, 255, 255, 0.05);
 }
 
 [data-theme="dark"] {
@@ -77,6 +78,7 @@
   --scrollbar-thumb: #334155;
   --scrollbar-thumb-hover: #475569;
   --sidebar-hover: rgba(255, 255, 255, 0.05);
+  --sidebar-user-card: rgba(255, 255, 255, 0.05);
 }
 
 [data-theme="light"] {
@@ -115,6 +117,7 @@
   --scrollbar-thumb: #CBD5E1;
   --scrollbar-thumb-hover: #94A3B8;
   --sidebar-hover: rgba(0, 0, 0, 0.05);
+  --sidebar-user-card: rgba(0, 0, 0, 0.05);
 }
 
 [data-theme="orange"] {
@@ -123,18 +126,18 @@
   --surface: #FFFDF9;
   --surface-secondary: #FFF4E6;
   --bg-page: #FFFBF5;
-  --bg-sidebar: var(--accent);
+  --bg-sidebar: #C46B09;
   --bg-card: #FFFDF9;
   --text-primary: #35261C;
   --text-secondary: #765B47;
   --text-muted: #806854;
   --sidebar-text: #FFFFFF;
-  --sidebar-muted: #FFEDD5;
+  --sidebar-muted: #FFF1DD;
   --sidebar-brand: #FFFFFF;
-  --sidebar-border: rgba(255, 255, 255, 0.45);
-  --sidebar-active: rgba(255, 255, 255, 0.22);
+  --sidebar-border: rgba(255, 255, 255, 0.55);
+  --sidebar-active: rgba(255, 255, 255, 0.20);
   --sidebar-danger: #FFFFFF;
-  --sidebar-logout-hover: var(--accent-hover);
+  --sidebar-logout-hover: #A95707;
   --modal-bg: #FFFDF9;
   --modal-text: #35261C;
   --modal-muted: #765B47;
@@ -152,7 +155,8 @@
   --warning: #D97706;
   --scrollbar-thumb: #FDBA74;
   --scrollbar-thumb-hover: #FB923C;
-  --sidebar-hover: rgba(194, 65, 12, 0.32);
+  --sidebar-hover: #B86108;
+  --sidebar-user-card: rgba(120, 60, 0, 0.22);
 }
 
 [data-theme="orange"] .theme-popover {

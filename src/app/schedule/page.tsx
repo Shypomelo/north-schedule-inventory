@@ -5,7 +5,7 @@ import { ScheduleTask, ScheduleTaskMember, Project, User, Todo, TaskStatus } fro
 import { dbAdapter, isGoogleRemoteDeletedError } from '@/lib/db';
 import { ScheduleTaskForm } from '@/components/ScheduleTaskForm';
 import { TodoForm } from '@/components/TodoForm';
-import { startOfWeek, addDays, subDays, format, isSameDay, startOfMonth, endOfMonth, getDay } from 'date-fns';
+import { startOfWeek, endOfWeek, addDays, subDays, format, isSameDay, startOfMonth, endOfMonth } from 'date-fns';
 import { ChevronLeft, ChevronRight, Plus, X, ArrowLeft, RefreshCw } from 'lucide-react';
 import { useUser } from '@/components/UserContext';
 import { getDatabaseErrorMessage, isMissingCoreTablesError } from '@/lib/db/supabase-errors';
@@ -19,6 +19,38 @@ import {
 } from '@/lib/weather';
 
 type ViewMode = 'week' | 'month';
+type ScheduleFontSize = 'small' | 'medium' | 'large';
+
+const SCHEDULE_FONT_SIZE_STORAGE_KEY = 'north-engineering-schedule-font-size';
+const SCHEDULE_FONT_SIZE_CLASSES: Record<ScheduleFontSize, {
+  month: string;
+  primary: string;
+  secondary: string;
+  people: string;
+  footer: string;
+}> = {
+  small: {
+    month: 'text-[10px]',
+    primary: 'text-xs',
+    secondary: 'text-[11px]',
+    people: 'text-[11px]',
+    footer: 'text-[11px]',
+  },
+  medium: {
+    month: 'text-xs',
+    primary: 'text-[13px]',
+    secondary: 'text-xs',
+    people: 'text-xs',
+    footer: 'text-xs',
+  },
+  large: {
+    month: 'text-sm',
+    primary: 'text-[15px]',
+    secondary: 'text-sm',
+    people: 'text-sm',
+    footer: 'text-sm',
+  },
+};
 
 type ReconcileResult = {
   success?: boolean;
@@ -77,6 +109,7 @@ const getScheduleDistrictLabel = (
 export default function SchedulePage() {
   const { currentUser } = useUser();
   const [viewMode, setViewMode] = useState<ViewMode>('week');
+  const [scheduleFontSize, setScheduleFontSize] = useState<ScheduleFontSize>('medium');
   const [currentDate, setCurrentDate] = useState(new Date());
   
   const [tasks, setTasks] = useState<ScheduleTask[]>([]);
@@ -113,6 +146,18 @@ export default function SchedulePage() {
     document.addEventListener('click', handleClick);
     return () => document.removeEventListener('click', handleClick);
   }, []);
+
+  useEffect(() => {
+    const savedFontSize = window.localStorage.getItem(SCHEDULE_FONT_SIZE_STORAGE_KEY);
+    if (savedFontSize === 'small' || savedFontSize === 'medium' || savedFontSize === 'large') {
+      setScheduleFontSize(savedFontSize);
+    }
+  }, []);
+
+  const handleScheduleFontSizeChange = (fontSize: ScheduleFontSize) => {
+    setScheduleFontSize(fontSize);
+    window.localStorage.setItem(SCHEDULE_FONT_SIZE_STORAGE_KEY, fontSize);
+  };
 
   const [error, setError] = useState<string | null>(null);
 
@@ -273,15 +318,16 @@ export default function SchedulePage() {
   const weekDays = Array.from({ length: 6 }).map((_, i) => addDays(weekStart, i));
 
   // Month View Dates
-  const monthStart = startOfMonth(currentDate);
-  const monthEnd = endOfMonth(currentDate);
-  const startDate = startOfWeek(monthStart, { weekStartsOn: 1 });
+  const calendarStart = startOfWeek(startOfMonth(currentDate), { weekStartsOn: 1 });
+  const calendarEnd = endOfWeek(endOfMonth(currentDate), { weekStartsOn: 1 });
   const monthDays: Date[] = [];
-  let d = startDate;
-  while (d <= monthEnd || getDay(d) !== 1) { 
+  let d = calendarStart;
+  while (d <= calendarEnd) {
     monthDays.push(d);
     d = addDays(d, 1);
   }
+  const monthWeekCount = monthDays.length / 7;
+  const fontSizeClasses = SCHEDULE_FONT_SIZE_CLASSES[scheduleFontSize];
 
   const visibleWeatherTasks = useMemo(() => {
     const visibleTasks = selectedDayTasks ? [...selectedDayTasks.tasks] : [];
@@ -713,6 +759,25 @@ export default function SchedulePage() {
             </button>
           </div>
 
+          <div className="flex items-center bg-[var(--surface)] rounded-lg p-1 border border-[var(--border)]">
+            <span className="px-2 text-xs font-semibold text-[var(--text-secondary)]">字體</span>
+            {([
+              ['small', '小'],
+              ['medium', '中'],
+              ['large', '大'],
+            ] as const).map(([size, label]) => (
+              <button
+                key={size}
+                type="button"
+                onClick={() => handleScheduleFontSizeChange(size)}
+                aria-pressed={scheduleFontSize === size}
+                className={`px-3 py-1.5 text-sm font-semibold rounded-md transition ${scheduleFontSize === size ? 'bg-[var(--accent)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           <div className="flex items-center gap-2 bg-[var(--surface)] border border-[var(--border)] rounded-lg p-1">
             <button 
               onClick={() => setCurrentDate(viewMode === 'week' ? subDays(currentDate, 7) : addDays(currentDate, -30))} 
@@ -765,7 +830,7 @@ export default function SchedulePage() {
       ) : tasks.length === 0 && viewMode === 'week' ? (
         <div className="flex-1 flex items-center justify-center text-[var(--text-secondary)]">目前沒有排程，點擊右上角「新增任務」開始排程。</div>
       ) : (
-        <div className="flex-1 overflow-hidden flex flex-col">
+        <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
           {viewMode === 'week' ? (
             <div className="flex-1 grid grid-cols-7 border border-[var(--border)] rounded-xl bg-[var(--surface)] overflow-hidden">
               
@@ -824,19 +889,19 @@ export default function SchedulePage() {
                               'bg-[var(--surface-secondary)] border-[var(--accent)]'
                             }`}
                           >
-                            <div className={`text-xs font-semibold truncate ${isDone || isRescheduled ? 'text-[var(--text-muted)]' : task.is_tentative ? 'text-[var(--warning)]' : 'text-[var(--text-primary)]'}`}>
+                            <div className={`${fontSizeClasses.primary} font-semibold truncate ${isDone || isRescheduled ? 'text-[var(--text-muted)]' : task.is_tentative ? 'text-[var(--warning)]' : 'text-[var(--text-primary)]'}`}>
                               {isDone ? '✓ ' : ''}{isRescheduled ? '【改期】 ' : ''}{task.is_tentative ? '[暫] ' : ''}{projName} {formatTaskTime(task)}
                             </div>
-                            <div className={`text-[11px] mt-0.5 font-bold truncate ${isDone || isRescheduled ? 'text-[var(--text-muted)]' : 'text-[var(--accent)]'}`}>
+                            <div className={`${fontSizeClasses.secondary} mt-0.5 font-bold truncate ${isDone || isRescheduled ? 'text-[var(--text-muted)]' : 'text-[var(--accent)]'}`}>
                               {district}[{task.task_type}] {task.title || '無標題'}
                             </div>
                             {(assigneeDisplay || coworkerDisplay) && (
-                              <div className={`text-[11px] mt-0.5 space-y-0.5 ${isDone || isRescheduled ? 'text-[var(--text-muted)]' : 'text-[var(--text-secondary)]'}`}>
+                              <div className={`${fontSizeClasses.people} mt-0.5 space-y-0.5 ${isDone || isRescheduled ? 'text-[var(--text-muted)]' : 'text-[var(--text-secondary)]'}`}>
                                 {assigneeDisplay && <div className="truncate">{assigneeDisplay}</div>}
                                 {coworkerDisplay && <div className="truncate">{coworkerDisplay}</div>}
                               </div>
                             )}
-                            <div className="text-[11px] mt-1 flex items-center justify-between gap-2">
+                            <div className={`${fontSizeClasses.footer} mt-1 flex items-center justify-between gap-2`}>
                               <a 
                                 href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchAddress)}`}
                                 target="_blank"
@@ -932,13 +997,16 @@ export default function SchedulePage() {
 
             </div>
           ) : (
-            <div className="flex-1 flex flex-col border border-[var(--border)] rounded-xl bg-[var(--surface)] overflow-hidden">
+            <div className="flex-1 min-h-0 flex flex-col border border-[var(--border)] rounded-xl bg-[var(--surface)] overflow-hidden">
               <div className="grid grid-cols-7 bg-[var(--surface-secondary)] border-b border-[var(--border)]">
                 {['一','二','三','四','五','六','日'].map(d => (
                   <div key={d} className="text-center py-2 text-sm font-bold text-[var(--text-secondary)]">週{d}</div>
                 ))}
               </div>
-              <div className="flex-1 grid grid-cols-7 auto-rows-fr">
+              <div
+                className="flex-1 min-h-0 grid grid-cols-7 overflow-y-auto"
+                style={{ gridTemplateRows: `repeat(${monthWeekCount}, minmax(160px, 1fr))` }}
+              >
                 {monthDays.map((day, i) => {
                   const dateStr = format(day, 'yyyy-MM-dd');
                   const dayTasks = sortTasks(tasks.filter(t => t.task_date === dateStr));
@@ -947,7 +1015,7 @@ export default function SchedulePage() {
                   return (
                     <div 
                       key={i} 
-                      className={`border-r border-b border-[var(--border)] last:border-r-0 flex flex-col p-1 ${!isCurrentMonth ? 'bg-[var(--surface-secondary)] opacity-50' : ''}`}
+                      className={`min-h-0 min-w-0 border-r border-b border-[var(--border)] last:border-r-0 flex flex-col p-1 ${!isCurrentMonth ? 'bg-[var(--surface-secondary)] opacity-50' : ''}`}
                       onDragOver={e => e.preventDefault()}
                       onDrop={e => handleDropToDate(e, dateStr)}
                       onContextMenu={e => {
@@ -981,7 +1049,7 @@ export default function SchedulePage() {
                                 setEditingTaskMembers(members.filter(m => m.task_id === task.id).map(m => m.user_id));
                                 setIsFormOpen(true);
                               }}
-                              className={`text-[10px] px-1 py-0.5 rounded cursor-pointer ${
+                              className={`${fontSizeClasses.month} min-w-0 px-1 py-0.5 rounded cursor-pointer ${
                                 isDone ? 'bg-[var(--surface-secondary)] text-[var(--text-muted)] opacity-50' :
                                 isRescheduled ? 'bg-[var(--surface-secondary)] text-[var(--text-muted)] border border-dashed border-[var(--text-muted)] opacity-60' :
                                 task.is_tentative ? 'bg-[var(--surface-secondary)] text-[var(--warning)] border border-[var(--warning)]' :
@@ -1068,15 +1136,15 @@ export default function SchedulePage() {
                         </button>
                       </div>
                     </div>
-                    <div className={`font-semibold text-lg ${task.status === '完成' ? 'line-through text-[var(--text-muted)]' : 'text-[var(--text-primary)]'}`}>
+                    <div className={`${fontSizeClasses.primary} font-semibold truncate ${task.status === '完成' ? 'line-through text-[var(--text-muted)]' : 'text-[var(--text-primary)]'}`}>
                       {task.status === '完成' ? '✓ ' : ''}{task.is_tentative ? '[暫] ' : ''}{projName} {formatTaskTime(task)}
                     </div>
-                    <div className="text-sm text-[var(--accent)] mt-1 font-bold">{district}[{task.task_type}] {task.title || '無標題'}</div>
-                    <div className="text-sm text-[var(--text-secondary)] mt-1">
-                      {assigneeDisplay && <div>{assigneeDisplay}</div>}
-                      {coworkerDisplay && <div>{coworkerDisplay}</div>}
+                    <div className={`${fontSizeClasses.secondary} text-[var(--accent)] mt-1 font-bold truncate`}>{district}[{task.task_type}] {task.title || '無標題'}</div>
+                    <div className={`${fontSizeClasses.people} text-[var(--text-secondary)] mt-1`}>
+                      {assigneeDisplay && <div className="truncate">{assigneeDisplay}</div>}
+                      {coworkerDisplay && <div className="truncate">{coworkerDisplay}</div>}
                     </div>
-                    <div className="text-sm mt-1 flex items-center justify-between gap-2">
+                    <div className={`${fontSizeClasses.footer} mt-1 flex items-center justify-between gap-2`}>
                       <a 
                         href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchAddress)}`}
                         target="_blank" 
