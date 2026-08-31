@@ -4,6 +4,14 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { ScheduleTask, ScheduleTaskMember, Project, User, Todo, TaskStatus } from '@/lib/db/types';
 import { dbAdapter, isGoogleRemoteDeletedError } from '@/lib/db';
 import { ScheduleTaskForm } from '@/components/ScheduleTaskForm';
+import {
+  GoogleCalendarSyncSummaryDialog,
+  GoogleCalendarUnmatchedDialog,
+  type GoogleCalendarSyncDecision,
+  type GoogleCalendarSyncFailure,
+  type GoogleCalendarSyncSummary,
+  type GoogleCalendarUnmatchedEvent,
+} from '@/components/GoogleCalendarSyncDialogs';
 import { TodoForm } from '@/components/TodoForm';
 import { startOfWeek, endOfWeek, addDays, subDays, format, isSameDay, startOfMonth, endOfMonth } from 'date-fns';
 import { ChevronLeft, ChevronRight, Plus, X, ArrowLeft, RefreshCw } from 'lucide-react';
@@ -60,11 +68,18 @@ type ReconcileResult = {
   skipped?: number;
   skipped_system_created?: number;
   skippedEvents?: { eventId: string; reason: string }[];
+  matchedImportedOrUpdated?: number;
+  unmatchedImported?: number;
+  skippedThisRun?: number;
+  failed?: number;
+  unmatchedEvents?: GoogleCalendarUnmatchedEvent[];
+  failures?: GoogleCalendarSyncFailure[];
   error?: string;
 };
 
 type ReconcileOptions = {
   force?: boolean;
+  decisions?: GoogleCalendarSyncDecision[];
 };
 
 const RECONCILE_COOLDOWN_MS = 30000;
@@ -132,6 +147,10 @@ export default function SchedulePage() {
   const [editingTaskMembers, setEditingTaskMembers] = useState<string[]>([]);
   const [convertingTodoId, setConvertingTodoId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isConfirmingGoogleEvents, setIsConfirmingGoogleEvents] = useState(false);
+  const [unmatchedGoogleEvents, setUnmatchedGoogleEvents] = useState<GoogleCalendarUnmatchedEvent[]>([]);
+  const [googleSyncSummary, setGoogleSyncSummary] = useState<GoogleCalendarSyncSummary | null>(null);
+  const [pendingGoogleSyncSummary, setPendingGoogleSyncSummary] = useState<GoogleCalendarSyncSummary | null>(null);
   const [selectedDayTasks, setSelectedDayTasks] = useState<{date: Date, tasks: ScheduleTask[]} | null>(null);
 
   // Todo Modal
@@ -179,7 +198,9 @@ export default function SchedulePage() {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
         },
+        body: JSON.stringify(options.decisions ? { decisions: options.decisions } : {}),
       });
     }).then(async response => {
       if (!response) return null;
@@ -212,33 +233,19 @@ export default function SchedulePage() {
         if (res.success === false) {
           alert(`同步失敗：${res.error || '未知錯誤'}`);
         } else {
-          const skippedInvalidCreator = res.skippedEvents?.filter((e: any) => e.reason === 'creator_not_active_team_member' || e.reason === 'missing_creator_email')?.length || 0;
-          const skippedNoProjectMatch = res.skippedEvents?.filter((e: any) => e.reason === 'no_project_match')?.length || 0;
-          const skippedAmbiguous = res.skippedEvents?.filter((e: any) => e.reason === 'ambiguous_project_match')?.length || 0;
-          const skippedMultiDay = res.skippedEvents?.filter((e: any) => e.reason === 'unsupported_multi_day_event')?.length || 0;
-          const skippedInvalidTime = res.skippedEvents?.filter((e: any) => e.reason === 'invalid_time')?.length || 0;
-          const skippedAlreadyImported = res.skippedEvents?.filter((e: any) => e.reason === 'already_imported')?.length || 0;
-          const categorizedReasons = new Set([
-            'creator_not_active_team_member',
-            'missing_creator_email',
-            'no_project_match',
-            'ambiguous_project_match',
-            'unsupported_multi_day_event',
-            'invalid_time',
-            'already_imported',
-          ]);
-          const skippedOther = res.skippedEvents?.filter((e: any) => !categorizedReasons.has(e.reason))?.length || 0;
-
-          alert(`同步完成
-新增：${res.imported || 0}
-已存在：${skippedAlreadyImported}
-略過 (系統建立)：${res.skipped_system_created || 0}
-略過 (無效人員)：${skippedInvalidCreator}
-略過 (無法匹配案場)：${skippedNoProjectMatch}
-略過 (模糊案場)：${skippedAmbiguous}
-略過 (跨日事件)：${skippedMultiDay}
-略過 (時間無效)：${skippedInvalidTime}
-略過 (其他)：${(res.skipped || 0) + skippedOther}`);
+          const summary: GoogleCalendarSyncSummary = {
+            matchedImportedOrUpdated: res.matchedImportedOrUpdated || 0,
+            unmatchedImported: res.unmatchedImported || 0,
+            skippedThisRun: res.skippedThisRun || 0,
+            failed: res.failed || 0,
+            failures: res.failures || [],
+          };
+          if (res.unmatchedEvents?.length) {
+            setPendingGoogleSyncSummary(summary);
+            setUnmatchedGoogleEvents(res.unmatchedEvents);
+          } else {
+            setGoogleSyncSummary(summary);
+          }
         }
         await fetchData(false);
       } else {
@@ -248,6 +255,37 @@ export default function SchedulePage() {
       alert(`同步失敗：${e.message}`);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleConfirmUnmatchedGoogleEvents = async (decisions: GoogleCalendarSyncDecision[]) => {
+    setIsConfirmingGoogleEvents(true);
+    try {
+      const res = await reconcileGoogleCalendar({ force: true, decisions });
+      if (!res || res.success === false) {
+        throw new Error(res?.error || '確認未匹配活動失敗');
+      }
+      const initial = pendingGoogleSyncSummary || {
+        matchedImportedOrUpdated: 0,
+        unmatchedImported: 0,
+        skippedThisRun: 0,
+        failed: 0,
+        failures: [],
+      };
+      setGoogleSyncSummary({
+        matchedImportedOrUpdated: initial.matchedImportedOrUpdated + (res.matchedImportedOrUpdated || 0),
+        unmatchedImported: initial.unmatchedImported + (res.unmatchedImported || 0),
+        skippedThisRun: initial.skippedThisRun + (res.skippedThisRun || 0),
+        failed: initial.failed + (res.failed || 0),
+        failures: [...initial.failures, ...(res.failures || [])],
+      });
+      setUnmatchedGoogleEvents([]);
+      setPendingGoogleSyncSummary(null);
+      await fetchData(false);
+    } catch (error: any) {
+      alert(`未匹配活動處理失敗：${error.message}`);
+    } finally {
+      setIsConfirmingGoogleEvents(false);
     }
   };
 
@@ -413,10 +451,14 @@ export default function SchedulePage() {
         try {
           await dbAdapter.updateScheduleTask(editingTask.id, data, newMemberIds);
           replaceTaskMembers(editingTask.id, newMemberIds);
+          const projectChanged = originalTask?.project_id !== data.project_id;
           await dbAdapter.logActivity({
             actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
             action_type: 'UPDATE_TASK', target_type: 'ScheduleTask', target_id: editingTask.id, target_label: data.title,
-            project_id: data.project_id, project_name: '', before_value: null, after_value: null, message: '編輯排程任務'
+            project_id: data.project_id, project_name: data.project_name || '',
+            before_value: projectChanged ? (originalTask?.project_name || '未匹配案場') : null,
+            after_value: projectChanged ? (data.project_name || '未匹配案場') : null,
+            message: projectChanged ? '編輯排程任務並更新案場關聯' : '編輯排程任務'
           });
         } catch (error) {
           if (isGoogleRemoteDeletedError(error)) {
@@ -719,7 +761,7 @@ export default function SchedulePage() {
 
   const getTaskDisplay = (task: ScheduleTask) => {
     const proj = projects.find(p => p.id === task.project_id);
-    const projName = task.project_name || proj?.short_name || proj?.name || '未指定案場';
+    const projName = task.project_name || proj?.short_name || proj?.name || '未匹配案場';
     const mainUser = users.find(u => u.id === task.main_assignee_id);
     const memberUids = members.filter(m => m.task_id === task.id).map(m => m.user_id);
     const coUsers = users.filter(u => memberUids.includes(u.id));
@@ -1270,6 +1312,27 @@ export default function SchedulePage() {
             />
           </div>
         </div>
+      )}
+
+      {unmatchedGoogleEvents.length > 0 && (
+        <GoogleCalendarUnmatchedDialog
+          events={unmatchedGoogleEvents}
+          projects={projects}
+          isSubmitting={isConfirmingGoogleEvents}
+          onConfirm={handleConfirmUnmatchedGoogleEvents}
+          onClose={() => {
+            setUnmatchedGoogleEvents([]);
+            setGoogleSyncSummary(pendingGoogleSyncSummary);
+            setPendingGoogleSyncSummary(null);
+          }}
+        />
+      )}
+
+      {googleSyncSummary && (
+        <GoogleCalendarSyncSummaryDialog
+          summary={googleSyncSummary}
+          onClose={() => setGoogleSyncSummary(null)}
+        />
       )}
 
       {isTodoFormOpen && (

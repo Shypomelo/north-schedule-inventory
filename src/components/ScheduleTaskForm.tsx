@@ -232,7 +232,10 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
     setErrorMsg(null);
     if (!formData.task_date) return setErrorMsg('任務日期為必填');
     if (!formData.main_assignee_id) return setErrorMsg('請選擇主要負責人');
-    if (!formData.project_name?.trim()) return setErrorMsg('案場為必填');
+    const isImportedUnmatchedTask = Boolean(
+      initialData?.google_event_id && !initialData?.project_id && !initialData?.project_name,
+    );
+    if (!formData.project_name?.trim() && !isImportedUnmatchedTask) return setErrorMsg('案場為必填');
     
     // Auto format check
     const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -280,7 +283,12 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
         
         {/* 第一列：案場 */}
         <div className="flex flex-col gap-1 md:col-span-2 relative" ref={wrapperRef}>
-          <span className="font-semibold text-[var(--modal-text)]">案場 (可快選既有案場或手動輸入新案場) *</span>
+          <span className="font-semibold text-[var(--modal-text)]">
+            案場 (可快選既有案場或手動輸入新案場){initialData?.google_event_id && !initialData?.project_id ? '' : ' *'}
+          </span>
+          {initialData?.google_event_id && !formData.project_id && !formData.project_name && (
+            <span className="text-xs font-semibold text-amber-400">目前：未匹配案場</span>
+          )}
           <input 
             type="text"
             className="bg-[var(--input-bg)] text-[var(--input-text)] border border-[var(--input-border)] rounded p-1.5 focus:border-[var(--accent)] outline-none w-full placeholder:text-[var(--input-placeholder)]"
