@@ -324,7 +324,17 @@ export default function SchedulePage() {
 
       if (showLoading) {
         reconcileGoogleCalendar().then((res: any) => {
-          if (res?.updated || res?.deleted) {
+          if (res?.unmatchedEvents?.length) {
+            setPendingGoogleSyncSummary({
+              matchedImportedOrUpdated: res.matchedImportedOrUpdated || 0,
+              unmatchedImported: res.unmatchedImported || 0,
+              skippedThisRun: res.skippedThisRun || 0,
+              failed: res.failed || 0,
+              failures: res.failures || [],
+            });
+            setUnmatchedGoogleEvents(res.unmatchedEvents);
+          }
+          if (res?.updated || res?.deleted || res?.imported) {
             fetchData(false); // Silently refresh data
           }
         });
