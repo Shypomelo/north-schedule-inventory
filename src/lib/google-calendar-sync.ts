@@ -47,8 +47,6 @@ export type GoogleEventTiming = {
 export type ManualGoogleEventSkipReason =
   | 'missing_event_id'
   | 'missing_summary'
-  | 'missing_creator_email'
-  | 'creator_not_active_team_member'
   | 'no_project_match'
   | 'ambiguous_project_match'
   | 'unsupported_multi_day_event'
@@ -79,8 +77,8 @@ export type ManualScheduleTaskInsert = {
   start_time: string | null;
   end_time: string | null;
   is_all_day: boolean;
-  primary_member_id: string;
-  primary_member_name: string;
+  primary_member_id: string | null;
+  primary_member_name: string | null;
   assistant_member_ids: string[];
   assistant_member_names: string[];
   status: '已排程';
@@ -318,25 +316,20 @@ export function mapManualGoogleEvent(
   if (!title) return { ok: false, reason: 'missing_summary' };
 
   const creatorEmail = normalizeEmail(event.creator?.email);
-  if (!creatorEmail) return { ok: false, reason: 'missing_creator_email' };
-
-  const calendarEmailMatches = options.activeMembers.filter(
-    member => normalizeEmail(member.google_calendar_email) === creatorEmail,
-  );
-  const systemEmailMatches = options.activeMembers.filter(
-    member => normalizeEmail(member.email) === creatorEmail,
-  );
+  const calendarEmailMatches = creatorEmail
+    ? options.activeMembers.filter(member => normalizeEmail(member.google_calendar_email) === creatorEmail)
+    : [];
+  const systemEmailMatches = creatorEmail
+    ? options.activeMembers.filter(member => normalizeEmail(member.email) === creatorEmail)
+    : [];
   const memberMatches = calendarEmailMatches.length > 0
     ? calendarEmailMatches
     : systemEmailMatches;
-  if (memberMatches.length !== 1) {
-    return { ok: false, reason: 'creator_not_active_team_member' };
-  }
 
   const timingResult = getManualGoogleEventTiming(event);
   if (!timingResult.ok) return timingResult;
 
-  const member = memberMatches[0];
+  const member = memberMatches.length === 1 ? memberMatches[0] : null;
   let project: GoogleImportProject | null;
   if (options.projectOverride === undefined) {
     const projectMatch = findExactProject(event, options.projects);
@@ -360,8 +353,8 @@ export function mapManualGoogleEvent(
       start_time: timingResult.timing.start_time,
       end_time: timingResult.timing.end_time,
       is_all_day: timingResult.timing.is_all_day,
-      primary_member_id: member.id,
-      primary_member_name: member.name,
+      primary_member_id: member?.id || null,
+      primary_member_name: member?.name || null,
       assistant_member_ids: [],
       assistant_member_names: [],
       status: '已排程',

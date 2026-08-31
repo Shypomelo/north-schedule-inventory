@@ -31,8 +31,6 @@ type SyncFailure = { taskId?: string; eventId: string; title: string; message: s
 const REASON_MESSAGES: Record<ManualGoogleEventSkipReason, string> = {
   missing_event_id: 'Google 活動缺少 Event ID',
   missing_summary: 'Google 活動缺少名稱',
-  missing_creator_email: 'Google 活動缺少建立者 Email',
-  creator_not_active_team_member: '活動建立者不是唯一的有效團隊成員',
   no_project_match: '找不到完全匹配的案場',
   ambiguous_project_match: '有多個完全匹配的案場',
   unsupported_multi_day_event: '目前不支援跨日活動',

@@ -63,6 +63,9 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
   const [memberIds, setMemberIds] = useState<string[]>(initialMemberIds || []);
   const [projectNameInput, setProjectNameInput] = useState(initialData?.project_name || '');
   const isEditingExistingTask = Boolean(initialData?.id);
+  const canRemainUnassigned = Boolean(
+    isEditingExistingTask && initialData?.google_event_id && !initialData?.main_assignee_id,
+  );
   const {
     activeTaskTypes,
     defaultTaskType,
@@ -231,7 +234,7 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
     e.preventDefault();
     setErrorMsg(null);
     if (!formData.task_date) return setErrorMsg('任務日期為必填');
-    if (!formData.main_assignee_id) return setErrorMsg('請選擇主要負責人');
+    if (!formData.main_assignee_id && !canRemainUnassigned) return setErrorMsg('請選擇主要負責人');
     const isImportedUnmatchedTask = Boolean(
       initialData?.google_event_id && !initialData?.project_id && !initialData?.project_name,
     );
@@ -459,13 +462,18 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
 
         {/* 第五列：主要負責人 + 任務狀態 */}
         <label className="flex flex-col gap-1 mt-1">
-          <span className="font-semibold text-[var(--modal-text)]">主要負責人 *</span>
+          <span className="font-semibold text-[var(--modal-text)]">
+            主要負責人{canRemainUnassigned ? '' : ' *'}
+          </span>
+          {canRemainUnassigned && !formData.main_assignee_id && (
+            <span className="text-xs font-semibold text-amber-400">目前：未指定負責人</span>
+          )}
           <select 
-            required
+            required={!canRemainUnassigned}
             className="bg-[var(--input-bg)] text-[var(--input-text)] border border-[var(--input-border)] rounded p-1.5 focus:border-[var(--accent)] outline-none cursor-pointer appearance-none"
             value={formData.main_assignee_id || ''} onChange={e => setFormData({...formData, main_assignee_id: e.target.value})} 
           >
-            <option value="">請選擇</option>
+            <option value="">{canRemainUnassigned ? '未指定負責人' : '請選擇'}</option>
             {mainAssigneeUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
           </select>
         </label>

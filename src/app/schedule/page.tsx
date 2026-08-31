@@ -767,7 +767,7 @@ export default function SchedulePage() {
     const coUsers = users.filter(u => memberUids.includes(u.id));
     const mainAssigneeName = mainUser?.name || '';
     const coworkerNames = coUsers.map(u => u.name);
-    const assigneeDisplay = mainAssigneeName ? `主要：${mainAssigneeName}` : '';
+    const assigneeDisplay = mainAssigneeName ? `主要：${mainAssigneeName}` : '主要：未指定負責人';
     const coworkerDisplay = coworkerNames.length > 0 ? `協同：${coworkerNames.join('、')}` : '';
     
     const districtName = getScheduleDistrictLabel(task, proj);
