@@ -95,17 +95,14 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
         }
       }
 
-      let currentAssignee = activeUsers.find(u => u.id === initialData?.main_assignee_id);
-      
       setFormData(prev => {
-        let assigneeId = prev.main_assignee_id;
-        if (initialData?.id) {
-           // Editing: if the current assignee is not engineering, clear it
-           if (currentAssignee && currentAssignee.category !== 'ENGINEERING') {
-             assigneeId = '';
-           }
-        }
-        return { ...prev, main_assignee_id: assigneeId };
+        if (!initialData?.id || !initialData.main_assignee_id) return prev;
+
+        const currentAssignee = activeUsers.find(user => user.id === initialData.main_assignee_id);
+        return {
+          ...prev,
+          main_assignee_id: currentAssignee?.id || null,
+        };
       });
     });
   }, [initialData?.project_id, initialData?.project_name, initialData?.id, initialData?.main_assignee_id]);
@@ -261,7 +258,10 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
     await onSubmit(formData as any, memberIds);
   };
 
-  const mainAssigneeUsers = users.filter(u => u.category === 'ENGINEERING');
+  const mainAssigneeUsers = users.filter(user => (
+    user.category === 'ENGINEERING'
+    || (isEditingExistingTask && user.id === formData.main_assignee_id)
+  ));
   const coworkerUsers = users;
   const startTimeParts = splitTime(formData.start_time);
   const endTimeParts = splitTime(formData.end_time);
