@@ -16,7 +16,6 @@ interface UserContextType {
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
-const DEFAULT_PRODUCTION_SITE_URL = 'https://north-schedule-inventory.vercel.app';
 const INTENDED_PATH_STORAGE_KEY = 'north-schedule-intended-path';
 
 const normalizeEmail = (email?: string | null) => email?.trim().toLowerCase() || '';
@@ -28,31 +27,6 @@ const getSafeNextPath = (value?: string | null) => {
   return value;
 };
 
-const getCanonicalSiteOrigin = () => {
-  const configuredSiteUrl =
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    (process.env.NODE_ENV === 'production' ? DEFAULT_PRODUCTION_SITE_URL : '');
-
-  if (!configuredSiteUrl) return null;
-
-  try {
-    return new URL(configuredSiteUrl).origin;
-  } catch {
-    return null;
-  }
-};
-
-const shouldRedirectToCanonicalOrigin = (canonicalOrigin: string) => {
-  if (typeof window === 'undefined') return false;
-  if (window.location.origin === canonicalOrigin) return false;
-
-  return (
-    process.env.NODE_ENV === 'production' &&
-    window.location.hostname.startsWith('north-schedule-inventory-') &&
-    window.location.hostname.endsWith('.vercel.app')
-  );
-};
-
 export function UserProvider({ children }: { children: React.ReactNode }) {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [allUsers, setAllUsers] = useState<User[]>([]);
@@ -60,13 +34,6 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
-    const canonicalOrigin = getCanonicalSiteOrigin();
-    if (canonicalOrigin && shouldRedirectToCanonicalOrigin(canonicalOrigin)) {
-      const targetUrl = `${canonicalOrigin}${window.location.pathname}${window.location.search}${window.location.hash}`;
-      window.location.replace(targetUrl);
-      return;
-    }
-
     let mounted = true;
 
     async function loadUsersAndHandleSession(session: any) {
@@ -134,10 +101,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     setAuthError(null);
     try {
-      const redirectOrigin = getCanonicalSiteOrigin() || window.location.origin;
       const safeNextPath = getSafeNextPath(nextPath);
       sessionStorage.setItem(INTENDED_PATH_STORAGE_KEY, safeNextPath);
-      const redirectTo = `${redirectOrigin}/login?next=${encodeURIComponent(safeNextPath)}`;
+      const redirectTo = `${window.location.origin}/login?next=${encodeURIComponent(safeNextPath)}`;
       await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
