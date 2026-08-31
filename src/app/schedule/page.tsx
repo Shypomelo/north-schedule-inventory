@@ -83,6 +83,7 @@ type ReconcileOptions = {
 };
 
 const RECONCILE_COOLDOWN_MS = 30000;
+const DAILY_TASK_DISPLAY_LIMIT = 8;
 let reconcileInFlight: Promise<ReconcileResult | null> | null = null;
 let lastReconcileAt = 0;
 
@@ -380,7 +381,7 @@ export default function SchedulePage() {
     const visibleWeekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
     for (let index = 0; index < 6; index += 1) {
       const dateStr = format(addDays(visibleWeekStart, index), 'yyyy-MM-dd');
-      visibleTasks.push(...sortTasks(tasks.filter(task => task.task_date === dateStr)).slice(0, 3));
+      visibleTasks.push(...sortTasks(tasks.filter(task => task.task_date === dateStr)).slice(0, DAILY_TASK_DISPLAY_LIMIT));
     }
     return visibleTasks;
   }, [currentDate, selectedDayTasks, tasks, viewMode]);
@@ -885,13 +886,13 @@ export default function SchedulePage() {
               {weekDays.map((day, i) => {
                 const dateStr = format(day, 'yyyy-MM-dd');
                 const dayTasks = sortTasks(tasks.filter(t => t.task_date === dateStr));
-                const displayTasks = dayTasks.slice(0, 3);
-                const hiddenCount = dayTasks.length - 3;
+                const displayTasks = dayTasks.slice(0, DAILY_TASK_DISPLAY_LIMIT);
+                const hiddenCount = dayTasks.length - DAILY_TASK_DISPLAY_LIMIT;
                 
                 return (
                   <div 
                     key={i} 
-                    className="border-r border-[var(--border)] flex flex-col"
+                    className="min-h-0 border-r border-[var(--border)] flex flex-col"
                     onDragOver={e => e.preventDefault()}
                     onDrop={e => handleDropToDate(e, dateStr)}
                     onContextMenu={e => {
@@ -909,7 +910,7 @@ export default function SchedulePage() {
                       <div className="text-sm">週{['日','一','二','三','四','五','六'][day.getDay()]}</div>
                       <div className="text-xl">{format(day, 'd')}</div>
                     </div>
-                    <div className="flex-1 p-2 flex flex-col gap-2 overflow-y-auto">
+                    <div className="flex-1 min-h-0 p-2 flex flex-col gap-2 overflow-y-auto">
                       {displayTasks.map(task => {
                         const { projName, assigneeDisplay, coworkerDisplay, district, searchAddress } = getTaskDisplay(task);
                         const weatherDisplay = getTaskWeatherDisplay(task);
@@ -930,7 +931,7 @@ export default function SchedulePage() {
                               setEditingTaskMembers(members.filter(m => m.task_id === task.id).map(m => m.user_id));
                               setIsFormOpen(true);
                             }}
-                            className={`p-2 rounded cursor-pointer border shadow-sm transition transform hover:scale-[1.02] active:scale-95 ${
+                            className={`shrink-0 p-2 rounded cursor-pointer border shadow-sm transition transform hover:scale-[1.02] active:scale-95 ${
                               isDone ? 'bg-[var(--surface-secondary)] border-[var(--border)] opacity-50' :
                               isRescheduled ? 'bg-[var(--surface-secondary)] border-dashed border-[var(--text-muted)] opacity-60' :
                               task.is_tentative ? 'bg-[var(--surface-secondary)] border-[var(--warning)]' :
@@ -974,7 +975,7 @@ export default function SchedulePage() {
                       })}
                       {hiddenCount > 0 && (
                         <div 
-                          className="text-center text-xs font-bold text-[var(--text-muted)] hover:text-[var(--accent)] cursor-pointer mt-1"
+                          className="shrink-0 text-center text-xs font-bold text-[var(--text-muted)] hover:text-[var(--accent)] cursor-pointer mt-1"
                           onClick={() => setSelectedDayTasks({ date: day, tasks: dayTasks })}
                         >
                           +{hiddenCount} 筆
@@ -1077,8 +1078,8 @@ export default function SchedulePage() {
                       <div className={`text-right text-xs p-1 font-semibold ${isSameDay(day, new Date()) ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'}`}>
                         {format(day, 'd')}
                       </div>
-                      <div className="flex-1 overflow-y-auto flex flex-col gap-1">
-                        {dayTasks.slice(0, 3).map(task => {
+                      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1">
+                        {dayTasks.slice(0, DAILY_TASK_DISPLAY_LIMIT).map(task => {
                           const { projName, assigneeDisplay, coworkerDisplay, district, searchAddress } = getTaskDisplay(task);
                           const weatherDisplay = getTaskWeatherDisplay(task);
                           const isDone = task.status === '完成';
@@ -1097,7 +1098,7 @@ export default function SchedulePage() {
                                 setEditingTaskMembers(members.filter(m => m.task_id === task.id).map(m => m.user_id));
                                 setIsFormOpen(true);
                               }}
-                              className={`${fontSizeClasses.month} min-w-0 px-1 py-0.5 rounded cursor-pointer ${
+                              className={`${fontSizeClasses.month} shrink-0 min-w-0 px-1 py-0.5 rounded cursor-pointer ${
                                 isDone ? 'bg-[var(--surface-secondary)] text-[var(--text-muted)] opacity-50' :
                                 isRescheduled ? 'bg-[var(--surface-secondary)] text-[var(--text-muted)] border border-dashed border-[var(--text-muted)] opacity-60' :
                                 task.is_tentative ? 'bg-[var(--surface-secondary)] text-[var(--warning)] border border-[var(--warning)]' :
@@ -1129,12 +1130,12 @@ export default function SchedulePage() {
                             </div>
                           );
                         })}
-                        {dayTasks.length > 3 && (
+                        {dayTasks.length > DAILY_TASK_DISPLAY_LIMIT && (
                           <div 
-                            className="text-[10px] text-center text-[var(--text-muted)] cursor-pointer hover:text-[var(--accent)]"
+                            className="shrink-0 text-[10px] text-center text-[var(--text-muted)] cursor-pointer hover:text-[var(--accent)]"
                             onClick={() => setSelectedDayTasks({ date: day, tasks: dayTasks })}
                           >
-                            +{dayTasks.length - 3}
+                            +{dayTasks.length - DAILY_TASK_DISPLAY_LIMIT} 筆
                           </div>
                         )}
                       </div>
