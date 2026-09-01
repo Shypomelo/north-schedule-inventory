@@ -2,7 +2,15 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useUser } from '@/components/UserContext';
-import { InventoryTransaction, InventoryItem, InventoryMonthlyClosing, InventoryMonthlyClosingItem, isActiveFormalTransaction } from '@/lib/db/types';
+import {
+  InventoryItem,
+  InventoryMonthlyClosing,
+  InventoryMonthlyClosingItem,
+  InventorySerial,
+  InventoryTransaction,
+  InventoryTransactionSerial,
+  isActiveFormalTransaction,
+} from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { format, subMonths } from 'date-fns';
 import { FileSpreadsheet, Lock, Unlock, AlertTriangle, CheckCircle, Info } from 'lucide-react';
@@ -22,6 +30,8 @@ export default function MonthlyReportPage() {
   
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [transactions, setTransactions] = useState<InventoryTransaction[]>([]);
+  const [transactionSerials, setTransactionSerials] = useState<InventoryTransactionSerial[]>([]);
+  const [serials, setSerials] = useState<InventorySerial[]>([]);
   const [closings, setClosings] = useState<InventoryMonthlyClosing[]>([]);
   const [closingItems, setClosingItems] = useState<InventoryMonthlyClosingItem[]>([]);
   const [previousClosingItems, setPreviousClosingItems] = useState<InventoryMonthlyClosingItem[]>([]);
@@ -35,13 +45,17 @@ export default function MonthlyReportPage() {
 
   async function loadData() {
     setIsLoading(true);
-    const [i, t, c] = await Promise.all([
+    const [i, t, ts, s, c] = await Promise.all([
       dbAdapter.getInventoryItems(),
       dbAdapter.getInventoryTransactions(),
+      dbAdapter.getInventoryTransactionSerials(),
+      dbAdapter.getInventorySerials(),
       dbAdapter.getMonthlyClosings()
     ]);
     setItems(i);
     setTransactions(t);
+    setTransactionSerials(ts);
+    setSerials(s);
     setClosings(c);
     setIsLoading(false);
   }
@@ -198,6 +212,9 @@ export default function MonthlyReportPage() {
       currentClosing ? 'CLOSED' : 'OPEN',
       displayData,
       txsInMonth,
+      transactionSerials,
+      serials,
+      items,
     );
   };
 

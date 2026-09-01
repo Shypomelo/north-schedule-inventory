@@ -30,6 +30,7 @@ export interface SESupplyRecord {
   old_model: string | null;
   faulty_serial: string | null;
   fault_reason: string | null;
+  new_model: string | null;
   new_serial: string | null;
   receive_method: string | null;
   receive_date: string | null; // YYYY-MM-DD

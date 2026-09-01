@@ -5,6 +5,7 @@ import { InventoryTransaction, InventoryItem, Project, InventorySerial, Inventor
 import { dbAdapter } from '@/lib/db';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
 import { format } from 'date-fns';
+import { classifySerialFormat } from '@/lib/inventory-serial-normalization';
 
 export default function SerialsPage() {
   const [items, setItems] = useState<InventoryItem[]>([]);
@@ -36,7 +37,14 @@ export default function SerialsPage() {
     fetchData();
   }, []);
 
-  const pendingList = txSerials.filter(s => s.is_pending);
+  const pendingList = txSerials.filter(serialLink => {
+    if (!serialLink.is_pending) return false;
+    const transaction = transactions.find(tx => tx.id === serialLink.transaction_id);
+    if (!transaction || transaction.is_voided) return false;
+
+    return !transaction.excluded_by_initialization_id
+      || transaction.source === 'INVENTORY_INITIALIZATION_PENDING';
+  });
 
   const formatSerialCandidates = (candidates: InventorySerialLookupCandidate[]) => (
     candidates
@@ -50,6 +58,9 @@ export default function SerialsPage() {
   const handleFillPending = async (txSerialId: string, txId: string, inputSerial: string) => {
     if (!inputSerial.trim()) return alert("請輸入序號");
     const serialStr = inputSerial.trim();
+    if (classifySerialFormat(serialStr) === 'unknown') {
+      return alert('序號格式不正確，請輸入正式設備序號');
+    }
     const tx = transactions.find(t => t.id === txId);
     if (!tx) return;
 

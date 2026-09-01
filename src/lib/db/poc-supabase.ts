@@ -693,6 +693,7 @@ const normalizeNewSESupplyRecord = (data: NewSESupplyRecord): NewSESupplyRecord 
   old_model: normalizeSESupplyNullableValue(data.old_model),
   faulty_serial: normalizeSESupplyNullableValue(data.faulty_serial),
   fault_reason: normalizeSESupplyNullableValue(data.fault_reason),
+  new_model: normalizeSESupplyNullableValue(data.new_model),
   new_serial: normalizeSESupplyNullableValue(data.new_serial),
   receive_method: normalizeSESupplyNullableValue(data.receive_method),
   receive_date: normalizeSESupplyNullableValue(data.receive_date),

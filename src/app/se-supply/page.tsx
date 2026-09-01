@@ -83,6 +83,7 @@ export default function SESupplyPage() {
       const matchSearch = 
         getProjectDisplayName(r).toLowerCase().includes(searchTerm.toLowerCase()) ||
         (r.faulty_serial || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (r.new_model || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (r.new_serial || '').toLowerCase().includes(searchTerm.toLowerCase());
       
       const matchMethod = filterMethod ? r.receive_method === filterMethod : true;
@@ -106,6 +107,7 @@ export default function SESupplyPage() {
         old_model: null,
         faulty_serial: null,
         fault_reason: null,
+        new_model: null,
         new_serial: null,
         receive_method: null,
         receive_date: null,
@@ -185,6 +187,7 @@ export default function SESupplyPage() {
       '原故障型號': r.old_model || '',
       '故障序號': r.faulty_serial || '',
       '故障原因': r.fault_reason || '',
+      '新物料型號': r.new_model || '',
       '新物料序號': r.new_serial || '',
       '收貨方式': r.receive_method || '',
       '收取物料時間': r.receive_date || '',
@@ -259,7 +262,7 @@ export default function SESupplyPage() {
       </div>
 
       <div className="flex-1 overflow-auto bg-card rounded-xl border border-theme-border relative">
-        <table className="w-full text-sm text-left whitespace-nowrap min-w-[1200px]">
+        <table className="w-full text-sm text-left whitespace-nowrap min-w-[1320px]">
           <thead className="text-xs text-secondary bg-[var(--surface-secondary)] sticky top-0 z-10 shadow">
             <tr>
               <th className="px-3 py-3 w-10 text-center">操作</th>
@@ -267,6 +270,7 @@ export default function SESupplyPage() {
               <th className="px-3 py-3 w-32">原故障型號</th>
               <th className="px-3 py-3 w-40">故障序號</th>
               <th className="px-3 py-3 w-32">故障原因</th>
+              <th className="px-3 py-3 w-32">新物料型號</th>
               <th className="px-3 py-3 w-40">新物料序號</th>
               <th className="px-3 py-3 w-40">收貨方式</th>
               <th className="px-3 py-3 w-36">收取物料時間</th>
@@ -277,7 +281,7 @@ export default function SESupplyPage() {
           </thead>
           <tbody className="divide-y divide-theme-border/50">
             <tr className="bg-card/50 hover:bg-page transition-colors">
-              <td colSpan={11} className="p-0">
+              <td colSpan={12} className="p-0">
                 <button 
                   onClick={handleAddRow}
                   disabled={currentUser?.role === 'VIEWER'}
@@ -289,7 +293,7 @@ export default function SESupplyPage() {
             </tr>
             {filteredRecords.length === 0 ? (
               <tr>
-                <td colSpan={11} className="p-8 text-center text-secondary">尚無符合條件的紀錄</td>
+                <td colSpan={12} className="p-8 text-center text-secondary">尚無符合條件的紀錄</td>
               </tr>
             ) : (
               filteredRecords.map(r => {
@@ -360,6 +364,18 @@ export default function SESupplyPage() {
                         onBlur={e => handleCellBlur(r.id, 'fault_reason', e.target.value)}
                         onKeyDown={e => handleKeyDown(e, r.id, 'fault_reason', e.currentTarget.value)}
                         placeholder="故障原因..."
+                        className="w-full bg-transparent border border-transparent hover:border-theme-border focus:border-accent focus:bg-page rounded px-2 py-1 outline-none text-primary placeholder:text-secondary/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={currentUser?.role === 'VIEWER'}
+                      />
+                    </td>
+                    <td className="px-1 py-1">
+                      <input
+                        type="text"
+                        value={r.new_model || ''}
+                        onChange={e => handleCellChange(r.id, 'new_model', e.target.value)}
+                        onBlur={e => handleCellBlur(r.id, 'new_model', e.target.value)}
+                        onKeyDown={e => handleKeyDown(e, r.id, 'new_model', e.currentTarget.value)}
+                        placeholder="新物料型號..."
                         className="w-full bg-transparent border border-transparent hover:border-theme-border focus:border-accent focus:bg-page rounded px-2 py-1 outline-none text-primary placeholder:text-secondary/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         disabled={currentUser?.role === 'VIEWER'}
                       />

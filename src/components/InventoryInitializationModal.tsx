@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, AlertTriangle, CheckCircle, Save, Loader2, ArrowRight } from 'lucide-react';
 import { InventoryItem } from '@/lib/db/types';
 import { InitializationItemInput, InitializationPreviewResult, InitializationStatus, previewInventoryInitialization, initializeInventory } from '@/lib/db/inventory-initialization';
+import { classifySerialFormat } from '@/lib/inventory-serial-normalization';
 
 interface InventoryInitializationModalProps {
   isOpen: boolean;
@@ -113,7 +114,9 @@ export const InventoryInitializationModal: React.FC<InventoryInitializationModal
           let changed = false;
           pItems.forEach(pi => {
             if (pi.requires_serial && pi.in_stock_serials && !next[pi.item_id]) {
-              next[pi.item_id] = pi.in_stock_serials.map(s => s.id);
+              next[pi.item_id] = pi.in_stock_serials
+                .filter(s => classifySerialFormat(s.serial_number) !== 'unknown')
+                .map(s => s.id);
               changed = true;
             }
           });
@@ -252,6 +255,12 @@ export const InventoryInitializationModal: React.FC<InventoryInitializationModal
                   {items.map(item => {
                     const preview = previewResults?.find(r => r.item_id === item.id);
                     const isError = preview && !preview.can_initialize;
+                    const validInStockSerials = (preview?.in_stock_serials || [])
+                      .filter(serial => classifySerialFormat(serial.serial_number) !== 'unknown');
+                    const retainedCount = (retainedSerials[item.id] || []).length;
+                    const pendingSerialCount = item.requires_serial
+                      ? Math.max(0, (inputs[item.id] || 0) - retainedCount)
+                      : 0;
 
                     return (
                       <React.Fragment key={item.id}>
@@ -274,8 +283,8 @@ export const InventoryInitializationModal: React.FC<InventoryInitializationModal
                               <td className="p-3 text-right">
                                 {item.requires_serial ? (
                                   <div className="flex flex-col items-end gap-1">
-                                    <span className="text-secondary">{preview.in_stock_serial_count}</span>
-                                    {preview.in_stock_serial_count > 0 && (
+                                    <span className="text-secondary">{validInStockSerials.length}</span>
+                                    {validInStockSerials.length > 0 && (
                                       <button
                                         onClick={() => setExpandedItem(expandedItem === item.id ? null : item.id)}
                                         className="text-xs text-accent hover:text-accent-hover underline"
@@ -286,8 +295,8 @@ export const InventoryInitializationModal: React.FC<InventoryInitializationModal
                                   </div>
                                 ) : '-'}
                               </td>
-                              <td className={`p-3 text-right font-bold ${preview.pending_serial_count > 0 ? 'text-warning' : 'text-secondary/50'}`}>
-                                {item.requires_serial ? preview.pending_serial_count : '-'}
+                              <td className={`p-3 text-right font-bold ${pendingSerialCount > 0 ? 'text-warning' : 'text-secondary/50'}`}>
+                                {item.requires_serial ? pendingSerialCount : '-'}
                               </td>
                               <td className="p-3">
                                 {preview.can_initialize ? (
@@ -312,14 +321,14 @@ export const InventoryInitializationModal: React.FC<InventoryInitializationModal
                                 <div className="flex items-center justify-between">
                                   <div className="text-sm font-semibold text-primary">盤點在庫序號</div>
                                   <div className="text-sm text-secondary">
-                                    已選保留: <span className="font-bold text-accent">{(retainedSerials[item.id] || []).length}</span> / {preview.in_stock_serial_count}
+                                    已選保留: <span className="font-bold text-accent">{retainedCount}</span> / {validInStockSerials.length}
                                   </div>
                                 </div>
 
-                                {preview.in_stock_serial_count > (inputs[item.id] || 0) && (
+                                {validInStockSerials.length > (inputs[item.id] || 0) && (
                                   <div className="p-2 bg-warning/10 border border-warning/20 rounded text-warning text-xs flex items-center gap-2">
                                     <AlertTriangle className="w-4 h-4" />
-                                    目前系統在庫：{preview.in_stock_serial_count}，盤點實際庫存：{inputs[item.id] || 0}，請確認需排除 {Math.max(0, preview.in_stock_serial_count - (inputs[item.id] || 0))} 個序號
+                                    目前有效在庫序號：{validInStockSerials.length}，盤點實際庫存：{inputs[item.id] || 0}，請確認需排除 {Math.max(0, validInStockSerials.length - (inputs[item.id] || 0))} 個序號
                                   </div>
                                 )}
 
@@ -332,7 +341,7 @@ export const InventoryInitializationModal: React.FC<InventoryInitializationModal
                                     className="flex-1 bg-card border border-theme-border rounded px-3 py-1.5 text-sm text-primary focus:border-accent focus:ring-1 focus:ring-accent outline-none"
                                   />
                                   <button
-                                    onClick={() => setAllRetainedSerials(item.id, preview.in_stock_serials!.map(s => s.id))}
+                                    onClick={() => setAllRetainedSerials(item.id, validInStockSerials.map(s => s.id))}
                                     className="px-3 py-1.5 text-xs bg-theme-border/50 hover:bg-theme-border rounded text-primary transition-colors"
                                   >
                                     全選
@@ -346,7 +355,7 @@ export const InventoryInitializationModal: React.FC<InventoryInitializationModal
                                 </div>
 
                                 <div className="max-h-48 overflow-y-auto bg-card border border-theme-border rounded grid grid-cols-2 gap-px p-px">
-                                  {preview.in_stock_serials
+                                  {validInStockSerials
                                     .filter(s => !searchQuery || s.serial_number.toLowerCase().includes(searchQuery.toLowerCase()))
                                     .map(serial => {
                                       const isChecked = (retainedSerials[item.id] || []).includes(serial.id);

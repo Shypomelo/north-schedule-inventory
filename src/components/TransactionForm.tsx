@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { InventoryTransaction, InventoryItem, Project, TransactionType, InventorySerial, InventoryBatch, User, InventorySerialLookupCandidate } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { previewInventoryInitialization } from '@/lib/db/inventory-initialization';
-import { normalizeSerialInput } from '@/lib/inventory-serial-normalization';
+import { classifySerialFormat, normalizeSerialInput } from '@/lib/inventory-serial-normalization';
 import { useUser } from './UserContext';
 import { format } from 'date-fns';
 import { Plus } from 'lucide-react';
@@ -126,9 +126,15 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
   };
 
   const addSelectedSerial = (serialNumber: string) => {
-    setSelectedSerials(prev => (
-      prev.includes(serialNumber) ? prev : [...prev, serialNumber]
-    ));
+    if (classifySerialFormat(serialNumber) === 'unknown') {
+      setSerialLookupMsg('此筆為待補／非正式序號，不能用於出庫');
+      return;
+    }
+
+    setSelectedSerials(prev => {
+      if (prev.includes(serialNumber) || prev.length >= formData.quantity) return prev;
+      return [...prev, serialNumber];
+    });
   };
 
   const handleOutSerialLookup = async () => {
@@ -181,7 +187,11 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
     
     // Combine serial with batch in_date for sorting
     const eligible = allSerials
-      .filter(s => s.item_id === formData.item_id && (s.status === '在庫' || initialSerials.includes(s.serial_number)))
+      .filter(s => (
+        s.item_id === formData.item_id
+        && classifySerialFormat(s.serial_number) !== 'unknown'
+        && (s.status === '在庫' || (isEditMode && initialSerials.includes(s.serial_number)))
+      ))
       .map(s => {
         const batch = batches.find(b => b.id === s.batch_id);
         return {
@@ -198,18 +208,7 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
     });
 
     return eligible;
-  }, [allSerials, batches, formData.item_id, selectedItem?.requires_serial, initialSerials]);
-
-  // Auto select FIFO serials when quantity or transaction_type changes
-  useEffect(() => {
-    if ((formData.transaction_type === 'OUT' || formData.transaction_type === 'RETURN') && selectedItem?.requires_serial) {
-      if (!isEditMode) {
-        // Auto select first N serials
-        const toSelect = availableSerialsFIFO.slice(0, formData.quantity).map(s => s.serial_number);
-        setSelectedSerials(toSelect);
-      }
-    }
-  }, [formData.quantity, formData.transaction_type, availableSerialsFIFO, selectedItem?.requires_serial, isEditMode]);
+  }, [allSerials, batches, formData.item_id, selectedItem?.requires_serial, initialSerials, isEditMode]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -590,7 +589,7 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
                   </div>
                 </div>
                 <div className="flex flex-col gap-2">
-                  <span className="text-sm text-secondary">請從系統現有序號庫存中勾選（已自動按照入庫批次時間為您勾選最舊的序號）</span>
+                  <span className="text-sm text-secondary">請從系統現有序號庫存中勾選（依入庫批次時間排序，預設不勾選）</span>
                   <div className="flex flex-col gap-2 bg-page/50 p-3 rounded-lg border border-theme-border/50">
                     <span className="text-sm font-semibold text-secondary">搜尋 / 掃描序號</span>
                     <div className="flex gap-2">
@@ -657,9 +656,10 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
                                   type="checkbox" 
                                   className="accent-accent w-4 h-4 rounded"
                                   checked={isSelected}
+                                  disabled={!isSelected && selectedSerials.length >= formData.quantity}
                                   onChange={(e) => {
                                     if (e.target.checked) {
-                                      setSelectedSerials(prev => [...prev, s.serial_number]);
+                                      addSelectedSerial(s.serial_number);
                                     } else {
                                       setSelectedSerials(prev => prev.filter(x => x !== s.serial_number));
                                     }
@@ -674,6 +674,9 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
                         })}
                       </div>
                     )}
+                  </div>
+                  <div className="mt-2 text-xs text-secondary">
+                    已選 {selectedSerials.length} / 應選 {formData.quantity} 筆序號
                   </div>
                   {availableSerialsFIFO.length < formData.quantity && currentBalance >= formData.quantity && (
                     <div className="mt-2 text-sm text-warning bg-warning/20 p-2 rounded border border-warning/30">
