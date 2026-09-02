@@ -63,6 +63,9 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
   const [memberIds, setMemberIds] = useState<string[]>(initialMemberIds || []);
   const [projectNameInput, setProjectNameInput] = useState(initialData?.project_name || '');
   const isEditingExistingTask = Boolean(initialData?.id);
+  const canRemainUnassigned = Boolean(
+    isEditingExistingTask && initialData?.google_event_id && !initialData?.main_assignee_id,
+  );
   const {
     activeTaskTypes,
     defaultTaskType,
@@ -92,17 +95,14 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
         }
       }
 
-      let currentAssignee = activeUsers.find(u => u.id === initialData?.main_assignee_id);
-      
       setFormData(prev => {
-        let assigneeId = prev.main_assignee_id;
-        if (initialData?.id) {
-           // Editing: if the current assignee is not engineering, clear it
-           if (currentAssignee && currentAssignee.category !== 'ENGINEERING') {
-             assigneeId = '';
-           }
-        }
-        return { ...prev, main_assignee_id: assigneeId };
+        if (!initialData?.id || !initialData.main_assignee_id) return prev;
+
+        const currentAssignee = activeUsers.find(user => user.id === initialData.main_assignee_id);
+        return {
+          ...prev,
+          main_assignee_id: currentAssignee?.id || null,
+        };
       });
     });
   }, [initialData?.project_id, initialData?.project_name, initialData?.id, initialData?.main_assignee_id]);
@@ -231,8 +231,11 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
     e.preventDefault();
     setErrorMsg(null);
     if (!formData.task_date) return setErrorMsg('任務日期為必填');
-    if (!formData.main_assignee_id) return setErrorMsg('請選擇主要負責人');
-    if (!formData.project_name?.trim()) return setErrorMsg('案場為必填');
+    if (!formData.main_assignee_id && !canRemainUnassigned) return setErrorMsg('請選擇主要負責人');
+    const isImportedUnmatchedTask = Boolean(
+      initialData?.google_event_id && !initialData?.project_id && !initialData?.project_name,
+    );
+    if (!formData.project_name?.trim() && !isImportedUnmatchedTask) return setErrorMsg('案場為必填');
     
     // Auto format check
     const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -255,7 +258,10 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
     await onSubmit(formData as any, memberIds);
   };
 
-  const mainAssigneeUsers = users.filter(u => u.category === 'ENGINEERING');
+  const mainAssigneeUsers = users.filter(user => (
+    user.category === 'ENGINEERING'
+    || (isEditingExistingTask && user.id === formData.main_assignee_id)
+  ));
   const coworkerUsers = users;
   const startTimeParts = splitTime(formData.start_time);
   const endTimeParts = splitTime(formData.end_time);
@@ -280,7 +286,12 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
         
         {/* 第一列：案場 */}
         <div className="flex flex-col gap-1 md:col-span-2 relative" ref={wrapperRef}>
-          <span className="font-semibold text-[var(--modal-text)]">案場 (可快選既有案場或手動輸入新案場) *</span>
+          <span className="font-semibold text-[var(--modal-text)]">
+            案場 (可快選既有案場或手動輸入新案場){initialData?.google_event_id && !initialData?.project_id ? '' : ' *'}
+          </span>
+          {initialData?.google_event_id && !formData.project_id && !formData.project_name && (
+            <span className="text-xs font-semibold text-amber-400">目前：未匹配案場</span>
+          )}
           <input 
             type="text"
             className="bg-[var(--input-bg)] text-[var(--input-text)] border border-[var(--input-border)] rounded p-1.5 focus:border-[var(--accent)] outline-none w-full placeholder:text-[var(--input-placeholder)]"
@@ -451,13 +462,18 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
 
         {/* 第五列：主要負責人 + 任務狀態 */}
         <label className="flex flex-col gap-1 mt-1">
-          <span className="font-semibold text-[var(--modal-text)]">主要負責人 *</span>
+          <span className="font-semibold text-[var(--modal-text)]">
+            主要負責人{canRemainUnassigned ? '' : ' *'}
+          </span>
+          {canRemainUnassigned && !formData.main_assignee_id && (
+            <span className="text-xs font-semibold text-amber-400">目前：未指定負責人</span>
+          )}
           <select 
-            required
+            required={!canRemainUnassigned}
             className="bg-[var(--input-bg)] text-[var(--input-text)] border border-[var(--input-border)] rounded p-1.5 focus:border-[var(--accent)] outline-none cursor-pointer appearance-none"
             value={formData.main_assignee_id || ''} onChange={e => setFormData({...formData, main_assignee_id: e.target.value})} 
           >
-            <option value="">請選擇</option>
+            <option value="">{canRemainUnassigned ? '未指定負責人' : '請選擇'}</option>
             {mainAssigneeUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
           </select>
         </label>

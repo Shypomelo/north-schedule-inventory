@@ -4,6 +4,14 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { ScheduleTask, ScheduleTaskMember, Project, User, Todo, TaskStatus } from '@/lib/db/types';
 import { dbAdapter, isGoogleRemoteDeletedError } from '@/lib/db';
 import { ScheduleTaskForm } from '@/components/ScheduleTaskForm';
+import {
+  GoogleCalendarSyncSummaryDialog,
+  GoogleCalendarUnmatchedDialog,
+  type GoogleCalendarSyncDecision,
+  type GoogleCalendarSyncFailure,
+  type GoogleCalendarSyncSummary,
+  type GoogleCalendarUnmatchedEvent,
+} from '@/components/GoogleCalendarSyncDialogs';
 import { TodoForm } from '@/components/TodoForm';
 import { startOfWeek, endOfWeek, addDays, subDays, format, isSameDay, startOfMonth, endOfMonth } from 'date-fns';
 import { ChevronLeft, ChevronRight, Plus, X, ArrowLeft, RefreshCw } from 'lucide-react';
@@ -60,14 +68,22 @@ type ReconcileResult = {
   skipped?: number;
   skipped_system_created?: number;
   skippedEvents?: { eventId: string; reason: string }[];
+  matchedImportedOrUpdated?: number;
+  unmatchedImported?: number;
+  skippedThisRun?: number;
+  failed?: number;
+  unmatchedEvents?: GoogleCalendarUnmatchedEvent[];
+  failures?: GoogleCalendarSyncFailure[];
   error?: string;
 };
 
 type ReconcileOptions = {
   force?: boolean;
+  decisions?: GoogleCalendarSyncDecision[];
 };
 
 const RECONCILE_COOLDOWN_MS = 30000;
+const DAILY_TASK_DISPLAY_LIMIT = 8;
 let reconcileInFlight: Promise<ReconcileResult | null> | null = null;
 let lastReconcileAt = 0;
 
@@ -132,6 +148,10 @@ export default function SchedulePage() {
   const [editingTaskMembers, setEditingTaskMembers] = useState<string[]>([]);
   const [convertingTodoId, setConvertingTodoId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isConfirmingGoogleEvents, setIsConfirmingGoogleEvents] = useState(false);
+  const [unmatchedGoogleEvents, setUnmatchedGoogleEvents] = useState<GoogleCalendarUnmatchedEvent[]>([]);
+  const [googleSyncSummary, setGoogleSyncSummary] = useState<GoogleCalendarSyncSummary | null>(null);
+  const [pendingGoogleSyncSummary, setPendingGoogleSyncSummary] = useState<GoogleCalendarSyncSummary | null>(null);
   const [selectedDayTasks, setSelectedDayTasks] = useState<{date: Date, tasks: ScheduleTask[]} | null>(null);
 
   // Todo Modal
@@ -179,7 +199,9 @@ export default function SchedulePage() {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
         },
+        body: JSON.stringify(options.decisions ? { decisions: options.decisions } : {}),
       });
     }).then(async response => {
       if (!response) return null;
@@ -212,33 +234,19 @@ export default function SchedulePage() {
         if (res.success === false) {
           alert(`同步失敗：${res.error || '未知錯誤'}`);
         } else {
-          const skippedInvalidCreator = res.skippedEvents?.filter((e: any) => e.reason === 'creator_not_active_team_member' || e.reason === 'missing_creator_email')?.length || 0;
-          const skippedNoProjectMatch = res.skippedEvents?.filter((e: any) => e.reason === 'no_project_match')?.length || 0;
-          const skippedAmbiguous = res.skippedEvents?.filter((e: any) => e.reason === 'ambiguous_project_match')?.length || 0;
-          const skippedMultiDay = res.skippedEvents?.filter((e: any) => e.reason === 'unsupported_multi_day_event')?.length || 0;
-          const skippedInvalidTime = res.skippedEvents?.filter((e: any) => e.reason === 'invalid_time')?.length || 0;
-          const skippedAlreadyImported = res.skippedEvents?.filter((e: any) => e.reason === 'already_imported')?.length || 0;
-          const categorizedReasons = new Set([
-            'creator_not_active_team_member',
-            'missing_creator_email',
-            'no_project_match',
-            'ambiguous_project_match',
-            'unsupported_multi_day_event',
-            'invalid_time',
-            'already_imported',
-          ]);
-          const skippedOther = res.skippedEvents?.filter((e: any) => !categorizedReasons.has(e.reason))?.length || 0;
-
-          alert(`同步完成
-新增：${res.imported || 0}
-已存在：${skippedAlreadyImported}
-略過 (系統建立)：${res.skipped_system_created || 0}
-略過 (無效人員)：${skippedInvalidCreator}
-略過 (無法匹配案場)：${skippedNoProjectMatch}
-略過 (模糊案場)：${skippedAmbiguous}
-略過 (跨日事件)：${skippedMultiDay}
-略過 (時間無效)：${skippedInvalidTime}
-略過 (其他)：${(res.skipped || 0) + skippedOther}`);
+          const summary: GoogleCalendarSyncSummary = {
+            matchedImportedOrUpdated: res.matchedImportedOrUpdated || 0,
+            unmatchedImported: res.unmatchedImported || 0,
+            skippedThisRun: res.skippedThisRun || 0,
+            failed: res.failed || 0,
+            failures: res.failures || [],
+          };
+          if (res.unmatchedEvents?.length) {
+            setPendingGoogleSyncSummary(summary);
+            setUnmatchedGoogleEvents(res.unmatchedEvents);
+          } else {
+            setGoogleSyncSummary(summary);
+          }
         }
         await fetchData(false);
       } else {
@@ -248,6 +256,37 @@ export default function SchedulePage() {
       alert(`同步失敗：${e.message}`);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleConfirmUnmatchedGoogleEvents = async (decisions: GoogleCalendarSyncDecision[]) => {
+    setIsConfirmingGoogleEvents(true);
+    try {
+      const res = await reconcileGoogleCalendar({ force: true, decisions });
+      if (!res || res.success === false) {
+        throw new Error(res?.error || '確認未匹配活動失敗');
+      }
+      const initial = pendingGoogleSyncSummary || {
+        matchedImportedOrUpdated: 0,
+        unmatchedImported: 0,
+        skippedThisRun: 0,
+        failed: 0,
+        failures: [],
+      };
+      setGoogleSyncSummary({
+        matchedImportedOrUpdated: initial.matchedImportedOrUpdated + (res.matchedImportedOrUpdated || 0),
+        unmatchedImported: initial.unmatchedImported + (res.unmatchedImported || 0),
+        skippedThisRun: initial.skippedThisRun + (res.skippedThisRun || 0),
+        failed: initial.failed + (res.failed || 0),
+        failures: [...initial.failures, ...(res.failures || [])],
+      });
+      setUnmatchedGoogleEvents([]);
+      setPendingGoogleSyncSummary(null);
+      await fetchData(false);
+    } catch (error: any) {
+      alert(`未匹配活動處理失敗：${error.message}`);
+    } finally {
+      setIsConfirmingGoogleEvents(false);
     }
   };
 
@@ -285,7 +324,17 @@ export default function SchedulePage() {
 
       if (showLoading) {
         reconcileGoogleCalendar().then((res: any) => {
-          if (res?.updated || res?.deleted) {
+          if (res?.unmatchedEvents?.length) {
+            setPendingGoogleSyncSummary({
+              matchedImportedOrUpdated: res.matchedImportedOrUpdated || 0,
+              unmatchedImported: res.unmatchedImported || 0,
+              skippedThisRun: res.skippedThisRun || 0,
+              failed: res.failed || 0,
+              failures: res.failures || [],
+            });
+            setUnmatchedGoogleEvents(res.unmatchedEvents);
+          }
+          if (res?.updated || res?.deleted || res?.imported) {
             fetchData(false); // Silently refresh data
           }
         });
@@ -342,7 +391,7 @@ export default function SchedulePage() {
     const visibleWeekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
     for (let index = 0; index < 6; index += 1) {
       const dateStr = format(addDays(visibleWeekStart, index), 'yyyy-MM-dd');
-      visibleTasks.push(...sortTasks(tasks.filter(task => task.task_date === dateStr)).slice(0, 3));
+      visibleTasks.push(...sortTasks(tasks.filter(task => task.task_date === dateStr)).slice(0, DAILY_TASK_DISPLAY_LIMIT));
     }
     return visibleTasks;
   }, [currentDate, selectedDayTasks, tasks, viewMode]);
@@ -413,10 +462,14 @@ export default function SchedulePage() {
         try {
           await dbAdapter.updateScheduleTask(editingTask.id, data, newMemberIds);
           replaceTaskMembers(editingTask.id, newMemberIds);
+          const projectChanged = originalTask?.project_id !== data.project_id;
           await dbAdapter.logActivity({
             actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
             action_type: 'UPDATE_TASK', target_type: 'ScheduleTask', target_id: editingTask.id, target_label: data.title,
-            project_id: data.project_id, project_name: '', before_value: null, after_value: null, message: '編輯排程任務'
+            project_id: data.project_id, project_name: data.project_name || '',
+            before_value: projectChanged ? (originalTask?.project_name || '未匹配案場') : null,
+            after_value: projectChanged ? (data.project_name || '未匹配案場') : null,
+            message: projectChanged ? '編輯排程任務並更新案場關聯' : '編輯排程任務'
           });
         } catch (error) {
           if (isGoogleRemoteDeletedError(error)) {
@@ -719,13 +772,13 @@ export default function SchedulePage() {
 
   const getTaskDisplay = (task: ScheduleTask) => {
     const proj = projects.find(p => p.id === task.project_id);
-    const projName = task.project_name || proj?.short_name || proj?.name || '未指定案場';
+    const projName = task.project_name || proj?.short_name || proj?.name || '未匹配案場';
     const mainUser = users.find(u => u.id === task.main_assignee_id);
     const memberUids = members.filter(m => m.task_id === task.id).map(m => m.user_id);
     const coUsers = users.filter(u => memberUids.includes(u.id));
     const mainAssigneeName = mainUser?.name || '';
     const coworkerNames = coUsers.map(u => u.name);
-    const assigneeDisplay = mainAssigneeName ? `主要：${mainAssigneeName}` : '';
+    const assigneeDisplay = mainAssigneeName ? `主要：${mainAssigneeName}` : '主要：未指定負責人';
     const coworkerDisplay = coworkerNames.length > 0 ? `協同：${coworkerNames.join('、')}` : '';
     
     const districtName = getScheduleDistrictLabel(task, proj);
@@ -843,13 +896,13 @@ export default function SchedulePage() {
               {weekDays.map((day, i) => {
                 const dateStr = format(day, 'yyyy-MM-dd');
                 const dayTasks = sortTasks(tasks.filter(t => t.task_date === dateStr));
-                const displayTasks = dayTasks.slice(0, 3);
-                const hiddenCount = dayTasks.length - 3;
+                const displayTasks = dayTasks.slice(0, DAILY_TASK_DISPLAY_LIMIT);
+                const hiddenCount = dayTasks.length - DAILY_TASK_DISPLAY_LIMIT;
                 
                 return (
                   <div 
                     key={i} 
-                    className="border-r border-[var(--border)] flex flex-col"
+                    className="min-h-0 border-r border-[var(--border)] flex flex-col"
                     onDragOver={e => e.preventDefault()}
                     onDrop={e => handleDropToDate(e, dateStr)}
                     onContextMenu={e => {
@@ -867,7 +920,7 @@ export default function SchedulePage() {
                       <div className="text-sm">週{['日','一','二','三','四','五','六'][day.getDay()]}</div>
                       <div className="text-xl">{format(day, 'd')}</div>
                     </div>
-                    <div className="flex-1 p-2 flex flex-col gap-2 overflow-y-auto">
+                    <div className="flex-1 min-h-0 p-2 flex flex-col gap-2 overflow-y-auto">
                       {displayTasks.map(task => {
                         const { projName, assigneeDisplay, coworkerDisplay, district, searchAddress } = getTaskDisplay(task);
                         const weatherDisplay = getTaskWeatherDisplay(task);
@@ -888,7 +941,7 @@ export default function SchedulePage() {
                               setEditingTaskMembers(members.filter(m => m.task_id === task.id).map(m => m.user_id));
                               setIsFormOpen(true);
                             }}
-                            className={`p-2 rounded cursor-pointer border shadow-sm transition transform hover:scale-[1.02] active:scale-95 ${
+                            className={`shrink-0 p-2 rounded cursor-pointer border shadow-sm transition transform hover:scale-[1.02] active:scale-95 ${
                               isDone ? 'bg-[var(--surface-secondary)] border-[var(--border)] opacity-50' :
                               isRescheduled ? 'bg-[var(--surface-secondary)] border-dashed border-[var(--text-muted)] opacity-60' :
                               task.is_tentative ? 'bg-[var(--surface-secondary)] border-[var(--warning)]' :
@@ -932,7 +985,7 @@ export default function SchedulePage() {
                       })}
                       {hiddenCount > 0 && (
                         <div 
-                          className="text-center text-xs font-bold text-[var(--text-muted)] hover:text-[var(--accent)] cursor-pointer mt-1"
+                          className="shrink-0 text-center text-xs font-bold text-[var(--text-muted)] hover:text-[var(--accent)] cursor-pointer mt-1"
                           onClick={() => setSelectedDayTasks({ date: day, tasks: dayTasks })}
                         >
                           +{hiddenCount} 筆
@@ -1035,8 +1088,8 @@ export default function SchedulePage() {
                       <div className={`text-right text-xs p-1 font-semibold ${isSameDay(day, new Date()) ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'}`}>
                         {format(day, 'd')}
                       </div>
-                      <div className="flex-1 overflow-y-auto flex flex-col gap-1">
-                        {dayTasks.slice(0, 3).map(task => {
+                      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1">
+                        {dayTasks.slice(0, DAILY_TASK_DISPLAY_LIMIT).map(task => {
                           const { projName, assigneeDisplay, coworkerDisplay, district, searchAddress } = getTaskDisplay(task);
                           const weatherDisplay = getTaskWeatherDisplay(task);
                           const isDone = task.status === '完成';
@@ -1055,7 +1108,7 @@ export default function SchedulePage() {
                                 setEditingTaskMembers(members.filter(m => m.task_id === task.id).map(m => m.user_id));
                                 setIsFormOpen(true);
                               }}
-                              className={`${fontSizeClasses.month} min-w-0 px-1 py-0.5 rounded cursor-pointer ${
+                              className={`${fontSizeClasses.month} shrink-0 min-w-0 px-1 py-0.5 rounded cursor-pointer ${
                                 isDone ? 'bg-[var(--surface-secondary)] text-[var(--text-muted)] opacity-50' :
                                 isRescheduled ? 'bg-[var(--surface-secondary)] text-[var(--text-muted)] border border-dashed border-[var(--text-muted)] opacity-60' :
                                 task.is_tentative ? 'bg-[var(--surface-secondary)] text-[var(--warning)] border border-[var(--warning)]' :
@@ -1087,12 +1140,12 @@ export default function SchedulePage() {
                             </div>
                           );
                         })}
-                        {dayTasks.length > 3 && (
+                        {dayTasks.length > DAILY_TASK_DISPLAY_LIMIT && (
                           <div 
-                            className="text-[10px] text-center text-[var(--text-muted)] cursor-pointer hover:text-[var(--accent)]"
+                            className="shrink-0 text-[10px] text-center text-[var(--text-muted)] cursor-pointer hover:text-[var(--accent)]"
                             onClick={() => setSelectedDayTasks({ date: day, tasks: dayTasks })}
                           >
-                            +{dayTasks.length - 3}
+                            +{dayTasks.length - DAILY_TASK_DISPLAY_LIMIT} 筆
                           </div>
                         )}
                       </div>
@@ -1270,6 +1323,27 @@ export default function SchedulePage() {
             />
           </div>
         </div>
+      )}
+
+      {unmatchedGoogleEvents.length > 0 && (
+        <GoogleCalendarUnmatchedDialog
+          events={unmatchedGoogleEvents}
+          projects={projects}
+          isSubmitting={isConfirmingGoogleEvents}
+          onConfirm={handleConfirmUnmatchedGoogleEvents}
+          onClose={() => {
+            setUnmatchedGoogleEvents([]);
+            setGoogleSyncSummary(pendingGoogleSyncSummary);
+            setPendingGoogleSyncSummary(null);
+          }}
+        />
+      )}
+
+      {googleSyncSummary && (
+        <GoogleCalendarSyncSummaryDialog
+          summary={googleSyncSummary}
+          onClose={() => setGoogleSyncSummary(null)}
+        />
       )}
 
       {isTodoFormOpen && (

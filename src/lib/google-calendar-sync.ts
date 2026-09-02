@@ -47,8 +47,6 @@ export type GoogleEventTiming = {
 export type ManualGoogleEventSkipReason =
   | 'missing_event_id'
   | 'missing_summary'
-  | 'missing_creator_email'
-  | 'creator_not_active_team_member'
   | 'no_project_match'
   | 'ambiguous_project_match'
   | 'unsupported_multi_day_event'
@@ -71,7 +69,7 @@ export type GoogleImportProject = {
 
 export type ManualScheduleTaskInsert = {
   project_id: string | null;
-  project_name: string;
+  project_name: string | null;
   task_type: '其他';
   title: string;
   notes: string | null;
@@ -79,8 +77,8 @@ export type ManualScheduleTaskInsert = {
   start_time: string | null;
   end_time: string | null;
   is_all_day: boolean;
-  primary_member_id: string;
-  primary_member_name: string;
+  primary_member_id: string | null;
+  primary_member_name: string | null;
   assistant_member_ids: string[];
   assistant_member_names: string[];
   status: '已排程';
@@ -99,6 +97,11 @@ export type ManualScheduleTaskInsert = {
 export type ManualGoogleEventMapping =
   | { ok: true; task: ManualScheduleTaskInsert }
   | { ok: false; reason: ManualGoogleEventSkipReason };
+
+export type GoogleProjectSuggestion = {
+  id: string;
+  name: string;
+};
 
 const toArray = (value: string[] | string | null | undefined): string[] => {
   if (!value) return [];
@@ -158,6 +161,12 @@ const normalizeExactText = (value: string | null | undefined): string => (
   (value || '').trim().toLocaleLowerCase('zh-TW')
 );
 
+const normalizeFuzzyText = (value: string | null | undefined): string => (
+  normalizeExactText(value)
+    .replace(/\d{4}[\/-]\d{1,2}[\/-]\d{1,2}/g, '')
+    .replace(/[\s\u3000【】()[\]（）「」『』,:：，。/\\_-]+/g, '')
+);
+
 const normalizeEmail = (value: string | null | undefined): string => (
   (value || '').trim().toLowerCase()
 );
@@ -195,6 +204,43 @@ const findExactProject = (
     reason: matches.length === 0 ? 'no_project_match' : 'ambiguous_project_match',
   };
 };
+
+export function findSuggestedProjects(
+  event: calendar_v3.Schema$Event,
+  projects: GoogleImportProject[],
+): GoogleProjectSuggestion[] {
+  const summary = normalizeFuzzyText(event.summary);
+  const location = normalizeFuzzyText(event.location);
+
+  return projects
+    .map((project) => {
+      const identifiers = [
+        project.project_name,
+        project.project_short_name,
+        project.project_code,
+      ].map(normalizeFuzzyText).filter(Boolean);
+      const projectAddress = normalizeFuzzyText(project.address);
+      let score = 0;
+
+      for (const identifier of identifiers) {
+        if (summary && (summary.includes(identifier) || identifier.includes(summary))) {
+          score = Math.max(score, 100 + Math.min(identifier.length, 30));
+        }
+      }
+      if (location && projectAddress) {
+        if (location === projectAddress) score = Math.max(score, 120);
+        else if (location.includes(projectAddress) || projectAddress.includes(location)) {
+          score = Math.max(score, 70);
+        }
+      }
+
+      return { project, score };
+    })
+    .filter(candidate => candidate.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+    .map(({ project }) => ({ id: project.id, name: project.project_name }));
+}
 
 const getManualGoogleEventTiming = (
   event: calendar_v3.Schema$Event,
@@ -261,6 +307,7 @@ export function mapManualGoogleEvent(
     activeMembers: GoogleImportMember[];
     projects: GoogleImportProject[];
     syncedAt: string;
+    projectOverride?: GoogleImportProject | null;
   },
 ): ManualGoogleEventMapping {
   if (!event.id) return { ok: false, reason: 'missing_event_id' };
@@ -269,37 +316,36 @@ export function mapManualGoogleEvent(
   if (!title) return { ok: false, reason: 'missing_summary' };
 
   const creatorEmail = normalizeEmail(event.creator?.email);
-  if (!creatorEmail) return { ok: false, reason: 'missing_creator_email' };
-
-  const calendarEmailMatches = options.activeMembers.filter(
-    member => normalizeEmail(member.google_calendar_email) === creatorEmail,
-  );
-  const systemEmailMatches = options.activeMembers.filter(
-    member => normalizeEmail(member.email) === creatorEmail,
-  );
+  const calendarEmailMatches = creatorEmail
+    ? options.activeMembers.filter(member => normalizeEmail(member.google_calendar_email) === creatorEmail)
+    : [];
+  const systemEmailMatches = creatorEmail
+    ? options.activeMembers.filter(member => normalizeEmail(member.email) === creatorEmail)
+    : [];
   const memberMatches = calendarEmailMatches.length > 0
     ? calendarEmailMatches
     : systemEmailMatches;
-  if (memberMatches.length !== 1) {
-    return { ok: false, reason: 'creator_not_active_team_member' };
-  }
 
   const timingResult = getManualGoogleEventTiming(event);
   if (!timingResult.ok) return timingResult;
 
-  const member = memberMatches[0];
-  const projectMatch = findExactProject(event, options.projects);
-  if (!projectMatch.ok) return projectMatch;
-
-  const project = projectMatch.project;
+  const member = memberMatches.length === 1 ? memberMatches[0] : null;
+  let project: GoogleImportProject | null;
+  if (options.projectOverride === undefined) {
+    const projectMatch = findExactProject(event, options.projects);
+    if (!projectMatch.ok) return projectMatch;
+    project = projectMatch.project;
+  } else {
+    project = options.projectOverride;
+  }
   const notes = (event.description || '').trim() || null;
   const address = (event.location || '').trim() || null;
 
   return {
     ok: true,
     task: {
-      project_id: project.id,
-      project_name: project.project_name,
+      project_id: project?.id || null,
+      project_name: project?.project_name || null,
       task_type: '其他',
       title,
       notes,
@@ -307,8 +353,8 @@ export function mapManualGoogleEvent(
       start_time: timingResult.timing.start_time,
       end_time: timingResult.timing.end_time,
       is_all_day: timingResult.timing.is_all_day,
-      primary_member_id: member.id,
-      primary_member_name: member.name,
+      primary_member_id: member?.id || null,
+      primary_member_name: member?.name || null,
       assistant_member_ids: [],
       assistant_member_names: [],
       status: '已排程',
