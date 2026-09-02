@@ -584,53 +584,24 @@ const buildInventoryTransactionPayload = (
   return payload;
 };
 
-const createInventoryBatchForTransaction = async (
+const fetchInventoryBatchForTransaction = async (
   transaction: InventoryTransaction,
-  user: string,
 ): Promise<InventoryBatch | null> => {
   if (transaction.transaction_type !== 'IN' && transaction.transaction_type !== 'RETURN') return null;
 
-  const ymd = transaction.transaction_date.replace(/-/g, '');
-  const prefix = `IN-${ymd}-`;
+  const { data, error } = await supabase
+    .from('inventory_batches')
+    .select('*')
+    .eq('source_transaction_id', transaction.id)
+    .maybeSingle();
 
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const { count, error: countError } = await supabase
-      .from('inventory_batches')
-      .select('id', { count: 'exact', head: true })
-      .like('batch_number', `${prefix}%`);
-
-    if (countError) {
-      console.error('Error counting inventory_batches:', countError);
-      throw countError;
-    }
-
-    const batchNumber = `${prefix}${String((count || 0) + 1 + attempt).padStart(3, '0')}`;
-    const payload = {
-      batch_number: batchNumber,
-      item_id: transaction.item_id,
-      source_transaction_id: transaction.id,
-      in_date: transaction.transaction_date,
-      source: transaction.source || (transaction.transaction_type === 'RETURN' ? '退料' : null),
-      quantity: transaction.quantity,
-      unit: transaction.unit || null,
-      handler: transaction.handler || user,
-      notes: transaction.notes || null,
-    };
-
-    const { data, error } = await supabase
-      .from('inventory_batches')
-      .insert(payload)
-      .select()
-      .single();
-
-    if (!error) return mapInventoryBatch(data);
-    if (error.code !== '23505') {
-      console.error('Error creating inventory_batch:', error);
-      throw error;
-    }
+  if (error) {
+    console.error('Error fetching inventory_batch created by transaction trigger:', error);
+    throw error;
   }
+  if (data) return mapInventoryBatch(data);
 
-  throw new Error('Unable to create a unique inventory batch number');
+  throw new Error('Inventory batch was not created for the source transaction');
 };
 
 const resolveInventorySerial = async (
@@ -882,7 +853,7 @@ const createInventoryTransactionInSupabase = async (
   }
 
   const createdTransaction = mapInventoryTransaction(data);
-  const batch = await createInventoryBatchForTransaction(createdTransaction, user);
+  const batch = await fetchInventoryBatchForTransaction(createdTransaction);
   await insertTransactionSerialLinks(createdTransaction, serialsData, batch?.id || null);
   await logActivityInSupabase({
     actor_user_id: 'system',
@@ -956,7 +927,7 @@ const updateInventoryTransactionInSupabase = async (
   const shouldCreateBatch =
     (updatedTransaction.transaction_type === 'IN' || updatedTransaction.transaction_type === 'RETURN') &&
     existingTransaction.transaction_type !== updatedTransaction.transaction_type;
-  const batch = shouldCreateBatch ? await createInventoryBatchForTransaction(updatedTransaction, user) : null;
+  const batch = shouldCreateBatch ? await fetchInventoryBatchForTransaction(updatedTransaction) : null;
   await insertTransactionSerialLinks(updatedTransaction, serialsData, batch?.id || null);
   await logActivityInSupabase({
     actor_user_id: 'system',
