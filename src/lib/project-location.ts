@@ -66,7 +66,7 @@ export function parseTaiwanProjectLocation(
   if (!cityMatch) return null;
 
   const afterCity = normalizedAddress.slice(cityMatch.index + cityMatch.source.length);
-  const districtMatch = afterCity.match(/^(.{1,6}?(?:區|鄉|鎮|市))/);
+  const districtMatch = afterCity.match(/^(.{1,6}?[區鄉鎮市])(?![區鄉鎮市])/);
   if (!districtMatch) return null;
 
   return {
