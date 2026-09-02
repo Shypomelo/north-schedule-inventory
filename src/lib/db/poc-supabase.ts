@@ -16,6 +16,7 @@ import {
   InventoryMonthlyClosing,
   InventoryMonthlyClosingItem,
   ActivityLog,
+  Todo,
   SESupplyRecord,
   isActiveFormalTransaction,
 } from './types';
@@ -35,6 +36,50 @@ const mapUser = (row: any): User => ({
   created_at: row.created_at || new Date().toISOString(),
   updated_at: row.updated_at || new Date().toISOString(),
 });
+
+const mapTodo = (row: any): Todo => ({
+  id: row.id,
+  title: row.title || '',
+  content: row.content || null,
+  project_id: row.project_id || null,
+  task_type: row.task_type || null,
+  status: row.status || '待安排',
+  created_by: row.created_by || null,
+  assigned_to: row.assigned_to || null,
+  assigned_by: row.assigned_by || null,
+  converted_task_id: row.converted_task_id || null,
+  rejected_by: row.rejected_by || null,
+  rejected_at: row.rejected_at || null,
+  rejection_reason: row.rejection_reason || null,
+  created_at: row.created_at || new Date().toISOString(),
+  updated_at: row.updated_at || new Date().toISOString(),
+});
+
+const buildTodoPayload = (
+  todo: Partial<Omit<Todo, 'id' | 'created_at' | 'updated_at'>>,
+): Record<string, unknown> => {
+  const payload: Record<string, unknown> = {};
+  const fields: Array<keyof Omit<Todo, 'id' | 'created_at' | 'updated_at'>> = [
+    'title',
+    'content',
+    'project_id',
+    'task_type',
+    'status',
+    'created_by',
+    'assigned_to',
+    'assigned_by',
+    'converted_task_id',
+    'rejected_by',
+    'rejected_at',
+    'rejection_reason',
+  ];
+
+  fields.forEach(field => {
+    if (todo[field] !== undefined) payload[field] = todo[field];
+  });
+
+  return payload;
+};
 
 const toStringArray = (value: string[] | string | null | undefined): string[] => {
   if (!value) return [];
@@ -1423,6 +1468,82 @@ export const pocSupabaseAdapter = {
     }
     
     return mapUser(data);
+  },
+
+  // --- Todos ---
+  getTodos: async (): Promise<Todo[]> => {
+    const { data, error } = await supabase
+      .from('todos')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching todos:', error);
+      throw error;
+    }
+
+    return (data || []).map(mapTodo);
+  },
+
+  createTodo: async (
+    todo: Omit<Todo, 'id' | 'created_at' | 'updated_at'>,
+  ): Promise<Todo> => {
+    const { data, error } = await supabase
+      .from('todos')
+      .insert(buildTodoPayload(todo))
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error creating todo:', error);
+      throw error;
+    }
+
+    return mapTodo(data);
+  },
+
+  updateTodo: async (
+    id: string,
+    updates: Partial<Omit<Todo, 'id' | 'created_at' | 'updated_at'>>,
+  ): Promise<Todo> => {
+    const { data, error } = await supabase
+      .from('todos')
+      .update(buildTodoPayload(updates))
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error updating todo:', error);
+      throw error;
+    }
+
+    return mapTodo(data);
+  },
+
+  rejectTodo: async (id: string, reason: string): Promise<Todo> => {
+    const { data, error } = await supabase
+      .rpc('reject_todo', { p_todo_id: id, p_reason: reason })
+      .single();
+
+    if (error) {
+      console.error('Error rejecting todo:', error);
+      throw error;
+    }
+
+    return mapTodo(data);
+  },
+
+  deleteTodo: async (id: string): Promise<void> => {
+    const { error } = await supabase
+      .from('todos')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('Error deleting todo:', error);
+      throw error;
+    }
   },
 
   // --- Schedule Task Types ---

@@ -1,11 +1,11 @@
 export type UserRole = 'ADMIN' | 'ENGINEER' | 'VIEWER';
 export type TaskStatus = '未開始' | '進行中' | '已完成' | '取消' | '' | '改期' | '完成';
-export type TodoStatus = '待安排' | '已排程' | '已完成' | '取消';
+export type TodoStatus = '待安排' | '已排程' | '已完成' | '取消' | '已退件';
 export type TransactionType = 'IN' | 'OUT' | 'RETURN' | 'ADJUST';
 export type StockCategory = 'CONSTRUCTION' | 'MAINTENANCE' | 'VENDOR_SPARE';
 export type SerialStatus = '在庫' | '已出庫' | '已使用' | '已退回' | '待補' | '報廢' | '作廢';
 
-export type ActivityActionType = 'CREATE_TASK' | 'UPDATE_TASK' | 'COMPLETE_TASK' | 'RESCHEDULE_TASK' | 'DELETE_TASK' | 'CREATE_TODO' | 'TODO_TO_TASK' | 'TASK_TO_TODO' | 'UPDATE_PROJECT' | 'COMPLETE_PROJECT' | 'CREATE_TRANSACTION' | 'UPDATE_TRANSACTION' | 'VOID_TRANSACTION';
+export type ActivityActionType = 'CREATE_TASK' | 'UPDATE_TASK' | 'COMPLETE_TASK' | 'RESCHEDULE_TASK' | 'DELETE_TASK' | 'CREATE_TODO' | 'ASSIGN_TODO' | 'UPDATE_TODO' | 'REJECT_TODO' | 'REASSIGN_TODO' | 'COMPLETE_TODO' | 'VOID_TODO' | 'TODO_TO_TASK' | 'TASK_TO_TODO' | 'UPDATE_PROJECT' | 'COMPLETE_PROJECT' | 'CREATE_TRANSACTION' | 'UPDATE_TRANSACTION' | 'VOID_TRANSACTION';
 
 export interface ActivityLog {
   id: string;
@@ -231,7 +231,12 @@ export interface Todo {
   task_type: string | null;
   status: TodoStatus;
   created_by: string | null;
+  assigned_to?: string | null;
+  assigned_by?: string | null;
   converted_task_id: string | null;
+  rejected_by?: string | null;
+  rejected_at?: string | null;
+  rejection_reason?: string | null;
   created_at: string;
   updated_at: string;
 }

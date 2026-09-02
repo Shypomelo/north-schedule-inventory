@@ -205,6 +205,11 @@ export const dbAdapter = {
   getUsers: hasSupabase ? pocSupabaseAdapter.getUsers : mockDbAdapter.getUsers,
   createUser: hasSupabase ? pocSupabaseAdapter.createUser : mockDbAdapter.createUser,
   updateUser: hasSupabase ? pocSupabaseAdapter.updateUser : mockDbAdapter.updateUser,
+  getTodos: hasSupabase ? pocSupabaseAdapter.getTodos : mockDbAdapter.getTodos,
+  createTodo: hasSupabase ? pocSupabaseAdapter.createTodo : mockDbAdapter.createTodo,
+  updateTodo: hasSupabase ? pocSupabaseAdapter.updateTodo : mockDbAdapter.updateTodo,
+  rejectTodo: hasSupabase ? pocSupabaseAdapter.rejectTodo : mockDbAdapter.rejectTodo,
+  deleteTodo: hasSupabase ? pocSupabaseAdapter.deleteTodo : mockDbAdapter.deleteTodo,
   getScheduleTasks: hasSupabase ? pocSupabaseAdapter.getScheduleTasks : mockDbAdapter.getScheduleTasks,
   getScheduleTaskMembers: hasSupabase ? pocSupabaseAdapter.getScheduleTaskMembers : mockDbAdapter.getScheduleTaskMembers,
 

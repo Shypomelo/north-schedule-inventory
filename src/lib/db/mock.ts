@@ -155,6 +155,19 @@ if (IS_BROWSER) {
     try {
       db = JSON.parse(saved);
       let hasMigrationChanges = false;
+      if (!db.todos) {
+        db.todos = [];
+        hasMigrationChanges = true;
+      } else {
+        db.todos = db.todos.map(todo => ({
+          ...todo,
+          assigned_to: todo.assigned_to || null,
+          assigned_by: todo.assigned_by || null,
+          rejected_by: todo.rejected_by || null,
+          rejected_at: todo.rejected_at || null,
+          rejection_reason: todo.rejection_reason || null,
+        }));
+      }
       if (!db.contractors) {
         db.contractors = [];
       }
@@ -512,6 +525,30 @@ export const mockDbAdapter = {
     const idx = db.todos.findIndex(t => t.id === id);
     if (idx === -1) throw new Error("Todo not found");
     const updated = { ...db.todos[idx], ...updates, updated_at: new Date().toISOString() };
+    db.todos[idx] = updated;
+    persist();
+    return updated;
+  },
+  rejectTodo: async (id: string, reason: string, actorId?: string) => {
+    const normalizedReason = reason.trim();
+    if (!normalizedReason) throw new Error('退件原因不可空白');
+
+    const idx = db.todos.findIndex(t => t.id === id);
+    if (idx === -1) throw new Error('找不到待辦');
+
+    const todo = db.todos[idx];
+    if (!actorId || todo.assigned_to !== actorId) throw new Error('只有被指派人可以退件');
+    if (todo.status !== '待安排') throw new Error('只有待安排的待辦可以退件');
+
+    const now = new Date().toISOString();
+    const updated: Todo = {
+      ...todo,
+      status: '已退件',
+      rejected_by: actorId,
+      rejected_at: now,
+      rejection_reason: normalizedReason,
+      updated_at: now,
+    };
     db.todos[idx] = updated;
     persist();
     return updated;

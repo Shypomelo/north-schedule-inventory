@@ -14,7 +14,7 @@ interface TodoFormProps {
 }
 
 export function TodoForm({ initialData, onSubmit, onCancel, isSubmitting }: TodoFormProps) {
-  const { currentUser } = useUser();
+  const { currentUser, allUsers } = useUser();
   const isViewer = currentUser?.role === 'VIEWER';
   const [projects, setProjects] = useState<Project[]>([]);
   
@@ -25,7 +25,12 @@ export function TodoForm({ initialData, onSubmit, onCancel, isSubmitting }: Todo
     task_type: initialData?.task_type || null,
     status: initialData?.status || '待安排',
     created_by: initialData?.created_by || currentUser?.id || null,
+    assigned_to: initialData?.assigned_to || null,
+    assigned_by: initialData?.assigned_by || null,
     converted_task_id: initialData?.converted_task_id || null,
+    rejected_by: initialData?.rejected_by || null,
+    rejected_at: initialData?.rejected_at || null,
+    rejection_reason: initialData?.rejection_reason || null,
   });
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -101,15 +106,34 @@ export function TodoForm({ initialData, onSubmit, onCancel, isSubmitting }: Todo
         </label>
 
         <label className="flex flex-col gap-1">
+          <span className="text-sm font-semibold text-primary">指派給</span>
+          <select
+            className="bg-[var(--input-bg)] border border-[var(--input-border)] rounded p-2 focus:border-accent outline-none"
+            value={formData.assigned_to || ''}
+            onChange={e => setFormData({ ...formData, assigned_to: e.target.value || null })}
+          >
+            <option value="">(未指派)</option>
+            {allUsers
+              .filter(user => user.is_active && user.role !== 'VIEWER')
+              .map(user => <option key={user.id} value={user.id}>{user.name}</option>)}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1">
           <span className="text-sm font-semibold text-primary">狀態</span>
           <select 
+            disabled={initialData?.status === '已退件'}
             className="bg-[var(--input-bg)] border border-[var(--input-border)] rounded p-2 focus:border-accent outline-none"
             value={formData.status} onChange={e => setFormData({...formData, status: e.target.value as any})} 
           >
             <option value="待安排">待安排</option>
             <option value="已排程">已排程</option>
             <option value="取消">取消</option>
+            {initialData?.status === '已退件' && <option value="已退件">已退件</option>}
           </select>
+          {initialData?.status === '已退件' && (
+            <span className="text-xs text-secondary">儲存修改後會以同一筆待辦重新指派，狀態回到待安排。</span>
+          )}
         </label>
 
         <label className="flex flex-col gap-1">
