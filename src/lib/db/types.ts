@@ -370,3 +370,88 @@ export interface InventoryBatch {
   created_at: string;
   updated_at: string;
 }
+
+export type ProjectMilestoneOrigin = 'TEMPLATE' | 'PROJECT_CUSTOM';
+export type ProjectMilestoneStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED' | 'BLOCKED';
+
+export interface WorkflowTemplate {
+  id: string;
+  template_key: string;
+  name: string;
+  description: string | null;
+  is_active: boolean;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowPhase {
+  id: string;
+  phase_key: string;
+  name: string;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowType {
+  id: string;
+  type_key: string;
+  name: string;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowTemplateStep {
+  id: string;
+  template_id: string;
+  step_key: string;
+  label: string;
+  phase_id: string;
+  type_id: string;
+  sort_order: number;
+  default_is_applicable: boolean;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectWorkflowInstance {
+  id: string;
+  project_id: string;
+  source_template_id: string;
+  template_key_snapshot: string;
+  template_name_snapshot: string;
+  snapshot_at: string;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+export interface ProjectMilestone {
+  id: string;
+  workflow_instance_id: string;
+  project_id: string;
+  origin: ProjectMilestoneOrigin;
+  source_template_step_id: string | null;
+  milestone_key: string;
+  label: string;
+  source_phase_id: string;
+  phase_key_snapshot: string;
+  phase_name_snapshot: string;
+  source_type_id: string;
+  type_key_snapshot: string;
+  type_name_snapshot: string;
+  sort_order: number;
+  is_applicable: boolean;
+  status: ProjectMilestoneStatus;
+  planned_date: string | null;
+  actual_date: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
