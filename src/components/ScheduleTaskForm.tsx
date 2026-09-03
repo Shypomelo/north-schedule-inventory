@@ -63,9 +63,6 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
   const [memberIds, setMemberIds] = useState<string[]>(initialMemberIds || []);
   const [projectNameInput, setProjectNameInput] = useState(initialData?.project_name || '');
   const isEditingExistingTask = Boolean(initialData?.id);
-  const canRemainUnassigned = Boolean(
-    isEditingExistingTask && initialData?.google_event_id && !initialData?.main_assignee_id,
-  );
   const {
     activeTaskTypes,
     defaultTaskType,
@@ -231,11 +228,6 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
     e.preventDefault();
     setErrorMsg(null);
     if (!formData.task_date) return setErrorMsg('任務日期為必填');
-    if (!formData.main_assignee_id && !canRemainUnassigned) return setErrorMsg('請選擇主要負責人');
-    const isImportedUnmatchedTask = Boolean(
-      initialData?.google_event_id && !initialData?.project_id && !initialData?.project_name,
-    );
-    if (!formData.project_name?.trim() && !isImportedUnmatchedTask) return setErrorMsg('案場為必填');
     
     // Auto format check
     const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -255,7 +247,12 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
       }
     }
 
-    await onSubmit(formData as any, memberIds);
+    await onSubmit({
+      ...formData,
+      project_id: projectNameInput.trim() ? formData.project_id : null,
+      project_name: formData.project_name?.trim() || null,
+      main_assignee_id: formData.main_assignee_id || null,
+    }, memberIds);
   };
 
   const mainAssigneeUsers = users.filter(user => (
@@ -287,7 +284,7 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
         {/* 第一列：案場 */}
         <div className="flex flex-col gap-1 md:col-span-2 relative" ref={wrapperRef}>
           <span className="font-semibold text-[var(--modal-text)]">
-            案場 (可快選既有案場或手動輸入新案場){initialData?.google_event_id && !initialData?.project_id ? '' : ' *'}
+            案場（選填，可快選既有案場或手動輸入）
           </span>
           {initialData?.google_event_id && !formData.project_id && !formData.project_name && (
             <span className="text-xs font-semibold text-amber-400">目前：未匹配案場</span>
@@ -463,17 +460,16 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
         {/* 第五列：主要負責人 + 任務狀態 */}
         <label className="flex flex-col gap-1 mt-1">
           <span className="font-semibold text-[var(--modal-text)]">
-            主要負責人{canRemainUnassigned ? '' : ' *'}
+            主要負責人（選填）
           </span>
-          {canRemainUnassigned && !formData.main_assignee_id && (
+          {initialData?.google_event_id && !formData.main_assignee_id && (
             <span className="text-xs font-semibold text-amber-400">目前：未指定負責人</span>
           )}
           <select 
-            required={!canRemainUnassigned}
             className="bg-[var(--input-bg)] text-[var(--input-text)] border border-[var(--input-border)] rounded p-1.5 focus:border-[var(--accent)] outline-none cursor-pointer appearance-none"
             value={formData.main_assignee_id || ''} onChange={e => setFormData({...formData, main_assignee_id: e.target.value})} 
           >
-            <option value="">{canRemainUnassigned ? '未指定負責人' : '請選擇'}</option>
+            <option value="">未指定負責人</option>
             {mainAssigneeUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
           </select>
         </label>

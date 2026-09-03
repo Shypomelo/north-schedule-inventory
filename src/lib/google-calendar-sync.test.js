@@ -22,6 +22,7 @@ const {
   deleteGoogleEventForScheduleTask,
   ensureGoogleEventForScheduleTask,
   getScheduleTaskFromSyncRow,
+  mapManualGoogleEvent,
 } = sourceModule.exports;
 
 const calendarId = 'calendar@example.com';
@@ -109,6 +110,91 @@ const createCalendar = (overrides = {}) => {
     },
   };
 };
+
+const importEvent = {
+  id: 'import-event',
+  summary: 'North Site',
+  creator: { email: 'owner@example.com' },
+  start: { date: '2026-09-10' },
+  end: { date: '2026-09-11' },
+};
+
+const importProject = {
+  id: 'project-1',
+  project_name: 'North Site',
+  project_short_name: null,
+  project_code: null,
+  address: null,
+};
+
+const importMember = {
+  id: 'member-1',
+  email: 'member@example.com',
+  google_calendar_email: 'owner@example.com',
+  name: 'Owner',
+};
+
+const mapImport = (event = importEvent, projects = [], activeMembers = []) => mapManualGoogleEvent(event, {
+  calendarId,
+  projects,
+  activeMembers,
+  syncedAt,
+});
+
+test('Google import binds the only exact project match', () => {
+  const result = mapImport(importEvent, [importProject]);
+  assert.equal(result.ok, true);
+  assert.equal(result.task.project_id, importProject.id);
+  assert.equal(result.task.project_name, importProject.project_name);
+});
+
+test('Google import with no project match succeeds with a null project', () => {
+  const result = mapImport(importEvent, []);
+  assert.equal(result.ok, true);
+  assert.equal(result.task.project_id, null);
+  assert.equal(result.task.project_name, null);
+});
+
+test('Google import with multiple exact project matches succeeds with a null project', () => {
+  const result = mapImport(importEvent, [
+    importProject,
+    { ...importProject, id: 'project-2' },
+  ]);
+  assert.equal(result.ok, true);
+  assert.equal(result.task.project_id, null);
+  assert.equal(result.task.project_name, null);
+});
+
+test('Google import with no member match succeeds unassigned', () => {
+  const result = mapImport(importEvent, [importProject], []);
+  assert.equal(result.ok, true);
+  assert.equal(result.task.primary_member_id, null);
+  assert.equal(result.task.primary_member_name, null);
+});
+
+test('Google import with multiple member matches succeeds unassigned', () => {
+  const result = mapImport(importEvent, [importProject], [
+    importMember,
+    { ...importMember, id: 'member-2' },
+  ]);
+  assert.equal(result.ok, true);
+  assert.equal(result.task.primary_member_id, null);
+  assert.equal(result.task.primary_member_name, null);
+});
+
+test('Google import with no project and no member still succeeds', () => {
+  const result = mapImport(importEvent);
+  assert.equal(result.ok, true);
+  assert.equal(result.task.project_id, null);
+  assert.equal(result.task.primary_member_id, null);
+});
+
+test('Google import binds the only matching member', () => {
+  const result = mapImport(importEvent, [], [importMember]);
+  assert.equal(result.ok, true);
+  assert.equal(result.task.primary_member_id, importMember.id);
+  assert.equal(result.task.primary_member_name, importMember.name);
+});
 
 test('unbound schedule task creates a Google event and stores the new binding', async () => {
   const task = createTask({ google_event_id: null, google_calendar_id: null });
@@ -322,4 +408,59 @@ test('sync and reconcile routes contain no remote-deleted schedule hard-delete p
   assert.equal(routeSource.includes("from('schedule_tasks')\n    .delete()"), false);
   assert.equal(reconcileSource.includes("from('schedule_tasks').delete()"), false);
   assert.equal(reconcileSource.includes('dbUpdates.task_date'), false);
+});
+
+test('Phase 2 reconcile preserves duplicate protection and immediately marks an imported event as managed', () => {
+  const reconcileSource = fs.readFileSync(
+    path.join(__dirname, 'server', 'google-calendar-reconcile.ts'),
+    'utf8',
+  );
+  const insertPosition = reconcileSource.indexOf('.insert(mapping.task)');
+  const ensurePosition = reconcileSource.indexOf('await ensureGoogleEventForScheduleTask(', insertPosition);
+
+  assert.ok(reconcileSource.includes('existingEventIds.has(eventId)'));
+  assert.ok(reconcileSource.includes("insertError.code === '23505'"));
+  assert.ok(insertPosition >= 0);
+  assert.ok(ensurePosition > insertPosition, 'an imported row must be marked as system-managed immediately');
+});
+
+test('Phase 2 reconcile no longer accepts decisions or returns unmatched confirmation events', () => {
+  const reconcileSource = fs.readFileSync(
+    path.join(__dirname, 'server', 'google-calendar-reconcile.ts'),
+    'utf8',
+  );
+  const schedulePageSource = fs.readFileSync(
+    path.join(__dirname, '..', 'app', 'schedule', 'page.tsx'),
+    'utf8',
+  );
+
+  assert.equal(reconcileSource.includes('decisions'), false);
+  assert.equal(reconcileSource.includes('unmatchedEvents'), false);
+  assert.equal(schedulePageSource.includes('decisions'), false);
+  assert.equal(schedulePageSource.includes('unmatchedGoogleEvents'), false);
+});
+
+test('unmatched confirmation dialog is removed while the sync summary remains', () => {
+  const dialogsSource = fs.readFileSync(
+    path.join(__dirname, '..', 'components', 'GoogleCalendarSyncDialogs.tsx'),
+    'utf8',
+  );
+
+  assert.equal(dialogsSource.includes('GoogleCalendarUnmatchedDialog'), false);
+  assert.ok(dialogsSource.includes('GoogleCalendarSyncSummaryDialog'));
+  assert.ok(dialogsSource.includes('unmatchedProjectImported'));
+  assert.ok(dialogsSource.includes('unassignedMemberImported'));
+});
+
+test('Schedule form allows empty project and primary member values', () => {
+  const formSource = fs.readFileSync(
+    path.join(__dirname, '..', 'components', 'ScheduleTaskForm.tsx'),
+    'utf8',
+  );
+
+  assert.equal(formSource.includes("if (!formData.project_name"), false);
+  assert.equal(formSource.includes("if (!formData.main_assignee_id"), false);
+  assert.equal(formSource.includes('required={!canRemainUnassigned}'), false);
+  assert.ok(formSource.includes('project_name: formData.project_name?.trim() || null'));
+  assert.ok(formSource.includes('main_assignee_id: formData.main_assignee_id || null'));
 });

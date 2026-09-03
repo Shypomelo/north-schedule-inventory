@@ -6,11 +6,8 @@ import { dbAdapter } from '@/lib/db';
 import { ScheduleTaskForm } from '@/components/ScheduleTaskForm';
 import {
   GoogleCalendarSyncSummaryDialog,
-  GoogleCalendarUnmatchedDialog,
-  type GoogleCalendarSyncDecision,
   type GoogleCalendarSyncFailure,
   type GoogleCalendarSyncSummary,
-  type GoogleCalendarUnmatchedEvent,
 } from '@/components/GoogleCalendarSyncDialogs';
 import { TodoForm } from '@/components/TodoForm';
 import { startOfWeek, endOfWeek, addDays, subDays, format, isSameDay, startOfMonth, endOfMonth } from 'date-fns';
@@ -68,18 +65,15 @@ type ReconcileResult = {
   skipped?: number;
   skipped_system_created?: number;
   skippedEvents?: { eventId: string; reason: string }[];
-  matchedImportedOrUpdated?: number;
-  unmatchedImported?: number;
-  skippedThisRun?: number;
+  unmatchedProjectImported?: number;
+  unassignedMemberImported?: number;
   failed?: number;
-  unmatchedEvents?: GoogleCalendarUnmatchedEvent[];
   failures?: GoogleCalendarSyncFailure[];
   error?: string;
 };
 
 type ReconcileOptions = {
   force?: boolean;
-  decisions?: GoogleCalendarSyncDecision[];
 };
 
 const RECONCILE_COOLDOWN_MS = 30000;
@@ -148,10 +142,7 @@ export default function SchedulePage() {
   const [editingTaskMembers, setEditingTaskMembers] = useState<string[]>([]);
   const [convertingTodoId, setConvertingTodoId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isConfirmingGoogleEvents, setIsConfirmingGoogleEvents] = useState(false);
-  const [unmatchedGoogleEvents, setUnmatchedGoogleEvents] = useState<GoogleCalendarUnmatchedEvent[]>([]);
   const [googleSyncSummary, setGoogleSyncSummary] = useState<GoogleCalendarSyncSummary | null>(null);
-  const [pendingGoogleSyncSummary, setPendingGoogleSyncSummary] = useState<GoogleCalendarSyncSummary | null>(null);
   const [selectedDayTasks, setSelectedDayTasks] = useState<{date: Date, tasks: ScheduleTask[]} | null>(null);
 
   // Todo Modal
@@ -201,7 +192,7 @@ export default function SchedulePage() {
           Authorization: `Bearer ${session.access_token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(options.decisions ? { decisions: options.decisions } : {}),
+        body: JSON.stringify({}),
       });
     }).then(async response => {
       if (!response) return null;
@@ -234,19 +225,14 @@ export default function SchedulePage() {
         if (res.success === false) {
           alert(`同步失敗：${res.error || '未知錯誤'}`);
         } else {
-          const summary: GoogleCalendarSyncSummary = {
-            matchedImportedOrUpdated: res.matchedImportedOrUpdated || 0,
-            unmatchedImported: res.unmatchedImported || 0,
-            skippedThisRun: res.skippedThisRun || 0,
+          setGoogleSyncSummary({
+            imported: res.imported || 0,
+            updated: res.updated || 0,
+            unmatchedProjectImported: res.unmatchedProjectImported || 0,
+            unassignedMemberImported: res.unassignedMemberImported || 0,
             failed: res.failed || 0,
             failures: res.failures || [],
-          };
-          if (res.unmatchedEvents?.length) {
-            setPendingGoogleSyncSummary(summary);
-            setUnmatchedGoogleEvents(res.unmatchedEvents);
-          } else {
-            setGoogleSyncSummary(summary);
-          }
+          });
         }
         await fetchData(false);
       } else {
@@ -256,37 +242,6 @@ export default function SchedulePage() {
       alert(`同步失敗：${e.message}`);
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleConfirmUnmatchedGoogleEvents = async (decisions: GoogleCalendarSyncDecision[]) => {
-    setIsConfirmingGoogleEvents(true);
-    try {
-      const res = await reconcileGoogleCalendar({ force: true, decisions });
-      if (!res || res.success === false) {
-        throw new Error(res?.error || '確認未匹配活動失敗');
-      }
-      const initial = pendingGoogleSyncSummary || {
-        matchedImportedOrUpdated: 0,
-        unmatchedImported: 0,
-        skippedThisRun: 0,
-        failed: 0,
-        failures: [],
-      };
-      setGoogleSyncSummary({
-        matchedImportedOrUpdated: initial.matchedImportedOrUpdated + (res.matchedImportedOrUpdated || 0),
-        unmatchedImported: initial.unmatchedImported + (res.unmatchedImported || 0),
-        skippedThisRun: initial.skippedThisRun + (res.skippedThisRun || 0),
-        failed: initial.failed + (res.failed || 0),
-        failures: [...initial.failures, ...(res.failures || [])],
-      });
-      setUnmatchedGoogleEvents([]);
-      setPendingGoogleSyncSummary(null);
-      await fetchData(false);
-    } catch (error: any) {
-      alert(`未匹配活動處理失敗：${error.message}`);
-    } finally {
-      setIsConfirmingGoogleEvents(false);
     }
   };
 
@@ -324,16 +279,6 @@ export default function SchedulePage() {
 
       if (showLoading) {
         reconcileGoogleCalendar().then((res: any) => {
-          if (res?.unmatchedEvents?.length) {
-            setPendingGoogleSyncSummary({
-              matchedImportedOrUpdated: res.matchedImportedOrUpdated || 0,
-              unmatchedImported: res.unmatchedImported || 0,
-              skippedThisRun: res.skippedThisRun || 0,
-              failed: res.failed || 0,
-              failures: res.failures || [],
-            });
-            setUnmatchedGoogleEvents(res.unmatchedEvents);
-          }
           if (res?.updated || res?.deleted || res?.imported) {
             fetchData(false); // Silently refresh data
           }
@@ -1282,20 +1227,6 @@ export default function SchedulePage() {
             />
           </div>
         </div>
-      )}
-
-      {unmatchedGoogleEvents.length > 0 && (
-        <GoogleCalendarUnmatchedDialog
-          events={unmatchedGoogleEvents}
-          projects={projects}
-          isSubmitting={isConfirmingGoogleEvents}
-          onConfirm={handleConfirmUnmatchedGoogleEvents}
-          onClose={() => {
-            setUnmatchedGoogleEvents([]);
-            setGoogleSyncSummary(pendingGoogleSyncSummary);
-            setPendingGoogleSyncSummary(null);
-          }}
-        />
       )}
 
       {googleSyncSummary && (

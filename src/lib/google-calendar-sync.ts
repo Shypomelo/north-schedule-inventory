@@ -56,8 +56,6 @@ export type GoogleEventTiming = {
 export type ManualGoogleEventSkipReason =
   | 'missing_event_id'
   | 'missing_summary'
-  | 'no_project_match'
-  | 'ambiguous_project_match'
   | 'unsupported_multi_day_event'
   | 'invalid_time';
 
@@ -106,11 +104,6 @@ export type ManualScheduleTaskInsert = {
 export type ManualGoogleEventMapping =
   | { ok: true; task: ManualScheduleTaskInsert }
   | { ok: false; reason: ManualGoogleEventSkipReason };
-
-export type GoogleProjectSuggestion = {
-  id: string;
-  name: string;
-};
 
 const toArray = (value: string[] | string | null | undefined): string[] => {
   if (!value) return [];
@@ -170,12 +163,6 @@ const normalizeExactText = (value: string | null | undefined): string => (
   (value || '').trim().toLocaleLowerCase('zh-TW')
 );
 
-const normalizeFuzzyText = (value: string | null | undefined): string => (
-  normalizeExactText(value)
-    .replace(/\d{4}[\/-]\d{1,2}[\/-]\d{1,2}/g, '')
-    .replace(/[\s\u3000【】()[\]（）「」『』,:：，。/\\_-]+/g, '')
-);
-
 const normalizeEmail = (value: string | null | undefined): string => (
   (value || '').trim().toLowerCase()
 );
@@ -183,9 +170,7 @@ const normalizeEmail = (value: string | null | undefined): string => (
 const findExactProject = (
   event: calendar_v3.Schema$Event,
   projects: GoogleImportProject[],
-):
-  | { ok: true; project: GoogleImportProject }
-  | { ok: false; reason: 'no_project_match' | 'ambiguous_project_match' } => {
+): GoogleImportProject | null => {
   const summary = (event.summary || '').trim();
   const bracketMatch = summary.match(/^【([^】]+)】/);
   const summaryKeys = new Set(
@@ -207,49 +192,8 @@ const findExactProject = (
     return summaryMatches || locationMatches;
   });
 
-  if (matches.length === 1) return { ok: true, project: matches[0] };
-  return {
-    ok: false,
-    reason: matches.length === 0 ? 'no_project_match' : 'ambiguous_project_match',
-  };
+  return matches.length === 1 ? matches[0] : null;
 };
-
-export function findSuggestedProjects(
-  event: calendar_v3.Schema$Event,
-  projects: GoogleImportProject[],
-): GoogleProjectSuggestion[] {
-  const summary = normalizeFuzzyText(event.summary);
-  const location = normalizeFuzzyText(event.location);
-
-  return projects
-    .map((project) => {
-      const identifiers = [
-        project.project_name,
-        project.project_short_name,
-        project.project_code,
-      ].map(normalizeFuzzyText).filter(Boolean);
-      const projectAddress = normalizeFuzzyText(project.address);
-      let score = 0;
-
-      for (const identifier of identifiers) {
-        if (summary && (summary.includes(identifier) || identifier.includes(summary))) {
-          score = Math.max(score, 100 + Math.min(identifier.length, 30));
-        }
-      }
-      if (location && projectAddress) {
-        if (location === projectAddress) score = Math.max(score, 120);
-        else if (location.includes(projectAddress) || projectAddress.includes(location)) {
-          score = Math.max(score, 70);
-        }
-      }
-
-      return { project, score };
-    })
-    .filter(candidate => candidate.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 3)
-    .map(({ project }) => ({ id: project.id, name: project.project_name }));
-}
 
 const getManualGoogleEventTiming = (
   event: calendar_v3.Schema$Event,
@@ -316,7 +260,6 @@ export function mapManualGoogleEvent(
     activeMembers: GoogleImportMember[];
     projects: GoogleImportProject[];
     syncedAt: string;
-    projectOverride?: GoogleImportProject | null;
   },
 ): ManualGoogleEventMapping {
   if (!event.id) return { ok: false, reason: 'missing_event_id' };
@@ -339,14 +282,7 @@ export function mapManualGoogleEvent(
   if (!timingResult.ok) return timingResult;
 
   const member = memberMatches.length === 1 ? memberMatches[0] : null;
-  let project: GoogleImportProject | null;
-  if (options.projectOverride === undefined) {
-    const projectMatch = findExactProject(event, options.projects);
-    if (!projectMatch.ok) return projectMatch;
-    project = projectMatch.project;
-  } else {
-    project = options.projectOverride;
-  }
+  const project = findExactProject(event, options.projects);
   const notes = (event.description || '').trim() || null;
   const address = (event.location || '').trim() || null;
 
