@@ -10,7 +10,16 @@ type SupabaseClientLike = {
   from: (table: string) => any;
 };
 
-type ScheduleTaskSyncRow = {
+type GoogleCalendarClientLike = {
+  events: {
+    delete: (params: { calendarId: string; eventId: string }) => Promise<unknown>;
+    get: (params: { calendarId: string; eventId: string }) => Promise<{ data: calendar_v3.Schema$Event }>;
+    insert: (params: { calendarId: string; requestBody: calendar_v3.Schema$Event }) => Promise<{ data: calendar_v3.Schema$Event }>;
+    update: (params: { calendarId: string; eventId: string; requestBody: calendar_v3.Schema$Event }) => Promise<unknown>;
+  };
+};
+
+export type ScheduleTaskSyncRow = {
   id: string;
   task_type: string | null;
   title: string | null;
@@ -597,6 +606,147 @@ export async function buildGoogleEventBody(
       },
     },
   };
+}
+
+const normalizeOptionalText = (value: string | null | undefined): string => (value || '').trim();
+
+const normalizeEventDateTime = (value: string | null | undefined): string => {
+  if (!value) return '';
+  const timestamp = new Date(value).getTime();
+  return Number.isNaN(timestamp) ? value : String(timestamp);
+};
+
+const hasSameEventTime = (
+  current: calendar_v3.Schema$EventDateTime | undefined,
+  desired: calendar_v3.Schema$EventDateTime | undefined,
+): boolean => {
+  if (current?.date || desired?.date) return current?.date === desired?.date;
+  return normalizeEventDateTime(current?.dateTime) === normalizeEventDateTime(desired?.dateTime);
+};
+
+export function isGoogleEventEquivalentToScheduleEvent(
+  current: calendar_v3.Schema$Event,
+  desired: calendar_v3.Schema$Event,
+): boolean {
+  const currentPrivate = current.extendedProperties?.private || {};
+  const desiredPrivate = desired.extendedProperties?.private || {};
+
+  return normalizeOptionalText(current.summary) === normalizeOptionalText(desired.summary)
+    && normalizeOptionalText(current.description) === normalizeOptionalText(desired.description)
+    && normalizeOptionalText(current.location) === normalizeOptionalText(desired.location)
+    && hasSameEventTime(current.start, desired.start)
+    && hasSameEventTime(current.end, desired.end)
+    && (current.transparency || 'opaque') === (desired.transparency || 'opaque')
+    && currentPrivate.scheduleTaskId === desiredPrivate.scheduleTaskId
+    && currentPrivate.source === desiredPrivate.source;
+}
+
+export function isGoogleEventGoneError(error: any): boolean {
+  const status = error?.status ?? error?.code ?? error?.response?.status;
+  return status === 404 || status === 410;
+}
+
+const updateScheduleGoogleSyncState = async (
+  supabase: SupabaseClientLike,
+  taskId: string,
+  payload: Record<string, unknown>,
+) => {
+  const { error } = await supabase
+    .from('schedule_tasks')
+    .update(payload)
+    .eq('id', taskId);
+
+  if (error) throw error;
+};
+
+export async function createGoogleEventForScheduleTask(
+  supabase: SupabaseClientLike,
+  calendar: GoogleCalendarClientLike,
+  task: ScheduleTaskSyncRow,
+  calendarId: string,
+  syncedAt = new Date().toISOString(),
+): Promise<{ eventId: string; event: calendar_v3.Schema$Event }> {
+  const event = await buildGoogleEventBody(supabase, getScheduleTaskFromSyncRow(task));
+  const response = await calendar.events.insert({ calendarId, requestBody: event });
+  const eventId = response.data.id;
+  if (!eventId) throw new Error('Google Calendar did not return an event ID');
+
+  await updateScheduleGoogleSyncState(supabase, task.id, {
+    google_event_id: eventId,
+    google_calendar_id: calendarId,
+    google_sync_status: 'synced',
+    google_sync_error: null,
+    last_synced_at: syncedAt,
+  });
+
+  return { eventId, event };
+}
+
+export async function ensureGoogleEventForScheduleTask(
+  supabase: SupabaseClientLike,
+  calendar: GoogleCalendarClientLike,
+  task: ScheduleTaskSyncRow,
+  calendarId: string,
+  syncedAt = new Date().toISOString(),
+): Promise<{ action: 'created' | 'recreated' | 'updated' | 'unchanged'; eventId: string }> {
+  const createEvent = async (action: 'created' | 'recreated') => {
+    const created = await createGoogleEventForScheduleTask(supabase, calendar, task, calendarId, syncedAt);
+    return { action, eventId: created.eventId };
+  };
+
+  if (!task.google_event_id) return createEvent('created');
+
+  let currentEvent: calendar_v3.Schema$Event;
+  try {
+    const response = await calendar.events.get({ calendarId, eventId: task.google_event_id });
+    currentEvent = response.data;
+  } catch (error) {
+    if (isGoogleEventGoneError(error)) return createEvent('recreated');
+    throw error;
+  }
+
+  if (currentEvent.status === 'cancelled') return createEvent('recreated');
+
+  const desiredEvent = await buildGoogleEventBody(supabase, getScheduleTaskFromSyncRow(task));
+  let action: 'updated' | 'unchanged' = 'unchanged';
+  if (!isGoogleEventEquivalentToScheduleEvent(currentEvent, desiredEvent)) {
+    try {
+      await calendar.events.update({
+        calendarId,
+        eventId: task.google_event_id,
+        requestBody: desiredEvent,
+      });
+      action = 'updated';
+    } catch (error) {
+      if (isGoogleEventGoneError(error)) return createEvent('recreated');
+      throw error;
+    }
+  }
+
+  await updateScheduleGoogleSyncState(supabase, task.id, {
+    google_calendar_id: calendarId,
+    google_sync_status: 'synced',
+    google_sync_error: null,
+    last_synced_at: syncedAt,
+  });
+
+  return { action, eventId: task.google_event_id };
+}
+
+export async function deleteGoogleEventForScheduleTask(
+  calendar: GoogleCalendarClientLike,
+  calendarId: string,
+  eventId: string | null,
+): Promise<'deleted' | 'already_missing' | 'not_bound'> {
+  if (!eventId) return 'not_bound';
+
+  try {
+    await calendar.events.delete({ calendarId, eventId });
+    return 'deleted';
+  } catch (error) {
+    if (isGoogleEventGoneError(error)) return 'already_missing';
+    throw error;
+  }
 }
 
 export function getScheduleTaskFromSyncRow(row: ScheduleTaskSyncRow): ScheduleTask {

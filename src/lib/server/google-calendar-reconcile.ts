@@ -3,7 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { calendar_v3 } from 'googleapis';
 import { getGoogleCalendarClient, GOOGLE_CALENDAR_ID } from '@/lib/google-calendar';
 import {
-  GOOGLE_SYNC_SOURCE,
+  ensureGoogleEventForScheduleTask,
   findSuggestedProjects,
   getGoogleEventTiming,
   isSystemManagedGoogleEvent,
@@ -11,6 +11,7 @@ import {
   type GoogleImportMember,
   type GoogleImportProject,
   type ManualGoogleEventSkipReason,
+  type ScheduleTaskSyncRow,
 } from '@/lib/google-calendar-sync';
 
 const runningReconciles = new Set<string>();
@@ -43,14 +44,6 @@ const getSafeErrorInfo = (error: any) => ({
   responseErrors: error?.response?.data?.error?.errors,
   errors: error?.errors,
 });
-
-const hasTimingChanged = (task: any, timing: ReturnType<typeof getGoogleEventTiming>) => {
-  if (!timing) return false;
-  return task.task_date !== timing.task_date
-    || (task.start_time || null) !== timing.start_time
-    || (task.end_time || null) !== timing.end_time
-    || !!task.is_all_day !== timing.is_all_day;
-};
 
 const listGoogleEventsInImportWindow = async (
   calendar: calendar_v3.Calendar,
@@ -220,12 +213,40 @@ export async function reconcileGoogleCalendarCore(
       });
     }
 
-    let query = supabase.from('schedule_tasks')
-      .select('id, title, notes, address, created_by, google_event_id, google_calendar_id, task_date, start_time, end_time, is_all_day')
-      .eq('google_calendar_id', GOOGLE_CALENDAR_ID).not('google_event_id', 'is', null);
+    let query = supabase.from('schedule_tasks').select(`
+      id,
+      task_type,
+      title,
+      project_id,
+      project_name,
+      address,
+      task_date,
+      start_time,
+      end_time,
+      is_all_day,
+      is_tentative,
+      status,
+      primary_member_id,
+      primary_member_name,
+      assistant_member_ids,
+      assistant_member_names,
+      google_calendar_id,
+      google_event_id,
+      google_sync_status,
+      google_sync_error,
+      last_synced_at,
+      created_by,
+      created_at,
+      updated_at
+    `);
     if (body.taskId) query = query.eq('id', body.taskId);
-    const { data: tasks, error } = await query;
+    const { data: queriedTasks, error } = await query;
     if (error) throw error;
+    const tasks = ((queriedTasks || []) as ScheduleTaskSyncRow[]).filter(task => (
+      !task.google_event_id
+      || !task.google_calendar_id
+      || task.google_calendar_id === GOOGLE_CALENDAR_ID
+    ));
 
     let checked = 0;
     let updated = 0;
@@ -234,67 +255,26 @@ export async function reconcileGoogleCalendarCore(
     let imported = 0;
     let skipped_system_created = 0;
 
-    for (const task of tasks || []) {
+    for (const task of tasks) {
       checked += 1;
       const eventId = task.google_event_id;
-      if (!eventId) { skipped += 1; continue; }
-
-      let eventTitle = eventId;
+      let eventTitle = task.title || eventId || task.id;
       try {
-        const { data: event } = await calendar.events.get({ calendarId: GOOGLE_CALENDAR_ID, eventId });
-        eventTitle = (event.summary || '').trim() || eventId;
-        if (event.status === 'cancelled') {
-          const { error: deleteError } = await supabase.from('schedule_tasks').delete().eq('id', task.id);
-          if (deleteError) throw deleteError;
-          deleted += 1;
-          continue;
-        }
-
-        const privateProps = event.extendedProperties?.private || {};
-        if (privateProps.source && privateProps.source !== GOOGLE_SYNC_SOURCE) {
-          skipped += 1;
-          continue;
-        }
-        if (privateProps.scheduleTaskId && privateProps.scheduleTaskId !== task.id) {
-          throw new Error('Google event scheduleTaskId does not match schedule_tasks.id');
-        }
-
-        const timing = getGoogleEventTiming(event);
-        if (!timing) throw new Error('Google 活動時間無效');
-        const dbUpdates: Record<string, unknown> = {
-          google_sync_status: 'synced', google_sync_error: null,
-          last_synced_at: syncedAt, updated_at: syncedAt,
-        };
-        let taskChanged = false;
-        if (hasTimingChanged(task, timing)) {
-          dbUpdates.task_date = timing.task_date;
-          dbUpdates.start_time = timing.start_time;
-          dbUpdates.end_time = timing.end_time;
-          dbUpdates.is_all_day = timing.is_all_day;
-          taskChanged = true;
-        }
-        if (task.created_by === 'google-calendar-import' && !isSystemManagedGoogleEvent(event)) {
-          const title = (event.summary || '').trim();
-          const notes = (event.description || '').trim() || null;
-          const address = (event.location || '').trim() || null;
-          if (title && title !== task.title) { dbUpdates.title = title; taskChanged = true; }
-          if (notes !== (task.notes || null)) { dbUpdates.notes = notes; taskChanged = true; }
-          if (address !== (task.address || null)) { dbUpdates.address = address; taskChanged = true; }
-        }
-        if (taskChanged) {
+        const syncResult = await ensureGoogleEventForScheduleTask(
+          supabase,
+          calendar,
+          task,
+          GOOGLE_CALENDAR_ID,
+          syncedAt,
+        );
+        if (syncResult.action !== 'unchanged') {
           updated += 1;
           matchedImportedOrUpdated += 1;
+        } else {
+          skipped += 1;
         }
-        const { error: updateError } = await supabase.from('schedule_tasks').update(dbUpdates).eq('id', task.id);
-        if (updateError) throw updateError;
       } catch (eventError: any) {
-        if (eventError?.status === 404 || eventError?.status === 410) {
-          const { error: deleteError } = await supabase.from('schedule_tasks').delete().eq('id', task.id);
-          if (deleteError) throw deleteError;
-          deleted += 1;
-          continue;
-        }
-        failures.push({ taskId: task.id, eventId, title: eventTitle,
+        failures.push({ taskId: task.id, eventId: eventId || '', title: eventTitle,
           message: eventError?.message || '未知同步錯誤' });
         console.error('Google reconcile event failed:', getSafeErrorInfo(eventError));
       }
@@ -304,7 +284,7 @@ export async function reconcileGoogleCalendarCore(
     if (!body.taskId) {
       const listedEvents = await listGoogleEventsInImportWindow(calendar, now);
       const existingEventIds = new Set(
-        (tasks || []).map(task => task.google_event_id).filter((eventId): eventId is string => !!eventId),
+        tasks.map(task => task.google_event_id).filter((eventId): eventId is string => !!eventId),
       );
       const { members, projects } = await loadImportReferences(supabase);
 

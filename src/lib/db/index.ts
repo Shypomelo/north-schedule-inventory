@@ -4,27 +4,6 @@ import { supabase } from './supabaseClient';
 
 const hasSupabase = !!process.env.NEXT_PUBLIC_SUPABASE_URL && !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const isProduction = process.env.NODE_ENV === 'production';
-const GOOGLE_REMOTE_DELETED_CODE = 'GOOGLE_EVENT_REMOTE_DELETED';
-
-class GoogleRemoteDeletedSyncError extends Error {
-  code = GOOGLE_REMOTE_DELETED_CODE;
-  taskId?: string;
-  googleEventId?: string;
-
-  constructor(taskId?: string, googleEventId?: string) {
-    super('Google event was deleted remotely');
-    this.name = 'GoogleRemoteDeletedSyncError';
-    this.taskId = taskId;
-    this.googleEventId = googleEventId;
-  }
-}
-
-export const isGoogleRemoteDeletedError = (error: unknown): error is GoogleRemoteDeletedSyncError => (
-  !!error
-  && typeof error === 'object'
-  && 'code' in error
-  && (error as { code?: string }).code === GOOGLE_REMOTE_DELETED_CODE
-);
 
 const requireInventorySupabase = (methodName: string) => async () => {
   throw new Error(
@@ -169,11 +148,18 @@ const scheduleTaskTypesAdapter = hasSupabase
 
 const syncToGoogle = async (action: 'CREATE' | 'UPDATE' | 'DELETE', task: any, skipGoogleSync?: boolean) => {
   if (skipGoogleSync) return;
+  const mustCompleteBeforeDelete = action === 'DELETE' && !!task?.google_event_id;
   try {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined') {
+      if (mustCompleteBeforeDelete) throw new Error('Google Calendar deletion requires a browser session');
+      return;
+    }
 
     const { data: { session }, error } = await supabase.auth.getSession();
-    if (error || !session?.access_token) return;
+    if (error || !session?.access_token) {
+      if (mustCompleteBeforeDelete) throw new Error('Google Calendar deletion requires an authenticated session');
+      return;
+    }
 
     const baseUrl = typeof window !== 'undefined' ? '' : process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
     const response = await fetch(`${baseUrl}/api/google-calendar/sync`, {
@@ -186,15 +172,11 @@ const syncToGoogle = async (action: 'CREATE' | 'UPDATE' | 'DELETE', task: any, s
     });
 
     const result = await response.json().catch(() => null);
-    if (result?.remote_deleted && action !== 'DELETE') {
-      throw new GoogleRemoteDeletedSyncError(result.taskId, result.googleEventId);
-    }
-
     if (!response.ok) {
-      console.error('Google Calendar Sync failed:', result?.error || response.statusText);
+      throw new Error(result?.error || response.statusText || 'Google Calendar sync failed');
     }
   } catch (error) {
-    if (isGoogleRemoteDeletedError(error)) throw error;
+    if (mustCompleteBeforeDelete) throw error;
     console.error('Google Calendar Sync failed:', error);
   }
 };
@@ -230,12 +212,12 @@ export const dbAdapter = {
       taskToDelete = allTasks.find(t => t.id === id);
     }
 
-    const fn = hasSupabase ? pocSupabaseAdapter.deleteScheduleTask : mockDbAdapter.deleteScheduleTask;
-    await fn(id);
-
-    if (taskToDelete) {
+    if (taskToDelete?.google_event_id) {
       await syncToGoogle('DELETE', taskToDelete, skipGoogleSync);
     }
+
+    const fn = hasSupabase ? pocSupabaseAdapter.deleteScheduleTask : mockDbAdapter.deleteScheduleTask;
+    await fn(id);
   },
 
   // Contractors
