@@ -339,7 +339,7 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
 
   return (
     <div className="fixed inset-0 bg-page/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-      <div className="bg-card border border-theme-border rounded-2xl w-full max-w-4xl h-[85vh] flex flex-col shadow-2xl overflow-hidden relative">
+      <div className="bg-card border border-theme-border rounded-2xl w-full max-w-7xl h-[85vh] max-h-[calc(100vh-2rem)] flex flex-col shadow-2xl overflow-hidden relative">
         <div className="p-6 border-b border-theme-border bg-card/40 flex items-center justify-between shrink-0">
           <div>
             <div className="flex items-center gap-3">
@@ -378,9 +378,9 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
             ))}
           </div>
 
-          <div className="flex-1 overflow-y-auto p-6 bg-page/30">
+          <div className="min-w-0 flex-1 overflow-y-auto p-6 bg-page/30">
             {activeTab === 'basic' && renderBasicInfo()}
-            {activeTab === 'workflow' && <ProjectWorkflow projectId={project.id} canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')} />}
+            {activeTab === 'workflow' && <ProjectWorkflow projectId={project.id} projectName={editedProject.name} actor={currentUser ? { id: currentUser.id, name: currentUser.name } : null} canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')} />}
             {activeTab === 'progress' && renderProgress()}
             {activeTab === 'notes' && renderNotes()}
           </div>

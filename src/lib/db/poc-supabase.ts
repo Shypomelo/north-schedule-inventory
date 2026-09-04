@@ -2077,10 +2077,10 @@ export const pocSupabaseAdapter = {
     if (readError) throw readError;
 
     const commonFields: (keyof ProjectMilestoneUpdate)[] = [
-      'is_applicable', 'status', 'planned_date', 'actual_date', 'notes',
+      'is_applicable', 'status', 'planned_date', 'actual_date', 'notes', 'sort_order',
     ];
     const customFields: (keyof ProjectMilestoneUpdate)[] = [
-      'label', 'source_phase_id', 'source_type_id', 'sort_order',
+      'label', 'source_phase_id', 'source_type_id',
     ];
     const allowed = current.origin === 'PROJECT_CUSTOM'
       ? [...commonFields, ...customFields]
@@ -2099,6 +2099,24 @@ export const pocSupabaseAdapter = {
       .single();
     if (error) throw error;
     return data as ProjectMilestone;
+  },
+
+  reorderProjectMilestones: async (
+    updates: { id: string; sort_order: number }[],
+  ): Promise<ProjectMilestone[]> => {
+    const reordered: ProjectMilestone[] = [];
+    for (const update of updates) {
+      const { data, error } = await supabase
+        .from('project_milestones')
+        .update({ sort_order: update.sort_order })
+        .eq('id', update.id)
+        .is('deleted_at', null)
+        .select()
+        .single();
+      if (error) throw error;
+      reordered.push(data as ProjectMilestone);
+    }
+    return reordered;
   },
 
   createProjectCustomMilestone: async (

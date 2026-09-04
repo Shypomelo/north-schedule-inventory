@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Project, User, Contractor } from '@/lib/db/types';
+import { Project, User, Contractor, WorkflowSnapshotResult } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { ProjectForm } from '@/components/ProjectForm';
 import { ProjectDetailModal } from '@/components/ProjectDetailModal';
@@ -12,6 +12,8 @@ import { DateDualInput } from '@/components/DateDualInput';
 import { useUser } from '@/components/UserContext';
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
 import { parseTaiwanProjectLocation, projectMatchesSearchQuery } from '@/lib/project-location';
+import { buildWorkflowActivityLog } from '@/lib/project-workflow';
+import { logWorkflowActivitySafely } from '@/lib/workflow-activity';
 import { supabase } from '@/lib/db/supabaseClient';
 import { MapPin, Plus, Search, Filter, Maximize2 } from 'lucide-react';
 import { useParams } from 'next/navigation';
@@ -19,6 +21,26 @@ import { useParams } from 'next/navigation';
 const getCity = (address: string | null) => {
   if (!address) return null;
   return parseTaiwanProjectLocation(address)?.city || '其他';
+};
+
+const logWorkflowInitialization = (
+  project: Project,
+  result: WorkflowSnapshotResult,
+  actor: User | null,
+) => {
+  if (result.result !== 'created') return;
+  void logWorkflowActivitySafely(buildWorkflowActivityLog({
+    action: 'WORKFLOW_INITIALIZED',
+    targetType: 'PROJECT_WORKFLOW',
+    targetId: result.workflow_instance_id,
+    targetLabel: '專案流程',
+    projectId: project.id,
+    projectName: project.name,
+    actorUserId: actor?.id ?? 'system',
+    actorName: actor?.name ?? 'System',
+    before: null,
+    after: { milestones_created: result.milestones_created },
+  }));
 };
 
 export default function ProjectsPage() {
@@ -245,7 +267,8 @@ export default function ProjectsPage() {
       } else {
         const createdProject = await dbAdapter.createProject(data);
         try {
-          await dbAdapter.initializeProjectWorkflow(createdProject.id);
+          const workflowResult = await dbAdapter.initializeProjectWorkflow(createdProject.id);
+          logWorkflowInitialization(createdProject, workflowResult, currentUser);
         } catch (workflowError) {
           console.error('Project created but workflow initialization failed:', workflowError);
           workflowInitializationFailed = true;
@@ -297,7 +320,8 @@ export default function ProjectsPage() {
       const createdProject = await dbAdapter.createProject(newActive);
       let workflowInitializationFailed = false;
       try {
-        await dbAdapter.initializeProjectWorkflow(createdProject.id);
+        const workflowResult = await dbAdapter.initializeProjectWorkflow(createdProject.id);
+        logWorkflowInitialization(createdProject, workflowResult, currentUser);
       } catch (workflowError) {
         console.error('Project created but workflow initialization failed:', workflowError);
         workflowInitializationFailed = true;
