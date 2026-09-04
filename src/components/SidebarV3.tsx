@@ -166,6 +166,10 @@ export function Sidebar() {
                 <ListChecks size={14} />
                 任務類型管理
               </a>
+              <a href="/admin/workflow-settings" className={`text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] p-2 rounded text-sm whitespace-nowrap flex items-center gap-2 ${isActive('/admin/workflow-settings', true) ? 'bg-[var(--sidebar-active)]' : ''}`}>
+                <ListChecks size={14} />
+                專案流程設定
+              </a>
             </div>
           </details>
         )}

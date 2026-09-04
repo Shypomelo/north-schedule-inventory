@@ -239,14 +239,24 @@ export default function ProjectsPage() {
   const handleCreateOrUpdateBase = async (data: Omit<Project, 'id' | 'created_at' | 'updated_at'>) => {
     setIsSubmitting(true);
     try {
+      let workflowInitializationFailed = false;
       if (editingProject) {
         await dbAdapter.updateProject(editingProject.id, data);
       } else {
-        await dbAdapter.createProject(data);
+        const createdProject = await dbAdapter.createProject(data);
+        try {
+          await dbAdapter.initializeProjectWorkflow(createdProject.id);
+        } catch (workflowError) {
+          console.error('Project created but workflow initialization failed:', workflowError);
+          workflowInitializationFailed = true;
+        }
       }
       setIsFormModalOpen(false);
       setEditingProject(null);
       await fetchProjects();
+      if (workflowInitializationFailed) {
+        alert('案場已建立，但專案流程初始化失敗，可進案場重新建立流程。');
+      }
     } catch (e) {
       console.error(e);
       alert('儲存失敗');
@@ -284,10 +294,20 @@ export default function ProjectsPage() {
         updated_at: new Date().toISOString()
       };
       
-      await dbAdapter.createProject(newActive);
+      const createdProject = await dbAdapter.createProject(newActive);
+      let workflowInitializationFailed = false;
+      try {
+        await dbAdapter.initializeProjectWorkflow(createdProject.id);
+      } catch (workflowError) {
+        console.error('Project created but workflow initialization failed:', workflowError);
+        workflowInitializationFailed = true;
+      }
 
       setIsActiveFormOpen(false);
       await fetchProjects();
+      if (workflowInitializationFailed) {
+        alert('案場已建立，但專案流程初始化失敗，可進案場重新建立流程。');
+      }
     } catch (e) {
       console.error(e);
       alert('儲存失敗');

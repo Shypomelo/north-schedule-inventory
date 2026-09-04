@@ -3,10 +3,11 @@
 import React, { useState, useEffect } from 'react';
 import { Project, Contractor, User } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
-import { X, Building2, Wrench, Calendar, FileText, Plus, AlertTriangle } from 'lucide-react';
+import { X, Building2, Wrench, Calendar, FileText, Plus, AlertTriangle, ListChecks } from 'lucide-react';
 import { parseISO, format } from 'date-fns';
 import { useUser } from './UserContext';
 import { DateDualInput } from './DateDualInput';
+import { ProjectWorkflow } from './ProjectWorkflow';
 
 interface Props {
   project: Project;
@@ -14,7 +15,7 @@ interface Props {
   onUpdate: () => Promise<void>;
 }
 
-type TabType = 'basic' | 'progress' | 'notes';
+type TabType = 'basic' | 'workflow' | 'progress' | 'notes';
 
 const CONTRACTOR_TYPES = [
   { key: 'racking', label: '支架' },
@@ -49,7 +50,7 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
       setAllProjects(allActiveProjects.filter(p => p.is_active && p.id !== project.id));
     };
     fetchData();
-  }, []);
+  }, [project.id]);
 
   const handleSave = async (updates: Partial<Project>) => {
     if (currentUser?.role === 'VIEWER') return;
@@ -331,6 +332,7 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
 
   const tabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
     { id: 'basic', label: '基本資料', icon: <Building2 size={18} /> },
+    { id: 'workflow', label: '專案流程', icon: <ListChecks size={18} /> },
     { id: 'progress', label: '施工進度', icon: <Calendar size={18} /> },
     { id: 'notes', label: '備註', icon: <FileText size={18} /> }
   ];
@@ -378,6 +380,7 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
 
           <div className="flex-1 overflow-y-auto p-6 bg-page/30">
             {activeTab === 'basic' && renderBasicInfo()}
+            {activeTab === 'workflow' && <ProjectWorkflow projectId={project.id} canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')} />}
             {activeTab === 'progress' && renderProgress()}
             {activeTab === 'notes' && renderNotes()}
           </div>

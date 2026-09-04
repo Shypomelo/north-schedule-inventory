@@ -17,6 +17,15 @@ import {
   InventoryMonthlyClosingItem,
   ActivityLog,
   SESupplyRecord,
+  WorkflowPhase,
+  WorkflowType,
+  WorkflowTemplate,
+  WorkflowTemplateStep,
+  ProjectWorkflow,
+  ProjectMilestone,
+  ProjectMilestoneUpdate,
+  ProjectCustomMilestoneInput,
+  WorkflowSnapshotResult,
   isActiveFormalTransaction,
 } from './types';
 import { throwMissingCoreTablesErrorIfNeeded } from './supabase-errors';
@@ -1959,6 +1968,277 @@ export const pocSupabaseAdapter = {
       throwMissingCoreTablesErrorIfNeeded(error);
       throw error;
     }
+  },
+
+  getWorkflowPhases: async (includeInactive = false): Promise<WorkflowPhase[]> => {
+    let query = supabase
+      .from('project_workflow_phases')
+      .select('*')
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
+    if (!includeInactive) query = query.eq('is_active', true);
+    const { data, error } = await query;
+    if (error) throw error;
+    return (data ?? []) as WorkflowPhase[];
+  },
+
+  getWorkflowTypes: async (includeInactive = false): Promise<WorkflowType[]> => {
+    let query = supabase
+      .from('project_workflow_types')
+      .select('*')
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
+    if (!includeInactive) query = query.eq('is_active', true);
+    const { data, error } = await query;
+    if (error) throw error;
+    return (data ?? []) as WorkflowType[];
+  },
+
+  getDefaultWorkflowTemplate: async (): Promise<WorkflowTemplate | null> => {
+    const { data, error } = await supabase
+      .from('project_workflow_templates')
+      .select('*')
+      .eq('template_key', 'NORTH_DEFAULT')
+      .maybeSingle();
+    if (error) throw error;
+    return data as WorkflowTemplate | null;
+  },
+
+  getWorkflowTemplateSteps: async (
+    templateId: string,
+    includeInactive = false,
+  ): Promise<WorkflowTemplateStep[]> => {
+    let query = supabase
+      .from('project_workflow_template_steps')
+      .select('*')
+      .eq('template_id', templateId)
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
+    if (!includeInactive) query = query.eq('is_active', true);
+    const { data, error } = await query;
+    if (error) throw error;
+    return (data ?? []) as WorkflowTemplateStep[];
+  },
+
+  getProjectWorkflow: async (projectId: string): Promise<ProjectWorkflow> => {
+    const { data: instance, error: instanceError } = await supabase
+      .from('project_workflow_instances')
+      .select('*')
+      .eq('project_id', projectId)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (instanceError) throw instanceError;
+    if (!instance) return { instance: null, milestones: [] };
+
+    const { data: milestones, error: milestonesError } = await supabase
+      .from('project_milestones')
+      .select('*')
+      .eq('workflow_instance_id', instance.id)
+      .is('deleted_at', null)
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
+    if (milestonesError) throw milestonesError;
+    return {
+      instance,
+      milestones: (milestones ?? []) as ProjectMilestone[],
+    } as ProjectWorkflow;
+  },
+
+  initializeProjectWorkflow: async (projectId: string): Promise<WorkflowSnapshotResult> => {
+    const { data, error } = await supabase.rpc('snapshot_project_workflow', {
+      p_project_id: projectId,
+      p_template_id: null,
+    });
+    if (error) throw error;
+    const result = Array.isArray(data) ? data[0] : data;
+    if (!result || !['created', 'already_initialized'].includes(result.result)) {
+      throw new Error('專案流程初始化未回傳有效結果');
+    }
+    return result as WorkflowSnapshotResult;
+  },
+
+  updateProjectMilestone: async (
+    id: string,
+    updates: ProjectMilestoneUpdate,
+  ): Promise<ProjectMilestone> => {
+    const { data: current, error: readError } = await supabase
+      .from('project_milestones')
+      .select('origin')
+      .eq('id', id)
+      .is('deleted_at', null)
+      .single();
+    if (readError) throw readError;
+
+    const commonFields: (keyof ProjectMilestoneUpdate)[] = [
+      'is_applicable', 'status', 'planned_date', 'actual_date', 'notes',
+    ];
+    const customFields: (keyof ProjectMilestoneUpdate)[] = [
+      'label', 'source_phase_id', 'source_type_id', 'sort_order',
+    ];
+    const allowed = current.origin === 'PROJECT_CUSTOM'
+      ? [...commonFields, ...customFields]
+      : commonFields;
+    const payload = Object.fromEntries(
+      allowed.filter(key => updates[key] !== undefined).map(key => [key, updates[key]]),
+    );
+    if (Object.keys(payload).length === 0) throw new Error('沒有可更新的專案流程欄位');
+
+    const { data, error } = await supabase
+      .from('project_milestones')
+      .update(payload)
+      .eq('id', id)
+      .is('deleted_at', null)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as ProjectMilestone;
+  },
+
+  createProjectCustomMilestone: async (
+    input: ProjectCustomMilestoneInput,
+  ): Promise<ProjectMilestone> => {
+    const { data: instance, error: instanceError } = await supabase
+      .from('project_workflow_instances')
+      .select('id')
+      .eq('project_id', input.project_id)
+      .is('deleted_at', null)
+      .single();
+    if (instanceError) throw instanceError;
+
+    const { data, error } = await supabase
+      .from('project_milestones')
+      .insert({
+        workflow_instance_id: instance.id,
+        project_id: input.project_id,
+        origin: 'PROJECT_CUSTOM',
+        label: input.label.trim(),
+        source_phase_id: input.source_phase_id,
+        source_type_id: input.source_type_id,
+        sort_order: input.sort_order,
+        planned_date: input.planned_date || null,
+        notes: input.notes?.trim() || null,
+      })
+      .select()
+      .single();
+    if (error) throw error;
+    return data as ProjectMilestone;
+  },
+
+  softDeleteProjectCustomMilestone: async (id: string): Promise<void> => {
+    const { data: current, error: readError } = await supabase
+      .from('project_milestones')
+      .select('origin')
+      .eq('id', id)
+      .is('deleted_at', null)
+      .single();
+    if (readError) throw readError;
+    if (current.origin !== 'PROJECT_CUSTOM') throw new Error('範本項目不可刪除，請改設為不適用');
+
+    const { error } = await supabase
+      .from('project_milestones')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('origin', 'PROJECT_CUSTOM')
+      .is('deleted_at', null);
+    if (error) throw error;
+  },
+
+  createWorkflowPhase: async (input: { name: string; sort_order: number }): Promise<WorkflowPhase> => {
+    const { data, error } = await supabase
+      .from('project_workflow_phases')
+      .insert({
+        phase_key: `phase_${crypto.randomUUID().replaceAll('-', '')}`,
+        name: input.name.trim(),
+        sort_order: input.sort_order,
+      })
+      .select()
+      .single();
+    if (error) throw error;
+    return data as WorkflowPhase;
+  },
+
+  updateWorkflowPhase: async (
+    id: string,
+    updates: Pick<Partial<WorkflowPhase>, 'name' | 'sort_order' | 'is_active'>,
+  ): Promise<WorkflowPhase> => {
+    const { data, error } = await supabase
+      .from('project_workflow_phases')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as WorkflowPhase;
+  },
+
+  createWorkflowType: async (input: { name: string; sort_order: number }): Promise<WorkflowType> => {
+    const { data, error } = await supabase
+      .from('project_workflow_types')
+      .insert({
+        type_key: `type_${crypto.randomUUID().replaceAll('-', '')}`,
+        name: input.name.trim(),
+        sort_order: input.sort_order,
+      })
+      .select()
+      .single();
+    if (error) throw error;
+    return data as WorkflowType;
+  },
+
+  updateWorkflowType: async (
+    id: string,
+    updates: Pick<Partial<WorkflowType>, 'name' | 'sort_order' | 'is_active'>,
+  ): Promise<WorkflowType> => {
+    const { data, error } = await supabase
+      .from('project_workflow_types')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as WorkflowType;
+  },
+
+  createWorkflowTemplateStep: async (input: {
+    template_id: string;
+    label: string;
+    phase_id: string;
+    type_id: string;
+    sort_order: number;
+    default_is_applicable: boolean;
+  }): Promise<WorkflowTemplateStep> => {
+    const { data, error } = await supabase
+      .from('project_workflow_template_steps')
+      .insert({
+        ...input,
+        label: input.label.trim(),
+        step_key: `step_${crypto.randomUUID().replaceAll('-', '')}`,
+      })
+      .select()
+      .single();
+    if (error) throw error;
+    return data as WorkflowTemplateStep;
+  },
+
+  updateWorkflowTemplateStep: async (
+    id: string,
+    updates: Pick<Partial<WorkflowTemplateStep>, 'label' | 'phase_id' | 'type_id' | 'sort_order' | 'default_is_applicable' | 'is_active'>,
+  ): Promise<WorkflowTemplateStep> => {
+    const { data, error } = await supabase
+      .from('project_workflow_template_steps')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as WorkflowTemplateStep;
   },
 
   // --- Inventory Reads ---

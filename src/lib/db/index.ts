@@ -146,6 +146,46 @@ const scheduleTaskTypesAdapter = hasSupabase
         reorderScheduleTaskTypes: mockDbAdapter.reorderScheduleTaskTypes,
       };
 
+const requireWorkflowSupabase = (methodName: string) => async (..._args: any[]) => {
+  throw new Error(`Supabase is required for Project Workflow. Cannot run ${methodName} without it.`);
+};
+
+const workflowAdapter = hasSupabase
+  ? {
+      getWorkflowPhases: pocSupabaseAdapter.getWorkflowPhases,
+      getWorkflowTypes: pocSupabaseAdapter.getWorkflowTypes,
+      getDefaultWorkflowTemplate: pocSupabaseAdapter.getDefaultWorkflowTemplate,
+      getWorkflowTemplateSteps: pocSupabaseAdapter.getWorkflowTemplateSteps,
+      getProjectWorkflow: pocSupabaseAdapter.getProjectWorkflow,
+      initializeProjectWorkflow: pocSupabaseAdapter.initializeProjectWorkflow,
+      updateProjectMilestone: pocSupabaseAdapter.updateProjectMilestone,
+      createProjectCustomMilestone: pocSupabaseAdapter.createProjectCustomMilestone,
+      softDeleteProjectCustomMilestone: pocSupabaseAdapter.softDeleteProjectCustomMilestone,
+      createWorkflowPhase: pocSupabaseAdapter.createWorkflowPhase,
+      updateWorkflowPhase: pocSupabaseAdapter.updateWorkflowPhase,
+      createWorkflowType: pocSupabaseAdapter.createWorkflowType,
+      updateWorkflowType: pocSupabaseAdapter.updateWorkflowType,
+      createWorkflowTemplateStep: pocSupabaseAdapter.createWorkflowTemplateStep,
+      updateWorkflowTemplateStep: pocSupabaseAdapter.updateWorkflowTemplateStep,
+    }
+  : {
+      getWorkflowPhases: requireWorkflowSupabase('getWorkflowPhases'),
+      getWorkflowTypes: requireWorkflowSupabase('getWorkflowTypes'),
+      getDefaultWorkflowTemplate: requireWorkflowSupabase('getDefaultWorkflowTemplate'),
+      getWorkflowTemplateSteps: requireWorkflowSupabase('getWorkflowTemplateSteps'),
+      getProjectWorkflow: requireWorkflowSupabase('getProjectWorkflow'),
+      initializeProjectWorkflow: requireWorkflowSupabase('initializeProjectWorkflow'),
+      updateProjectMilestone: requireWorkflowSupabase('updateProjectMilestone'),
+      createProjectCustomMilestone: requireWorkflowSupabase('createProjectCustomMilestone'),
+      softDeleteProjectCustomMilestone: requireWorkflowSupabase('softDeleteProjectCustomMilestone'),
+      createWorkflowPhase: requireWorkflowSupabase('createWorkflowPhase'),
+      updateWorkflowPhase: requireWorkflowSupabase('updateWorkflowPhase'),
+      createWorkflowType: requireWorkflowSupabase('createWorkflowType'),
+      updateWorkflowType: requireWorkflowSupabase('updateWorkflowType'),
+      createWorkflowTemplateStep: requireWorkflowSupabase('createWorkflowTemplateStep'),
+      updateWorkflowTemplateStep: requireWorkflowSupabase('updateWorkflowTemplateStep'),
+    };
+
 const syncToGoogle = async (action: 'CREATE' | 'UPDATE' | 'DELETE', task: any, skipGoogleSync?: boolean) => {
   if (skipGoogleSync) return;
   const mustCompleteBeforeDelete = action === 'DELETE' && !!task?.google_event_id;
@@ -184,6 +224,7 @@ const syncToGoogle = async (action: 'CREATE' | 'UPDATE' | 'DELETE', task: any, s
 export const dbAdapter = {
   ...mockDbAdapter,
   ...scheduleTaskTypesAdapter,
+  ...workflowAdapter,
   getUsers: hasSupabase ? pocSupabaseAdapter.getUsers : mockDbAdapter.getUsers,
   createUser: hasSupabase ? pocSupabaseAdapter.createUser : mockDbAdapter.createUser,
   updateUser: hasSupabase ? pocSupabaseAdapter.updateUser : mockDbAdapter.updateUser,

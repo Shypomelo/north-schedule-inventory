@@ -455,3 +455,36 @@ export interface ProjectMilestone {
   updated_at: string;
   deleted_at: string | null;
 }
+
+export interface ProjectWorkflow {
+  instance: ProjectWorkflowInstance | null;
+  milestones: ProjectMilestone[];
+}
+
+export interface WorkflowSnapshotResult {
+  result: 'created' | 'already_initialized';
+  workflow_instance_id: string;
+  milestones_created: number;
+}
+
+export interface ProjectMilestoneUpdate {
+  is_applicable?: boolean;
+  status?: ProjectMilestoneStatus;
+  planned_date?: string | null;
+  actual_date?: string | null;
+  notes?: string | null;
+  label?: string;
+  source_phase_id?: string;
+  source_type_id?: string;
+  sort_order?: number;
+}
+
+export interface ProjectCustomMilestoneInput {
+  project_id: string;
+  label: string;
+  source_phase_id: string;
+  source_type_id: string;
+  sort_order: number;
+  planned_date?: string | null;
+  notes?: string | null;
+}
