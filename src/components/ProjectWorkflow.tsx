@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, CircleAlert, GripVertical, ListChecks, MoreHorizontal, Play, Plus, X } from 'lucide-react';
 import { dbAdapter } from '@/lib/db';
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
@@ -57,6 +57,7 @@ export function ProjectWorkflow({ projectId, projectName, canEdit, actor }: Proj
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [menuId, setMenuId] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const [editingCustom, setEditingCustom] = useState<ProjectMilestone | null>(null);
   const [hideCompleted, setHideCompleted] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
@@ -87,6 +88,26 @@ export function ProjectWorkflow({ projectId, projectName, canEdit, actor }: Proj
   }, [projectId]);
 
   useEffect(() => { void loadWorkflow(); }, [loadWorkflow]);
+
+  useEffect(() => {
+    if (!menuId) return;
+
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        setMenuId(null);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuId(null);
+    };
+
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [menuId]);
 
   const orderedMilestones = useMemo(
     () => sortWorkflowMilestones(workflow.milestones),
@@ -226,8 +247,8 @@ export function ProjectWorkflow({ projectId, projectName, canEdit, actor }: Proj
   };
 
   const softDelete = async (milestone: ProjectMilestone) => {
-    if (!window.confirm('確定刪除此臨時項目？')) return;
     setMenuId(null);
+    if (!window.confirm('確定刪除此臨時項目？')) return;
     setSavingId(milestone.id);
     setError(null);
     setWorkflow(current => ({
@@ -400,10 +421,10 @@ export function ProjectWorkflow({ projectId, projectName, canEdit, actor }: Proj
                     <input type="date" value={milestone.planned_date ?? ''} onChange={event => void persistMilestone(milestone, { planned_date: event.target.value || null }, 'WORKFLOW_PLANNED_DATE_CHANGED')} disabled={!canEdit || isSaving} aria-label={`${milestone.label}預計日期`} className="w-full rounded-md border border-theme-border bg-page px-2 py-1.5 text-xs text-primary outline-none focus:border-accent disabled:opacity-50" />
                     <input type="date" value={milestone.actual_date ?? ''} onChange={event => void changeActualDate(milestone, event.target.value || null)} disabled={!canEdit || isSaving} aria-label={`${milestone.label}實際日期`} className="w-full rounded-md border border-theme-border bg-page px-2 py-1.5 text-xs text-primary outline-none focus:border-accent disabled:opacity-50" />
                     <input type="text" value={notesDrafts[milestone.id] ?? ''} onChange={event => setNotesDrafts(current => ({ ...current, [milestone.id]: event.target.value }))} onBlur={() => void saveNotes(milestone)} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} disabled={!canEdit || isSaving} aria-label={`${milestone.label}備註`} placeholder="輸入備註" className="w-full rounded-md border border-theme-border bg-page px-2 py-1.5 text-xs text-primary outline-none focus:border-accent disabled:opacity-50" />
-                    <div className="relative flex justify-end">
-                      {canEdit ? <button type="button" onClick={() => setMenuId(current => current === milestone.id ? null : milestone.id)} aria-label={`${milestone.label}操作`} className="rounded-md p-1.5 text-secondary hover:bg-page hover:text-primary"><MoreHorizontal size={17} /></button> : null}
+                    <div ref={menuId === milestone.id ? menuRef : undefined} className="relative flex justify-end">
+                      {canEdit ? <button type="button" onClick={() => setMenuId(current => current === milestone.id ? null : milestone.id)} aria-label={`${milestone.label}操作`} aria-haspopup="menu" aria-expanded={menuId === milestone.id} className="rounded-md p-1.5 text-secondary hover:bg-page hover:text-primary"><MoreHorizontal size={17} /></button> : null}
                       {menuId === milestone.id ? (
-                        <div className="absolute right-0 top-8 z-30 w-44 rounded-lg border border-theme-border bg-card p-1 shadow-xl">
+                        <div role="menu" className="absolute right-0 top-8 z-30 w-44 rounded-lg border border-theme-border bg-card p-1 shadow-xl">
                           <button type="button" onClick={() => { setMenuId(null); void persistMilestone(milestone, { is_applicable: !milestone.is_applicable }, 'WORKFLOW_APPLICABILITY_CHANGED'); }} className="w-full rounded-md px-3 py-2 text-left text-sm text-primary hover:bg-page">設為{milestone.is_applicable ? '不適用' : '適用'}</button>
                           {capabilities.editIdentity ? <button type="button" onClick={() => { setMenuId(null); setEditingCustom(milestone); }} className="w-full rounded-md px-3 py-2 text-left text-sm text-primary hover:bg-page">編輯臨時項目</button> : null}
                           {capabilities.softDelete ? <button type="button" onClick={() => void softDelete(milestone)} className="w-full rounded-md px-3 py-2 text-left text-sm text-danger hover:bg-danger/10">刪除臨時項目</button> : null}
