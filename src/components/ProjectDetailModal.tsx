@@ -8,6 +8,7 @@ import { parseISO, format } from 'date-fns';
 import { useUser } from './UserContext';
 import { DateDualInput } from './DateDualInput';
 import { ProjectWorkflow } from './ProjectWorkflow';
+import { getContractorsForWorkType } from '@/lib/contractors';
 
 interface Props {
   project: Project;
@@ -34,6 +35,7 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
   
   const [users, setUsers] = useState<User[]>([]);
   const [contractors, setContractors] = useState<Contractor[]>([]);
+  const [showAllContractors, setShowAllContractors] = useState<Partial<Record<(typeof CONTRACTOR_TYPES)[number]['key'], boolean>>>({});
   const [allProjects, setAllProjects] = useState<Project[]>([]);
   const [saveStatus, setSaveStatus] = useState<'已儲存' | '儲存中' | '儲存失敗' | ''>('');
 
@@ -241,6 +243,11 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
         const isDisabled = editedProject[statusField] === 'disabled';
         const contractorId = editedProject[idField] as string | null;
         const contractor = getContractorDetails(contractorId);
+        const availableContractors = getContractorsForWorkType(
+          contractors,
+          type.key,
+          showAllContractors[type.key] === true,
+        );
 
         if (isDisabled) return null;
 
@@ -253,7 +260,21 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
             
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
               <div>
-                <label className="block text-xs text-secondary mb-1">發包對象</label>
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <label className="block text-xs text-secondary">發包對象</label>
+                  <label className="flex cursor-pointer items-center gap-1 text-[11px] text-secondary">
+                    <input
+                      type="checkbox"
+                      className="h-3.5 w-3.5 accent-accent"
+                      checked={showAllContractors[type.key] === true}
+                      onChange={event => setShowAllContractors(current => ({
+                        ...current,
+                        [type.key]: event.target.checked,
+                      }))}
+                    />
+                    顯示全部包商
+                  </label>
+                </div>
                 <select
                   className="w-full bg-page px-3 py-2 rounded-lg border border-theme-border text-sm text-primary outline-none focus:border-accent cursor-pointer"
                   value={contractorId || ''}
@@ -261,11 +282,7 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
                   disabled={currentUser?.role === 'VIEWER'}
                 >
                   <option value="">未指定</option>
-                  {contractors.filter(c => {
-                    if (c.contractor_type === 'other') return true;
-                    if (type.key === 'racking' && ['racking', 'steel', 'electrical'].includes(c.contractor_type)) return true;
-                    return c.contractor_type === type.key;
-                  }).map(c => (
+                  {availableContractors.map(c => (
                     <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
                 </select>

@@ -191,10 +191,39 @@ export interface Project {
 
 export type ContractorType = 'racking' | 'electrical' | 'steel' | 'roof_cover' | 'civil' | 'other';
 
+export type ConstructionWorkType = ContractorType;
+export type DerivedConstructionStatus =
+  | 'PREWORK'
+  | 'SCHEDULED'
+  | 'IN_PROGRESS'
+  | 'COMPLETED'
+  | 'UNSCHEDULED';
+
+export interface ProjectConstructionProgress {
+  id: string;
+  project_id: string;
+  work_type: ConstructionWorkType;
+  contractor_id: string | null;
+  contractor_name: string | null;
+  planned_start_date: string | null;
+  completed_date: string | null;
+  planned_end_date: string | null;
+  is_completed: boolean;
+  actual_completed_date: string | null;
+  work_name: string | null;
+  sort_order: number;
+  status_override: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
 export interface Contractor {
   id: string;
   name: string;
   contractor_type: ContractorType;
+  work_capabilities: ContractorType[];
   contact_person: string | null;
   phone: string | null;
   notes: string | null;

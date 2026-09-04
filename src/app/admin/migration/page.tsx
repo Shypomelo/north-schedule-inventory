@@ -510,6 +510,9 @@ export default function MigrationPage() {
             const newContractor = await dbAdapter.createContractor({
               name: cp.local.name,
               contractor_type: cp.local.contractor_type,
+              work_capabilities: cp.local.work_capabilities?.length
+                ? cp.local.work_capabilities
+                : [cp.local.contractor_type],
               contact_person: cp.local.contact_person,
               phone: cp.local.phone,
               notes: cp.local.notes,

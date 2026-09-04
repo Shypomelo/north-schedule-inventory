@@ -6,6 +6,11 @@ import { useUser } from '@/components/UserContext';
 import { Contractor, ContractorType } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
+import {
+  ensurePrimaryCapability,
+  getContractorCapabilities,
+  validateContractorCapabilities,
+} from '@/lib/contractors';
 import { Plus, Edit2, Wrench } from 'lucide-react';
 
 const CONTRACTOR_TYPES: { key: ContractorType; label: string; color: string }[] = [
@@ -30,6 +35,7 @@ export default function AdminContractorsPage() {
   const [formData, setFormData] = useState<Partial<Contractor>>({
     name: '',
     contractor_type: 'racking',
+    work_capabilities: ['racking'],
     contact_person: '',
     phone: '',
     is_active: true,
@@ -80,6 +86,7 @@ export default function AdminContractorsPage() {
       setFormData({
         name: contractor.name,
         contractor_type: contractor.contractor_type,
+        work_capabilities: getContractorCapabilities(contractor),
         contact_person: contractor.contact_person || '',
         phone: contractor.phone || '',
         is_active: contractor.is_active,
@@ -90,6 +97,7 @@ export default function AdminContractorsPage() {
       setFormData({
         name: '',
         contractor_type: 'racking',
+        work_capabilities: ['racking'],
         contact_person: '',
         phone: '',
         is_active: true,
@@ -101,16 +109,36 @@ export default function AdminContractorsPage() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name) {
+    if (!formData.name?.trim()) {
       alert("包商名稱必填");
       return;
     }
+
+    const primaryCategory = formData.contractor_type;
+    if (!primaryCategory) {
+      alert('主要類別必填');
+      return;
+    }
+
+    const capabilities = Array.from(new Set(formData.work_capabilities || []));
+    const capabilityError = validateContractorCapabilities(primaryCategory, capabilities);
+    if (capabilityError) {
+      alert(capabilityError);
+      return;
+    }
+
+    const payload = {
+      ...formData,
+      name: formData.name.trim(),
+      contractor_type: primaryCategory,
+      work_capabilities: capabilities,
+    };
     
     try {
       if (editingContractor) {
-        await dbAdapter.updateContractor(editingContractor.id, formData);
+        await dbAdapter.updateContractor(editingContractor.id, payload);
       } else {
-        await dbAdapter.createContractor(formData as any);
+        await dbAdapter.createContractor(payload as Omit<Contractor, 'id' | 'created_at' | 'updated_at'>);
       }
       setIsModalOpen(false);
       loadContractors();
@@ -127,6 +155,16 @@ export default function AdminContractorsPage() {
   const getTypeLabel = (type: ContractorType) => {
     const t = CONTRACTOR_TYPES.find(x => x.key === type);
     return t ? t.label : '未知';
+  };
+
+  const handleCapabilityChange = (capability: ContractorType, checked: boolean) => {
+    setFormData(current => {
+      const currentCapabilities = current.work_capabilities || [];
+      const nextCapabilities = checked
+        ? Array.from(new Set([...currentCapabilities, capability]))
+        : currentCapabilities.filter(value => value !== capability);
+      return { ...current, work_capabilities: nextCapabilities };
+    });
   };
 
   return (
@@ -165,7 +203,8 @@ export default function AdminContractorsPage() {
               <tr>
                 <th className="p-4 font-semibold w-[120px]">狀態</th>
                 <th className="p-4 font-semibold">包商名稱</th>
-                <th className="p-4 font-semibold">工程類別</th>
+                <th className="p-4 font-semibold">可施作工項</th>
+                <th className="p-4 font-semibold">主要類別</th>
                 <th className="p-4 font-semibold">聯絡人</th>
                 <th className="p-4 font-semibold">電話</th>
                 <th className="p-4 font-semibold w-[80px]">操作</th>
@@ -174,7 +213,7 @@ export default function AdminContractorsPage() {
             <tbody className="divide-y divide-theme-border/50 text-sm">
               {contractors.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="p-8 text-center text-secondary/70">尚無包商資料</td>
+                  <td colSpan={7} className="p-8 text-center text-secondary/70">尚無包商資料</td>
                 </tr>
               ) : (
                 contractors.map(c => (
@@ -187,6 +226,18 @@ export default function AdminContractorsPage() {
                     <td className="p-4 font-medium text-primary">
                       {c.name}
                       {c.notes && <div className="text-xs text-secondary/70 font-normal mt-1">{c.notes}</div>}
+                    </td>
+                    <td className="p-4">
+                      <div className="flex flex-wrap gap-1.5">
+                        {getContractorCapabilities(c).map(capability => (
+                          <span
+                            key={capability}
+                            className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border ${getTypeStyle(capability)}`}
+                          >
+                            {getTypeLabel(capability)}
+                          </span>
+                        ))}
+                      </div>
                     </td>
                     <td className="p-4">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium border ${getTypeStyle(c.contractor_type)}`}>
@@ -232,12 +283,48 @@ export default function AdminContractorsPage() {
                 />
               </div>
 
+              <fieldset>
+                <legend className="block text-sm font-medium text-secondary mb-2">可施作工項 *</legend>
+                <div className="grid grid-cols-2 gap-2 rounded-lg border border-theme-border bg-page/40 p-3">
+                  {CONTRACTOR_TYPES.map(type => {
+                    const checked = (formData.work_capabilities || []).includes(type.key);
+                    const isPrimary = formData.contractor_type === type.key;
+                    return (
+                      <label
+                        key={type.key}
+                        className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${checked ? 'border-accent/50 bg-accent/10 text-primary' : 'border-theme-border text-secondary'} ${isPrimary ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                        title={isPrimary ? '主要類別必須保留在可施作工項中' : undefined}
+                      >
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 accent-accent"
+                          checked={checked}
+                          disabled={isPrimary}
+                          onChange={event => handleCapabilityChange(type.key, event.target.checked)}
+                        />
+                        <span>{type.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
+
               <div>
-                <label className="block text-sm font-medium text-secondary mb-1">工程類別</label>
+                <label className="block text-sm font-medium text-secondary mb-1">主要類別</label>
                 <select 
                   className="w-full bg-page border border-theme-border rounded-lg px-3 py-2 text-primary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
                   value={formData.contractor_type}
-                  onChange={e => setFormData({...formData, contractor_type: e.target.value as ContractorType})}
+                  onChange={event => {
+                    const contractorType = event.target.value as ContractorType;
+                    setFormData(current => ({
+                      ...current,
+                      contractor_type: contractorType,
+                      work_capabilities: ensurePrimaryCapability(
+                        current.work_capabilities || [],
+                        contractorType,
+                      ),
+                    }));
+                  }}
                 >
                   {CONTRACTOR_TYPES.map(t => (
                     <option key={t.key} value={t.key}>{t.label}</option>

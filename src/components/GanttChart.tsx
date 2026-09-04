@@ -46,6 +46,7 @@ export function GanttChart({ projects, contractors, onProjectClick }: GanttChart
              id: contractorId || `fallback-${contractorName}`,
              name: contractorName || '未知包商',
              contractor_type: type.key as any,
+             work_capabilities: [type.key],
              is_active: false,
              contact_person: null,
              phone: null,

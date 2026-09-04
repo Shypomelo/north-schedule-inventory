@@ -1693,13 +1693,19 @@ export const pocSupabaseAdapter = {
       throw error;
     }
     
-    return data as Contractor[];
+    return (data || []).map((row: any) => ({
+      ...row,
+      work_capabilities: Array.isArray(row.work_capabilities) && row.work_capabilities.length > 0
+        ? row.work_capabilities
+        : [row.contractor_type],
+    })) as Contractor[];
   },
 
   createContractor: async (c: Omit<Contractor, 'id' | 'created_at' | 'updated_at'>): Promise<Contractor> => {
     const dbData = {
       name: c.name,
       contractor_type: c.contractor_type,
+      work_capabilities: c.work_capabilities,
       contact_person: c.contact_person || null,
       phone: c.phone || null,
       notes: c.notes || null,
@@ -1725,6 +1731,7 @@ export const pocSupabaseAdapter = {
     const dbUpdates: any = {};
     if (updates.name !== undefined) dbUpdates.name = updates.name;
     if (updates.contractor_type !== undefined) dbUpdates.contractor_type = updates.contractor_type;
+    if (updates.work_capabilities !== undefined) dbUpdates.work_capabilities = updates.work_capabilities;
     if (updates.contact_person !== undefined) dbUpdates.contact_person = updates.contact_person;
     if (updates.phone !== undefined) dbUpdates.phone = updates.phone;
     if (updates.notes !== undefined) dbUpdates.notes = updates.notes;
