@@ -6,7 +6,7 @@ import type { ConstructionProgressModel } from './useConstructionProgress';
 import type { ConstructionUpdate } from '@/lib/db/construction-progress';
 import {
   CONSTRUCTION_WORK_LABELS, classifyConstructionItem, constructionCompletionPatch,
-  getConstructionToday, getConstructionWorkLabel, getProjectEntryDate,
+  getConstructionCompletionDate, getConstructionToday, getConstructionWorkLabel, getProjectEntryDate,
   getConstructionConflict,
   isConstructionPrework, sortConstructionRows, validateConstructionWorkName,
 } from '@/lib/construction-progress';
@@ -14,7 +14,7 @@ import { getContractorsForWorkType } from '@/lib/contractors';
 
 const FIXED_TYPES: ConstructionWorkType[] = ['racking', 'electrical', 'steel', 'roof_cover', 'civil'];
 const inputClass = 'w-full min-w-0 rounded border border-theme-border bg-page px-2 py-1.5 text-xs text-primary disabled:opacity-50';
-const gridClass = 'grid grid-cols-[8rem_12rem_8.5rem_8.5rem_4rem_8.5rem_minmax(8rem,1fr)_4rem] items-center gap-2 px-3 py-2';
+const gridClass = 'grid grid-cols-[8rem_12rem_8.5rem_8.5rem_4rem_minmax(8rem,1fr)_4rem] items-center gap-2 px-3 py-2';
 const statusLabels = { COMPLETED: '已完工', UNSCHEDULED: '未排程', SCHEDULED: '預計進場', IN_PROGRESS: '施工中', PREWORK: '前置作業' };
 
 export function ConstructionProgressSection({ model }: { model: ConstructionProgressModel }) {
@@ -33,7 +33,7 @@ export function ConstructionProgressSection({ model }: { model: ConstructionProg
       <h4 className="bg-page/60 px-3 py-2 text-sm font-semibold text-secondary">{label}</h4>
       <div className="min-w-[70rem]">
         <div className={`${gridClass} border-b border-theme-border text-xs text-secondary`}>
-          <span>工項 / 狀態</span><span>包商</span><span>進場日期</span><span>預計完工</span><span>完成</span><span>實際完工</span><span>備註</span><span>操作</span>
+          <span>工項 / 狀態</span><span>包商</span><span>進場日期</span><span>完工日期</span><span>完成</span><span>備註</span><span>操作</span>
         </div>
         {rows.map(row => <ConstructionRow key={row.id} row={row} model={model} today={today} />)}
         {!rows.length && <p className="px-3 py-5 text-sm text-secondary">尚無施工工項，可啟用固定工項或新增其他工項。</p>}
@@ -112,9 +112,12 @@ function ConstructionRow({ row, model, today }: { row: ProjectConstructionProgre
       <span className="mt-1 block text-xs text-secondary">{statusLabels[status]}</span>
     </div>
     <ContractorSelect contractors={model.contractors} workType={row.work_type} value={row.contractor_id} savedName={row.contractor_name} disabled={disabled} onChange={(id, name) => void save({ contractor_id: id, contractor_name: name })} />
-    {(['planned_start_date', 'planned_end_date'] as const).map((field, index) => <input key={field} aria-label={`${label}${index ? '預計完工' : '進場日期'}`} type="date" className={inputClass} value={row[field] ?? ''} disabled={disabled} onChange={event => void save({ [field]: event.target.value || null })} />)}
-    <input aria-label={`${label}完成`} type="checkbox" checked={row.is_completed} disabled={disabled} onChange={event => void save(constructionCompletionPatch(event.target.checked, row.actual_completed_date, today))} />
-    <input aria-label={`${label}實際完工`} type="date" className={inputClass} value={row.actual_completed_date ?? ''} disabled={disabled || !row.is_completed} onChange={event => void save(constructionCompletionPatch(Boolean(event.target.value), event.target.value || null, today))} />
+    <input aria-label={`${label}進場日期`} type="date" className={inputClass} value={row.planned_start_date ?? ''} disabled={disabled} onChange={event => void save({ planned_start_date: event.target.value || null })} />
+    <input aria-label={`${label}完工日期`} type="date" className={inputClass} value={getConstructionCompletionDate(row) ?? ''} disabled={disabled} onChange={event => {
+      const date = event.target.value || null;
+      void save(row.is_completed ? constructionCompletionPatch(true, date, today) : { planned_end_date: date });
+    }} />
+    <input aria-label={`${label}完成`} type="checkbox" checked={row.is_completed} disabled={disabled} onChange={event => void save(constructionCompletionPatch(event.target.checked, event.target.checked ? row.planned_end_date : row.actual_completed_date, today))} />
     <input aria-label={`${label}備註`} className={inputClass} value={notes} disabled={disabled} onChange={event => setNotes(event.target.value)} onBlur={() => { if (notes !== (row.notes ?? '')) void save({ notes: notes || null }); }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} />
     {row.work_type === 'other' && model.canEdit ? <div className="text-xs">
       {confirmDelete ? <><button type="button" disabled={disabled} className="text-danger" onClick={() => void model.remove(row.id)}>確認刪除</button><button type="button" onClick={() => setConfirmDelete(false)}>取消</button></> : <button type="button" disabled={disabled} className="text-danger" onClick={() => setConfirmDelete(true)}>刪除</button>}
@@ -137,7 +140,7 @@ function NewConstructionRow({ model, nextOrder, onCreated }: { model: Constructi
       <label className="text-xs text-secondary">工項名稱<input required aria-label="新增工項名稱" className={inputClass} value={name} disabled={model.busy} onChange={event => setName(event.target.value)} /></label>
       <ContractorSelect contractors={model.contractors} workType="other" value={values.contractor_id ?? null} disabled={model.busy} onChange={(id, name) => setValues(current => ({ ...current, contractor_id: id, contractor_name: name }))} />
       <label className="text-xs text-secondary">進場日期<input type="date" className={inputClass} disabled={model.busy} onChange={event => setValues(current => ({ ...current, planned_start_date: event.target.value || null }))} /></label>
-      <label className="text-xs text-secondary">預計完工<input type="date" className={inputClass} disabled={model.busy} onChange={event => setValues(current => ({ ...current, planned_end_date: event.target.value || null }))} /></label>
+      <label className="text-xs text-secondary">完工日期<input type="date" className={inputClass} disabled={model.busy} onChange={event => setValues(current => ({ ...current, planned_end_date: event.target.value || null }))} /></label>
       <label className="text-xs text-secondary">備註<input className={inputClass} disabled={model.busy} onChange={event => setValues(current => ({ ...current, notes: event.target.value || null }))} /></label>
     </div>
     {error && <p role="alert" className="text-sm text-danger">{error}</p>}

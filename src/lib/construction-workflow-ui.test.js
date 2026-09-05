@@ -62,6 +62,11 @@ test('completion is an atomic pair: today default, manual date preserved, undo c
   assert.deepEqual(helpers.constructionCompletionPatch(true, '2026-09-01', '2026-09-08'), { is_completed: true, actual_completed_date: '2026-09-01' });
   assert.deepEqual(helpers.constructionCompletionPatch(false, '2026-09-01', '2026-09-08'), { is_completed: false, actual_completed_date: null });
 });
+test('one completion date displays planned before completion and actual after completion', () => {
+  const item = row({ planned_end_date: '2026-09-10', actual_completed_date: '2026-09-12' });
+  assert.equal(helpers.getConstructionCompletionDate(item), '2026-09-10');
+  assert.equal(helpers.getConstructionCompletionDate({ ...item, is_completed: true }), '2026-09-12');
+});
 test('sort uses order, creation timestamp and ID without changing original array', () => {
   const rows = [row({ id: 'b', sort_order: 20 }), row({ id: 'c' }), row({ id: 'a' }), row({ id: 'd', created_at: '2025-01-01' })];
   assert.deepEqual(helpers.sortConstructionRows(rows).map(r => r.id), ['d', 'a', 'c', 'b']);
@@ -74,6 +79,8 @@ test('legacy unnamed other displays other without any write or legacy end date',
   assert.doesNotMatch(html, /2020-01-01/);
   assert.equal(legacy.work_name, null);
   assert.equal(helpers.getConstructionWorkLabel(legacy), '其他');
+  assert.match(html, />完工日期</);
+  assert.doesNotMatch(html, />預計完工<|>實際完工</);
 });
 test('PREWORK heading is conditional and completed PREWORK remains visible there', () => {
   const plain = renderToStaticMarkup(React.createElement(ConstructionProgressSection, { model: model([row()]) }));
