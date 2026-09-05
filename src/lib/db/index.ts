@@ -168,6 +168,9 @@ const workflowAdapter = hasSupabase
       updateWorkflowType: pocSupabaseAdapter.updateWorkflowType,
       createWorkflowTemplateStep: pocSupabaseAdapter.createWorkflowTemplateStep,
       updateWorkflowTemplateStep: pocSupabaseAdapter.updateWorkflowTemplateStep,
+      getProjectDifficultyAssessments: pocSupabaseAdapter.getProjectDifficultyAssessments,
+      createProjectDifficultyAssessment: pocSupabaseAdapter.createProjectDifficultyAssessment,
+      updateProjectDifficultyAssessment: pocSupabaseAdapter.updateProjectDifficultyAssessment,
     }
   : {
       getWorkflowPhases: requireWorkflowSupabase('getWorkflowPhases'),
@@ -186,6 +189,9 @@ const workflowAdapter = hasSupabase
       updateWorkflowType: requireWorkflowSupabase('updateWorkflowType'),
       createWorkflowTemplateStep: requireWorkflowSupabase('createWorkflowTemplateStep'),
       updateWorkflowTemplateStep: requireWorkflowSupabase('updateWorkflowTemplateStep'),
+      getProjectDifficultyAssessments: requireWorkflowSupabase('getProjectDifficultyAssessments'),
+      createProjectDifficultyAssessment: requireWorkflowSupabase('createProjectDifficultyAssessment'),
+      updateProjectDifficultyAssessment: requireWorkflowSupabase('updateProjectDifficultyAssessment'),
     };
 
 const syncToGoogle = async (action: 'CREATE' | 'UPDATE' | 'DELETE', task: any, skipGoogleSync?: boolean) => {

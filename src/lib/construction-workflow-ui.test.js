@@ -297,6 +297,7 @@ test('Project Detail defaults to Workflow with embedded construction and no stan
     './UserContext': { useUser: () => ({ currentUser: { role: 'EDITOR', id: 'user', name: 'user' } }) },
     './DateDualInput': { DateDualInput: () => null },
     './ProjectWorkflow': { ProjectWorkflow: props => props.construction },
+    './ProjectDifficultyAssessments': { ProjectDifficultyAssessments: () => null },
     './ConstructionProgressSection': { ConstructionProgressSection, ConstructionWorkTypeControls },
     './useConstructionProgress': { useConstructionProgress: () => { modelReads++; return shared; } },
   });

@@ -26,6 +26,9 @@ import {
   ProjectMilestoneUpdate,
   ProjectCustomMilestoneInput,
   WorkflowSnapshotResult,
+  ProjectDifficultyAssessment,
+  ProjectDifficultyAssessmentInput,
+  ProjectDifficultyAssessmentScores,
   isActiveFormalTransaction,
 } from './types';
 import { throwMissingCoreTablesErrorIfNeeded } from './supabase-errors';
@@ -2343,6 +2346,51 @@ export const pocSupabaseAdapter = {
       .single();
     if (error) throw error;
     return data as WorkflowTemplateStep;
+  },
+
+  getProjectDifficultyAssessments: async (
+    projectId: string,
+  ): Promise<ProjectDifficultyAssessment[]> => {
+    const { data, error } = await supabase
+      .from('project_difficulty_assessments')
+      .select('*')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    return (data ?? []) as ProjectDifficultyAssessment[];
+  },
+
+  createProjectDifficultyAssessment: async (
+    input: ProjectDifficultyAssessmentInput,
+  ): Promise<ProjectDifficultyAssessment> => {
+    const { data, error } = await supabase
+      .from('project_difficulty_assessments')
+      .insert({
+        ...input,
+        evaluator_name: input.evaluator_name.trim(),
+        notes: input.notes?.trim() || null,
+      })
+      .select()
+      .single();
+    if (error) throw error;
+    return data as ProjectDifficultyAssessment;
+  },
+
+  updateProjectDifficultyAssessment: async (
+    id: string,
+    updates: ProjectDifficultyAssessmentScores & { notes?: string | null },
+  ): Promise<ProjectDifficultyAssessment> => {
+    const { data, error } = await supabase
+      .from('project_difficulty_assessments')
+      .update({
+        ...updates,
+        notes: updates.notes?.trim() || null,
+      })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as ProjectDifficultyAssessment;
   },
 
   // --- Inventory Reads ---

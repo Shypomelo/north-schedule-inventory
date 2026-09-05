@@ -553,3 +553,36 @@ export interface ProjectCustomMilestoneInput {
   planned_date?: string | null;
   notes?: string | null;
 }
+
+export type ProjectDifficultyAssessmentType = 'PRE_ESTIMATE' | 'POST_EXECUTION';
+
+export interface ProjectDifficultyAssessment {
+  id: string;
+  project_id: string;
+  assessment_type: ProjectDifficultyAssessmentType;
+  overall_difficulty: number;
+  owner_communication_difficulty: number;
+  site_construction_difficulty: number;
+  site_coordination_difficulty: number;
+  evaluator_user_id: string | null;
+  evaluator_name: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ProjectDifficultyAssessmentScores = Pick<
+  ProjectDifficultyAssessment,
+  | 'overall_difficulty'
+  | 'owner_communication_difficulty'
+  | 'site_construction_difficulty'
+  | 'site_coordination_difficulty'
+>;
+
+export interface ProjectDifficultyAssessmentInput extends ProjectDifficultyAssessmentScores {
+  project_id: string;
+  assessment_type: ProjectDifficultyAssessmentType;
+  evaluator_user_id: string | null;
+  evaluator_name: string;
+  notes?: string | null;
+}
