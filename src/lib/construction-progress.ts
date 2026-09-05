@@ -4,6 +4,7 @@ import type {
   Project,
   ProjectConstructionProgress,
 } from '@/lib/db/types';
+import { parseDateField } from '@/lib/utils/date-utils';
 
 export interface ConstructionProgressForDerivation {
   work_type: ConstructionWorkType;
@@ -38,7 +39,26 @@ export function constructionCompletionPatch(completed: boolean, actualDate: stri
 export function getConstructionEndDate(
   row: Pick<ProjectConstructionProgress, 'is_completed' | 'planned_end_date' | 'actual_completed_date'>,
 ): string | null {
-  return row.is_completed ? row.actual_completed_date : row.planned_end_date;
+  const date = row.is_completed ? row.actual_completed_date : row.planned_end_date;
+  return isValidIsoDate(date) ? date : null;
+}
+
+export function normalizeConstructionDateInput(value: unknown, baseDate: string): string | null {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value !== 'string') throw new Error('日期格式無效');
+
+  const raw = value.trim();
+  if (!raw) return null;
+  const parsed = parseDateField(raw.replace(/\./g, '/'), baseDate);
+  if (!parsed) throw new Error('日期格式無效');
+
+  const normalized = [
+    String(parsed.getFullYear()).padStart(4, '0'),
+    String(parsed.getMonth() + 1).padStart(2, '0'),
+    String(parsed.getDate()).padStart(2, '0'),
+  ].join('-');
+  if (!isValidIsoDate(normalized)) throw new Error('日期格式無效');
+  return normalized;
 }
 
 export function getConstructionProjectPatch(
@@ -102,6 +122,7 @@ export function getConstructionOuterDisplay(
 }
 
 export function validateActualCompletionDate(actualDate: string | null, today: string): string | null {
+  if (actualDate !== null && !isValidIsoDate(actualDate)) return '實際完工日期格式無效';
   return actualDate && actualDate > today ? '實際完工日期不可晚於今天' : null;
 }
 

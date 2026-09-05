@@ -190,6 +190,39 @@ test('one completion date displays planned before completion and actual after co
   assert.equal(helpers.getConstructionEndDate(item), '2026-09-30');
   assert.equal(helpers.getConstructionEndDate({ ...item, is_completed: true }), '2026-09-20');
   assert.equal(helpers.getConstructionEndDate({ ...item, completed_date: '2099-01-01' }), '2026-09-30');
+  assert.equal(helpers.getConstructionEndDate({ ...item, is_completed: true, actual_completed_date: '0' }), null);
+  assert.equal(helpers.getConstructionEndDate({ ...item, is_completed: true, actual_completed_date: null }), null);
+});
+
+test('construction completion uses the existing quick date parser and emits only ISO dates or null', () => {
+  assert.equal(helpers.normalizeConstructionDateInput('0905', '2026-09-05'), '2026-09-05');
+  assert.equal(helpers.normalizeConstructionDateInput('9/4', '2026-09-05'), '2026-09-04');
+  assert.equal(helpers.normalizeConstructionDateInput('20260903', '2026-09-05'), '2026-09-03');
+  assert.equal(helpers.normalizeConstructionDateInput('2026-09-02', '2026-09-05'), '2026-09-02');
+  assert.equal(helpers.normalizeConstructionDateInput('', '2026-09-05'), null);
+  assert.equal(helpers.normalizeConstructionDateInput(null, '2026-09-05'), null);
+  assert.throws(() => helpers.normalizeConstructionDateInput('0', '2026-09-05'), /日期格式無效/);
+  assert.throws(() => helpers.normalizeConstructionDateInput(0, '2026-09-05'), /日期格式無效/);
+});
+
+test('completed construction date renders without zero and commits through normalized draft input', () => {
+  const valid = renderToStaticMarkup(React.createElement(ConstructionProgressSection, {
+    model: model([row({ work_name: '防水', is_completed: true, actual_completed_date: '2026-09-05' })]),
+  }));
+  assert.match(valid, /aria-label="實際完工日期"/);
+  assert.match(valid, /value="09\/05"/);
+  assert.doesNotMatch(valid, /value="0"/);
+
+  const invalidLegacy = renderToStaticMarkup(React.createElement(ConstructionProgressSection, {
+    model: model([row({ work_name: '防水', is_completed: true, actual_completed_date: '0' })]),
+  }));
+  assert.doesNotMatch(invalidLegacy, /value="0"/);
+
+  const source = fs.readFileSync(path.resolve(__dirname, '../components/ConstructionProgressSection.tsx'), 'utf8');
+  assert.match(source, /normalizeConstructionDateInput\(draft, today\)/);
+  assert.match(source, /onBlur=\{commit\}/);
+  assert.match(source, /event\.key === 'Enter'/);
+  assert.doesNotMatch(source, /aria-label=\{`\$\{label\}完工日期`} type="date"/);
 });
 test('outer construction stage follows V2 start, end, and completion fields', () => {
   const display = values => helpers.getConstructionOuterDisplay(row(values), '2026-09-05');
@@ -358,6 +391,23 @@ test('actual completion accepts today and past, but blocks future before a query
     /實際完工日期不可晚於今天/,
   );
   assert.equal(futureClient.calls.length, 0);
+
+  const invalidClient = fakeClient();
+  await assert.rejects(
+    createConstructionProgressAdapter(invalidClient).update('p', 'id', { is_completed: true, actual_completed_date: '0' }),
+    /日期格式無效/,
+  );
+  assert.equal(invalidClient.calls.length, 0);
+});
+test('actual completion can be changed repeatedly and quick input is normalized before mutation', async () => {
+  const client = fakeClient();
+  const adapter = createConstructionProgressAdapter(client);
+  for (const actual_completed_date of ['0903', '2026-09-04', '0905']) {
+    await adapter.update('p', 'id', { is_completed: true, actual_completed_date });
+  }
+  assert.deepEqual(client.calls.filter(call => call[0] === 'update').map(call => call[1].actual_completed_date), [
+    '2026-09-03', '2026-09-04', '2026-09-05',
+  ]);
 });
 test('a future planned end remains valid while incomplete', async () => {
   const client = fakeClient();

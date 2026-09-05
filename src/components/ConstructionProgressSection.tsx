@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Contractor, ConstructionWorkType, ProjectConstructionProgress } from '@/lib/db/types';
 import type { ConstructionProgressModel } from './useConstructionProgress';
 import type { ConstructionUpdate } from '@/lib/db/construction-progress';
@@ -8,14 +8,66 @@ import {
   CONSTRUCTION_WORK_LABELS, classifyConstructionItem, constructionCompletionPatch,
   getConstructionEndDate, getConstructionToday, getConstructionWorkLabel, getProjectEntryDate,
   getConstructionConflict,
-  isConstructionPrework, sortConstructionRows, validateConstructionWorkName,
+  isConstructionPrework, normalizeConstructionDateInput, sortConstructionRows,
+  validateActualCompletionDate, validateConstructionWorkName,
 } from '@/lib/construction-progress';
+import { formatDateForDisplay } from '@/lib/utils/date-utils';
 import { getContractorsForWorkType } from '@/lib/contractors';
 
 const FIXED_TYPES: ConstructionWorkType[] = ['racking', 'electrical', 'steel', 'roof_cover', 'civil'];
 const inputClass = 'w-full min-w-0 rounded border border-theme-border bg-page px-2 py-1.5 text-xs text-primary disabled:opacity-50';
 const gridClass = 'grid grid-cols-[8rem_12rem_8.5rem_8.5rem_4rem_minmax(8rem,1fr)_4rem] items-center gap-2 px-3 py-2';
 const statusLabels = { COMPLETED: '已完工', UNSCHEDULED: '未排程', SCHEDULED: '預計進場', IN_PROGRESS: '施工中', PREWORK: '前置作業' };
+
+function ConstructionCompletionDateInput({ value, today, isCompleted, disabled, onCommit }: {
+  value: string | null;
+  today: string;
+  isCompleted: boolean;
+  disabled: boolean;
+  onCommit: (value: string | null) => void;
+}) {
+  const [focused, setFocused] = useState(false);
+  const [draft, setDraft] = useState(value ?? '');
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!focused) setDraft(value ?? '');
+  }, [focused, value]);
+
+  const commit = () => {
+    try {
+      const normalized = normalizeConstructionDateInput(draft, today);
+      const validationError = isCompleted ? validateActualCompletionDate(normalized, today) : null;
+      if (validationError) throw new Error(validationError);
+      setDraft(normalized ?? '');
+      setError(null);
+      if (normalized !== value) onCommit(normalized);
+    } catch (cause) {
+      setDraft(value ?? '');
+      setError(cause instanceof Error ? cause.message : '日期格式無效');
+    } finally {
+      setFocused(false);
+    }
+  };
+
+  return <div>
+    <input
+      aria-label={isCompleted ? '實際完工日期' : '預計完工日期'}
+      type="text"
+      className={inputClass}
+      value={focused ? draft : value ? formatDateForDisplay(value, today) : ''}
+      disabled={disabled}
+      placeholder="MMDD"
+      onFocus={() => { setFocused(true); setError(null); }}
+      onChange={event => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={event => {
+        if (event.key === 'Enter') event.currentTarget.blur();
+      }}
+    />
+    {error && <span role="alert" className="block text-[11px] text-danger">{error}</span>}
+  </div>;
+}
 
 export function ConstructionProgressSection({ model }: { model: ConstructionProgressModel }) {
   const [adding, setAdding] = useState(false);
@@ -113,8 +165,7 @@ function ConstructionRow({ row, model, today }: { row: ProjectConstructionProgre
     </div>
     <ContractorSelect contractors={model.contractors} workType={row.work_type} value={row.contractor_id} savedName={row.contractor_name} disabled={disabled} onChange={(id, name) => void save({ contractor_id: id, contractor_name: name })} />
     <input aria-label={`${label}進場日期`} type="date" className={inputClass} value={row.planned_start_date ?? ''} disabled={disabled} onChange={event => void save({ planned_start_date: event.target.value || null })} />
-    <input aria-label={`${label}完工日期`} type="date" max={row.is_completed ? today : undefined} className={inputClass} value={getConstructionEndDate(row) ?? ''} disabled={disabled} onChange={event => {
-      const date = event.target.value || null;
+    <ConstructionCompletionDateInput value={getConstructionEndDate(row)} today={today} isCompleted={row.is_completed} disabled={disabled} onCommit={date => {
       void save(row.is_completed ? constructionCompletionPatch(true, date, today) : { planned_end_date: date });
     }} />
     <input aria-label={`${label}完成`} type="checkbox" checked={row.is_completed} disabled={disabled} onChange={event => void save(constructionCompletionPatch(event.target.checked, event.target.checked ? null : row.actual_completed_date, today))} />

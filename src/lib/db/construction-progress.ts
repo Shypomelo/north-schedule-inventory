@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ConstructionWorkType, ProjectConstructionProgress } from './types';
-import { getConstructionToday, validateActualCompletionDate, validateConstructionWorkName } from '../construction-progress';
+import { getConstructionToday, normalizeConstructionDateInput, validateActualCompletionDate, validateConstructionWorkName } from '../construction-progress';
 import type { ConstructionConflictRow } from '../construction-progress';
 import { supabase } from './supabaseClient';
 
@@ -8,6 +8,15 @@ export type ConstructionUpdate = Partial<Pick<ProjectConstructionProgress,
   'contractor_id' | 'contractor_name' | 'planned_start_date' | 'planned_end_date'
   | 'is_completed' | 'actual_completed_date' | 'work_name' | 'notes' | 'status_override'>>;
 export type ConstructionCreate = ConstructionUpdate & { work_type: ConstructionWorkType; sort_order: number };
+
+function normalizeConstructionDates<T extends ConstructionUpdate>(values: T): T {
+  const normalized = { ...values };
+  const today = getConstructionToday();
+  for (const field of ['planned_start_date', 'planned_end_date', 'actual_completed_date'] as const) {
+    if (field in values) normalized[field] = normalizeConstructionDateInput(values[field], today);
+  }
+  return normalized;
+}
 
 // Both UI entrances use this row-ID contract; no flattened Project fields or milestone writes.
 export function createConstructionProgressAdapter(client: SupabaseClient) {
@@ -32,10 +41,11 @@ export function createConstructionProgressAdapter(client: SupabaseClient) {
         const error = validateConstructionWorkName(values.work_name ?? null);
         if (error) throw new Error(error);
       }
-      const completionError = validateActualCompletionDate(values.actual_completed_date ?? null, getConstructionToday());
+      const normalizedValues = normalizeConstructionDates(values);
+      const completionError = validateActualCompletionDate(normalizedValues.actual_completed_date ?? null, getConstructionToday());
       if (completionError) throw new Error(completionError);
       const { data, error } = await client.from('project_construction_progress')
-        .insert({ ...values, project_id: projectId }).select('*').single();
+        .insert({ ...normalizedValues, project_id: projectId }).select('*').single();
       if (error) throw error;
       return data as ProjectConstructionProgress;
     },
@@ -44,9 +54,10 @@ export function createConstructionProgressAdapter(client: SupabaseClient) {
         const error = validateConstructionWorkName(values.work_name);
         if (error) throw new Error(error);
       }
-      const completionError = validateActualCompletionDate(values.actual_completed_date ?? null, getConstructionToday());
+      const normalizedValues = normalizeConstructionDates(values);
+      const completionError = validateActualCompletionDate(normalizedValues.actual_completed_date ?? null, getConstructionToday());
       if (completionError) throw new Error(completionError);
-      const { data, error } = await client.from('project_construction_progress').update(values)
+      const { data, error } = await client.from('project_construction_progress').update(normalizedValues)
         .eq('project_id', projectId).eq('id', id).is('deleted_at', null).select('*').single();
       if (error) throw error;
       return data as ProjectConstructionProgress;
