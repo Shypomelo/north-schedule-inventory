@@ -23,19 +23,11 @@ const {
   getWorkflowActivityMessage,
   getWorkflowOuterDisplay,
   getProjectOuterWorkflowFields,
+  getWorkflowMilestoneProjectPatch,
   normalizeMilestoneCompletion,
   normalizeWorkflowSortOrders,
   reorderWorkflowMilestones,
 } = sourceModule.exports;
-
-const mutationRefreshPath = path.join(__dirname, 'mutation-refresh.ts');
-const mutationRefreshModule = new Module(mutationRefreshPath);
-mutationRefreshModule.filename = mutationRefreshPath;
-mutationRefreshModule.paths = module.paths;
-mutationRefreshModule._compile(ts.transpileModule(fs.readFileSync(mutationRefreshPath, 'utf8'), {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
-}).outputText, mutationRefreshPath);
-const { runMutationWithParentRefresh } = mutationRefreshModule.exports;
 
 const milestone = (id, sortOrder, status = 'NOT_STARTED', overrides = {}) => ({
   id,
@@ -67,18 +59,6 @@ test('reopening a completed milestone clears actual date', () => {
   assert.deepEqual(normalizeMilestoneCompletion('BLOCKED', '2026-09-03'), {
     status: 'BLOCKED', actual_date: null,
   });
-});
-
-test('parent refresh runs only after a successful mutation', async () => {
-  let refreshes = 0;
-  const result = await runMutationWithParentRefresh(async () => 'saved', async () => { refreshes++; });
-  assert.equal(result, 'saved');
-  assert.equal(refreshes, 1);
-  await assert.rejects(
-    runMutationWithParentRefresh(async () => { throw new Error('failed'); }, async () => { refreshes++; }),
-    /failed/,
-  );
-  assert.equal(refreshes, 1);
 });
 
 test('acceptance and meter outer fields use active authoritative milestones', () => {
@@ -121,7 +101,25 @@ test('outer workflow paths do not write legacy inspection or meter fields', () =
   assert.doesNotMatch(modalSource, /handleSave\(\{ meter_expected_date/);
   assert.match(pageSource, /milestoneKey="INTERNAL_ACCEPTANCE"/);
   assert.match(pageSource, /milestoneKey="METER_INSTALLATION"/);
-  assert.match(pageSource, /onUpdated=\{fetchProjects\}/);
+  assert.doesNotMatch(pageSource, /onUpdated=\{fetchProjects\}/);
+  assert.match(pageSource, /getWorkflowMilestoneProjectPatch\(milestone\)/);
+});
+
+test('authoritative milestone result patches only the matching project summary fields', () => {
+  assert.deepEqual(getWorkflowMilestoneProjectPatch({
+    id: 'acceptance', milestone_key: 'INTERNAL_ACCEPTANCE', status: 'COMPLETED',
+    planned_date: '2026-10-15', actual_date: '2026-10-14',
+  }), {
+    inspection_milestone_id: 'acceptance', inspection_status: 'COMPLETED',
+    inspection_expected_date: '2026-10-15', inspection_completion_date: '2026-10-14',
+  });
+  assert.deepEqual(getWorkflowMilestoneProjectPatch({
+    id: 'meter', milestone_key: 'METER_INSTALLATION', status: 'IN_PROGRESS',
+    planned_date: '2026-10-20', actual_date: null,
+  }), {
+    meter_milestone_id: 'meter', meter_status: 'IN_PROGRESS',
+    meter_expected_date: '2026-10-20', meter_completion_date: null,
+  });
 });
 
 test('TEMPLATE milestones can reorder but cannot edit identity or delete', () => {

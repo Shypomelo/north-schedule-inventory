@@ -93,6 +93,28 @@ export function validateWorkflowActualDate(
     : '實際掛表日期不可晚於今天';
 }
 
+export function getWorkflowMilestoneProjectPatch(
+  milestone: Pick<ProjectMilestone, 'id' | 'milestone_key' | 'status' | 'planned_date' | 'actual_date'>,
+): Partial<import('./db/types').Project> {
+  if (milestone.milestone_key === 'INTERNAL_ACCEPTANCE') {
+    return {
+      inspection_milestone_id: milestone.id,
+      inspection_status: milestone.status,
+      inspection_expected_date: milestone.planned_date,
+      inspection_completion_date: milestone.actual_date,
+    };
+  }
+  if (milestone.milestone_key === 'METER_INSTALLATION') {
+    return {
+      meter_milestone_id: milestone.id,
+      meter_status: milestone.status,
+      meter_expected_date: milestone.planned_date,
+      meter_completion_date: milestone.actual_date,
+    };
+  }
+  return {};
+}
+
 export interface WorkflowActivityInput {
   action: WorkflowActivityAction;
   targetType: 'PROJECT_WORKFLOW' | 'PROJECT_MILESTONE';

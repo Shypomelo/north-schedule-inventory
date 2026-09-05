@@ -7,23 +7,26 @@ import { X, Building2, Calendar, FileText, ListChecks } from 'lucide-react';
 import { useUser } from './UserContext';
 import { ProjectWorkflow } from './ProjectWorkflow';
 import { ConstructionProgressSection, ConstructionWorkTypeControls } from './ConstructionProgressSection';
-import { useConstructionProgress } from './useConstructionProgress';
+import { useConstructionProgress, type ConstructionMutationResult } from './useConstructionProgress';
+import type { ProjectMilestone } from '@/lib/db/types';
 
 interface Props {
   project: Project;
   onClose: () => void;
   onUpdate: () => Promise<void>;
+  onConstructionUpdated: (result: ConstructionMutationResult) => void;
+  onMilestoneUpdated: (milestone: ProjectMilestone) => void;
 }
 
 type TabType = 'basic' | 'workflow' | 'progress' | 'notes';
 
-export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
+export function ProjectDetailModal({ project, onClose, onUpdate, onConstructionUpdated, onMilestoneUpdated }: Props) {
   const { currentUser } = useUser();
   const [activeTab, setActiveTab] = useState<TabType>('basic');
   const [editedProject, setEditedProject] = useState<Project>(project);
   
   const [users, setUsers] = useState<User[]>([]);
-  const construction = useConstructionProgress(project.id, Boolean(currentUser && currentUser.role !== 'VIEWER'), onUpdate);
+  const construction = useConstructionProgress(project.id, Boolean(currentUser && currentUser.role !== 'VIEWER'), onConstructionUpdated);
   const [saveStatus, setSaveStatus] = useState<'已儲存' | '儲存中' | '儲存失敗' | ''>('');
 
   useEffect(() => {
@@ -203,7 +206,7 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
 
           <div className="min-w-0 flex-1 overflow-y-auto p-6 bg-page/30">
             {activeTab === 'basic' && renderBasicInfo()}
-            {activeTab === 'workflow' && <ProjectWorkflow projectId={project.id} projectName={editedProject.name} actor={currentUser ? { id: currentUser.id, name: currentUser.name } : null} canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')} construction={<ConstructionProgressSection model={construction} />} onUpdate={onUpdate} />}
+            {activeTab === 'workflow' && <ProjectWorkflow projectId={project.id} projectName={editedProject.name} actor={currentUser ? { id: currentUser.id, name: currentUser.name } : null} canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')} construction={<ConstructionProgressSection model={construction} />} onUpdate={onUpdate} onMilestoneUpdated={onMilestoneUpdated} />}
             {activeTab === 'progress' && <ConstructionProgressSection model={construction} />}
             {activeTab === 'notes' && renderNotes()}
           </div>

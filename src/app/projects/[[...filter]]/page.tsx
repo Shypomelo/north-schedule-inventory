@@ -13,10 +13,10 @@ import { WorkflowMilestoneQuickEditor } from '@/components/WorkflowMilestoneQuic
 import { useUser } from '@/components/UserContext';
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
 import { parseTaiwanProjectLocation, projectMatchesSearchQuery } from '@/lib/project-location';
-import { buildWorkflowActivityLog } from '@/lib/project-workflow';
+import { buildWorkflowActivityLog, getWorkflowMilestoneProjectPatch } from '@/lib/project-workflow';
 import { logWorkflowActivitySafely } from '@/lib/workflow-activity';
 import { supabase } from '@/lib/db/supabaseClient';
-import { getConstructionOuterDisplay, getConstructionToday, validateActualCompletionDate } from '@/lib/construction-progress';
+import { getConstructionOuterDisplay, getConstructionProjectPatch, getConstructionToday, validateActualCompletionDate } from '@/lib/construction-progress';
 import { MapPin, Plus, Search, Filter, Maximize2 } from 'lucide-react';
 import { useParams } from 'next/navigation';
 
@@ -77,6 +77,15 @@ export default function ProjectsPage() {
   // For Active Projects
   const [isActiveFormOpen, setIsActiveFormOpen] = useState(false);
   const [viewingProject, setViewingProject] = useState<Project | null>(null);
+
+  const patchProjectState = (projectId: string, updates: Partial<Project>) => {
+    setProjects(current => current.map(project => (
+      project.id === projectId ? { ...project, ...updates } : project
+    )));
+    setViewingProject(current => (
+      current?.id === projectId ? { ...current, ...updates } : current
+    ));
+  };
   const [activeTab, setActiveTab] = useState<'report' | 'gantt'>('report');
   const [contractors, setContractors] = useState<Contractor[]>([]);
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, project: Project } | null>(null);
@@ -586,7 +595,7 @@ export default function ProjectsPage() {
                       plannedDate={project.inspection_expected_date ?? null}
                       actualDate={project.inspection_completion_date ?? null}
                       disabled={currentUser?.role === 'VIEWER'}
-                      onUpdated={fetchProjects}
+                      onUpdated={milestone => patchProjectState(project.id, getWorkflowMilestoneProjectPatch(milestone))}
                     />
                   </td>}
                   {showMeter && <td className="p-1">
@@ -599,7 +608,7 @@ export default function ProjectsPage() {
                       plannedDate={project.meter_expected_date ?? null}
                       actualDate={project.meter_completion_date ?? null}
                       disabled={currentUser?.role === 'VIEWER'}
-                      onUpdated={fetchProjects}
+                      onUpdated={milestone => patchProjectState(project.id, getWorkflowMilestoneProjectPatch(milestone))}
                     />
                   </td>}
                   {showRoof && <td className="p-1">
@@ -862,6 +871,14 @@ export default function ProjectsPage() {
             const updated = updatedProjects.find((p: Project) => p.id === viewingProject.id);
             if (updated) setViewingProject(updated);
           }}
+          onConstructionUpdated={result => patchProjectState(
+            result.row.project_id,
+            getConstructionProjectPatch(result.row, result.type === 'remove'),
+          )}
+          onMilestoneUpdated={milestone => patchProjectState(
+            milestone.project_id,
+            getWorkflowMilestoneProjectPatch(milestone),
+          )}
         />
       )}
 

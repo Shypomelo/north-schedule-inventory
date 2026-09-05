@@ -7,6 +7,7 @@ import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
 import { getWorkflowOuterDisplay, normalizeMilestoneCompletion, type WorkflowOuterKind } from '@/lib/project-workflow';
 import { updateAuthoritativeMilestone, type AuthoritativeMilestoneKey } from '@/lib/workflow-milestone-editor';
 import { DateDualInput } from '@/components/DateDualInput';
+import type { ProjectMilestone } from '@/lib/db/types';
 
 interface WorkflowMilestoneQuickEditorProps {
   projectId: string;
@@ -17,7 +18,7 @@ interface WorkflowMilestoneQuickEditorProps {
   plannedDate: string | null;
   actualDate: string | null;
   disabled: boolean;
-  onUpdated: () => Promise<void>;
+  onUpdated: (milestone: ProjectMilestone) => void;
 }
 
 export function WorkflowMilestoneQuickEditor({
@@ -43,7 +44,7 @@ export function WorkflowMilestoneQuickEditor({
     setSaving(true);
     setError(null);
     try {
-      await updateAuthoritativeMilestone(dbAdapter, {
+      const updated = await updateAuthoritativeMilestone(dbAdapter, {
         projectId,
         milestoneId,
         milestoneKey,
@@ -51,7 +52,7 @@ export function WorkflowMilestoneQuickEditor({
         updates,
         today,
       });
-      await onUpdated();
+      onUpdated(updated);
     } catch (cause) {
       setError(getDatabaseErrorMessage(cause, `更新${noun}失敗`));
     } finally {

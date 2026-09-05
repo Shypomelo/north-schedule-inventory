@@ -1,6 +1,7 @@
 import type {
   ConstructionWorkType,
   DerivedConstructionStatus,
+  Project,
   ProjectConstructionProgress,
 } from '@/lib/db/types';
 
@@ -38,6 +39,22 @@ export function getConstructionEndDate(
   row: Pick<ProjectConstructionProgress, 'is_completed' | 'planned_end_date' | 'actual_completed_date'>,
 ): string | null {
   return row.is_completed ? row.actual_completed_date : row.planned_end_date;
+}
+
+export function getConstructionProjectPatch(
+  row: ProjectConstructionProgress,
+  removed = false,
+): Partial<Project> {
+  const type = row.work_type;
+  return {
+    [`${type}_contractor_id`]: removed ? null : row.contractor_id,
+    [`${type}_contractor_name`]: removed ? null : row.contractor_name,
+    [`${type}_expected_start_date`]: removed ? null : row.planned_start_date,
+    [`${type}_completion_date`]: removed ? null : getConstructionEndDate(row),
+    [`${type}_is_completed`]: removed ? false : row.is_completed,
+    [`${type}_status`]: removed ? null : row.status_override,
+    [`${type}_notes`]: removed ? null : row.notes,
+  } as Partial<Project>;
 }
 
 export type ConstructionOuterDisplayStatus =

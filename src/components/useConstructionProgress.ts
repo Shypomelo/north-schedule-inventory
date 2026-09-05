@@ -6,9 +6,12 @@ import { constructionProgressAdapter, ConstructionCreate, ConstructionUpdate } f
 import type { Contractor, ProjectConstructionProgress } from '@/lib/db/types';
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
 import type { ConstructionConflictRow } from '@/lib/construction-progress';
-import { runMutationWithParentRefresh } from '@/lib/mutation-refresh';
 
-export function useConstructionProgress(projectId: string, canEdit: boolean, onMutationSuccess?: () => Promise<void>) {
+export type ConstructionMutationResult =
+  | { type: 'upsert'; row: ProjectConstructionProgress }
+  | { type: 'remove'; row: ProjectConstructionProgress };
+
+export function useConstructionProgress(projectId: string, canEdit: boolean, onMutationSuccess?: (result: ConstructionMutationResult) => void) {
   const [rows, setRows] = useState<ProjectConstructionProgress[]>([]);
   const [contractors, setContractors] = useState<Contractor[]>([]);
   const [conflicts, setConflicts] = useState<ConstructionConflictRow[]>([]);
@@ -51,7 +54,7 @@ export function useConstructionProgress(projectId: string, canEdit: boolean, onM
     setBusy(true);
     setError(null);
     try {
-      await runMutationWithParentRefresh(operation, onMutationSuccess);
+      await operation();
       return true;
     } catch (cause) {
       setError(getDatabaseErrorMessage(cause, '施工資料儲存失敗，請重試'));
@@ -63,10 +66,13 @@ export function useConstructionProgress(projectId: string, canEdit: boolean, onM
       ? await constructionProgressAdapter.update(projectId, row.id, values)
       : await constructionProgressAdapter.create(projectId, { ...create!, ...values });
     setRows(current => [...current.filter(item => item.id !== saved.id), saved]);
+    onMutationSuccess?.({ type: 'upsert', row: saved });
   });
   const remove = (id: string) => mutate(async () => {
+    const removed = rows.find(row => row.id === id);
     await constructionProgressAdapter.removeOther(projectId, id);
     setRows(current => current.filter(item => item.id !== id));
+    if (removed) onMutationSuccess?.({ type: 'remove', row: removed });
   });
   return { rows, contractors, conflicts, conflictError, loading, busy, error, canEdit: canEdit && loaded, save, remove, reload: load };
 }

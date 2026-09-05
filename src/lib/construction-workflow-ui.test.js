@@ -27,7 +27,6 @@ function load(relative, mocks = {}) {
 
 const helpers = load('construction-progress.ts');
 const workflowHelpers = load('project-workflow.ts');
-const { runMutationWithParentRefresh } = load('mutation-refresh.ts');
 const { updateAuthoritativeMilestone } = load('workflow-milestone-editor.ts');
 const { ConstructionProgressSection, ConstructionWorkTypeControls } = load('../components/ConstructionProgressSection.tsx');
 const { DateDualInput } = load('../components/DateDualInput.tsx');
@@ -41,16 +40,6 @@ const row = (values = {}) => ({
 });
 const model = (rows) => ({ rows, contractors: [], conflicts: [], loading: false, busy: false, error: null, canEdit: true,
   save: () => { throw new Error('render must not mutate'); }, remove: () => { throw new Error('render must not delete'); }, reload: () => {} });
-
-test('construction refresh callback runs on success and not on failure', async () => {
-  let refreshes = 0;
-  await runMutationWithParentRefresh(async () => undefined, async () => { refreshes++; });
-  assert.equal(refreshes, 1);
-  await assert.rejects(runMutationWithParentRefresh(async () => { throw new Error('save failed'); }, async () => { refreshes++; }), /save failed/);
-  assert.equal(refreshes, 1);
-  const hookSource = fs.readFileSync(path.resolve(__dirname, '../components/useConstructionProgress.ts'), 'utf8');
-  assert.match(hookSource, /runMutationWithParentRefresh\(operation, onMutationSuccess\)/);
-});
 
 function milestoneGateway(existing = {}) {
   const calls = [];
@@ -150,6 +139,10 @@ test('ACTIVE acceptance and meter stay compact until the existing date popover i
   assert.doesNotMatch(quickEditorSource, /type="date"|type="checkbox"/);
   assert.match(dateInputSource, /showCompletionToggle/);
   assert.match(dateInputSource, /type="checkbox"/);
+  assert.match(dateInputSource, /onChange=\{e => setLocalExpected\(e\.target\.value\)\}/);
+  assert.match(dateInputSource, /handleSaveAndClose/);
+  assert.doesNotMatch(quickEditorSource, /fetchProjects/);
+  assert.match(quickEditorSource, /onUpdated\(updated\)/);
 });
 
 test('entry ignores early other and steel and deleted main rows', () => {
@@ -160,6 +153,22 @@ test('entry ignores early other and steel and deleted main rows', () => {
     row({ work_type: 'electrical', planned_start_date: '2026-09-12' }),
     row({ work_type: 'racking', planned_start_date: '2026-01-01', deleted_at: '2026-02-01' }),
   ]), '2026-09-08');
+});
+test('saved construction row patches parent fields without a project refetch', () => {
+  const saved = row({
+    work_type: 'racking', contractor_id: 'vendor', contractor_name: 'Vendor',
+    planned_start_date: '2026-09-20', planned_end_date: '2026-10-20',
+    is_completed: false, notes: 'latest', status_override: null,
+  });
+  assert.deepEqual(helpers.getConstructionProjectPatch(saved), {
+    racking_contractor_id: 'vendor', racking_contractor_name: 'Vendor',
+    racking_expected_start_date: '2026-09-20', racking_completion_date: '2026-10-20',
+    racking_is_completed: false, racking_status: null, racking_notes: 'latest',
+  });
+  const hookSource = fs.readFileSync(path.resolve(__dirname, '../components/useConstructionProgress.ts'), 'utf8');
+  const pageSource = fs.readFileSync(path.resolve(__dirname, '../app/projects/[[...filter]]/page.tsx'), 'utf8');
+  assert.match(hookSource, /onMutationSuccess\?\.\(\{ type: 'upsert', row: saved \}\)/);
+  assert.match(pageSource, /getConstructionProjectPatch\(result\.row, result\.type === 'remove'\)/);
 });
 test('completed early work remains in PREWORK grouping, steel after entry does not', () => {
   assert.equal(helpers.isConstructionPrework(row({ planned_start_date: '2026-09-01', is_completed: true }), '2026-09-08'), true);
