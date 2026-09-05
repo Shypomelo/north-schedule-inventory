@@ -26,7 +26,9 @@ function load(relative, mocks = {}) {
 }
 
 const helpers = load('construction-progress.ts');
+const workflowHelpers = load('project-workflow.ts');
 const { runMutationWithParentRefresh } = load('mutation-refresh.ts');
+const { updateAuthoritativeMilestone } = load('workflow-milestone-editor.ts');
 const { ConstructionProgressSection, ConstructionWorkTypeControls } = load('../components/ConstructionProgressSection.tsx');
 const { DateDualInput } = load('../components/DateDualInput.tsx');
 const { createConstructionProgressAdapter } = load('db/construction-progress.ts');
@@ -48,6 +50,88 @@ test('construction refresh callback runs on success and not on failure', async (
   assert.equal(refreshes, 1);
   const hookSource = fs.readFileSync(path.resolve(__dirname, '../components/useConstructionProgress.ts'), 'utf8');
   assert.match(hookSource, /runMutationWithParentRefresh\(operation, onMutationSuccess\)/);
+});
+
+function milestoneGateway(existing = {}) {
+  const calls = [];
+  const makeMilestone = (key, id) => ({
+    ...row({ id, milestone_key: key, planned_date: null, actual_date: null, is_applicable: true, deleted_at: null }),
+    status: 'NOT_STARTED',
+  });
+  const milestones = existing.milestones ?? [
+    makeMilestone('INTERNAL_ACCEPTANCE', 'acceptance-id'),
+    makeMilestone('METER_INSTALLATION', 'meter-id'),
+  ];
+  return {
+    calls,
+    async initializeProjectWorkflow(projectId) { calls.push(['initialize', projectId]); return { result: 'created', workflow_instance_id: 'w', milestones_created: 2 }; },
+    async getProjectWorkflow(projectId) { calls.push(['get', projectId]); return { instance: {}, milestones }; },
+    async updateProjectMilestone(id, updates) {
+      calls.push(['update', id, updates]);
+      const source = milestones.find(item => item.id === id) ?? makeMilestone('INTERNAL_ACCEPTANCE', id);
+      return { ...source, ...updates };
+    },
+  };
+}
+
+test('ACTIVE planned dates update the authoritative acceptance and meter milestones repeatedly', async () => {
+  const gateway = milestoneGateway();
+  await updateAuthoritativeMilestone(gateway, {
+    projectId: 'p', milestoneId: 'acceptance-id', milestoneKey: 'INTERNAL_ACCEPTANCE', kind: 'ACCEPTANCE',
+    updates: { planned_date: '2026-10-10' }, today: '2026-09-05',
+  });
+  for (const planned_date of ['2026-10-15', '2026-10-20']) {
+    await updateAuthoritativeMilestone(gateway, {
+      projectId: 'p', milestoneId: 'meter-id', milestoneKey: 'METER_INSTALLATION', kind: 'METER',
+      updates: { planned_date }, today: '2026-09-05',
+    });
+  }
+  assert.deepEqual(gateway.calls.filter(call => call[0] === 'update'), [
+    ['update', 'acceptance-id', { planned_date: '2026-10-10' }],
+    ['update', 'meter-id', { planned_date: '2026-10-15' }],
+    ['update', 'meter-id', { planned_date: '2026-10-20' }],
+  ]);
+});
+
+test('ACTIVE completion uses today, cancellation preserves planned date, and future actual is blocked', async () => {
+  const gateway = milestoneGateway();
+  for (const [id, key, kind] of [
+    ['acceptance-id', 'INTERNAL_ACCEPTANCE', 'ACCEPTANCE'],
+    ['meter-id', 'METER_INSTALLATION', 'METER'],
+  ]) {
+    const completed = workflowHelpers.normalizeMilestoneCompletion('COMPLETED', null, '2026-09-05');
+    await updateAuthoritativeMilestone(gateway, {
+      projectId: 'p', milestoneId: id, milestoneKey: key, kind,
+      updates: { status: 'COMPLETED', actual_date: completed.actual_date }, today: '2026-09-05',
+    });
+    await updateAuthoritativeMilestone(gateway, {
+      projectId: 'p', milestoneId: id, milestoneKey: key, kind,
+      updates: { status: 'IN_PROGRESS', actual_date: null }, today: '2026-09-05',
+    });
+  }
+  const completionUpdates = gateway.calls.filter(call => call[0] === 'update');
+  assert.equal(completionUpdates[0][2].actual_date, '2026-09-05');
+  assert.equal(completionUpdates[2][2].actual_date, '2026-09-05');
+  assert.ok(completionUpdates.every(call => !('planned_date' in call[2])));
+  await assert.rejects(updateAuthoritativeMilestone(gateway, {
+    projectId: 'p', milestoneId: 'acceptance-id', milestoneKey: 'INTERNAL_ACCEPTANCE', kind: 'ACCEPTANCE',
+    updates: { status: 'COMPLETED', actual_date: '2026-09-06' }, today: '2026-09-05',
+  }), /實際驗收日期不可晚於今天/);
+  await assert.rejects(updateAuthoritativeMilestone(gateway, {
+    projectId: 'p', milestoneId: 'meter-id', milestoneKey: 'METER_INSTALLATION', kind: 'METER',
+    updates: { status: 'COMPLETED', actual_date: '2026-09-06' }, today: '2026-09-05',
+  }), /實際掛表日期不可晚於今天/);
+});
+
+test('missing milestones use formal workflow initialization before authoritative update', async () => {
+  const gateway = milestoneGateway();
+  await updateAuthoritativeMilestone(gateway, {
+    projectId: 'p', milestoneId: null, milestoneKey: 'METER_INSTALLATION', kind: 'METER',
+    updates: { planned_date: '2026-10-20' }, today: '2026-09-05',
+  });
+  assert.deepEqual(gateway.calls.slice(0, 3), [
+    ['initialize', 'p'], ['get', 'p'], ['update', 'meter-id', { planned_date: '2026-10-20' }],
+  ]);
 });
 
 test('entry ignores early other and steel and deleted main rows', () => {

@@ -1805,7 +1805,7 @@ export const pocSupabaseAdapter = {
         .order('created_at', { ascending: true }),
       supabase
         .from('project_milestones')
-        .select('project_id,milestone_key,status,planned_date,actual_date,deleted_at,is_applicable')
+        .select('id,project_id,milestone_key,status,planned_date,actual_date,deleted_at,is_applicable')
         .in('milestone_key', ['INTERNAL_ACCEPTANCE', 'METER_INSTALLATION']),
     ]);
 
@@ -1867,9 +1867,12 @@ export const pocSupabaseAdapter = {
         last_inspection_date: null, inspection_cycle_months: null, next_inspection_date: null,
         inspection_reminder_days: null, report_base_date: null, report_section: row.stage || null,
         
-        bracket_status: null, power_status: null, inspection_status: workflowFields.inspection_status,
+        bracket_status: null, power_status: null,
+        inspection_milestone_id: workflowFields.inspection_milestone_id,
+        inspection_status: workflowFields.inspection_status,
         inspection_expected_date: workflowFields.inspection_expected_date,
         inspection_completion_date: workflowFields.inspection_completion_date,
+        meter_milestone_id: workflowFields.meter_milestone_id,
         meter_status: workflowFields.meter_status, meter_completion_date: workflowFields.meter_completion_date,
         roof_status: null, start_date: null,
         

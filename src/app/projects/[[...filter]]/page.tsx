@@ -9,10 +9,11 @@ import { GanttChart } from '@/components/GanttChart';
 import { parseDateField } from '@/lib/utils/date-utils';
 import { SmartDateInput } from '@/components/SmartDateInput';
 import { DateDualInput } from '@/components/DateDualInput';
+import { WorkflowMilestoneQuickEditor } from '@/components/WorkflowMilestoneQuickEditor';
 import { useUser } from '@/components/UserContext';
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
 import { parseTaiwanProjectLocation, projectMatchesSearchQuery } from '@/lib/project-location';
-import { buildWorkflowActivityLog, getWorkflowOuterDisplay } from '@/lib/project-workflow';
+import { buildWorkflowActivityLog } from '@/lib/project-workflow';
 import { logWorkflowActivitySafely } from '@/lib/workflow-activity';
 import { supabase } from '@/lib/db/supabaseClient';
 import { getConstructionOuterDisplay, getConstructionToday, validateActualCompletionDate } from '@/lib/construction-progress';
@@ -576,25 +577,29 @@ export default function ProjectsPage() {
                     />
                   </td>}
                   {showInspection && <td className="p-1">
-                    <DateDualInput 
-                      baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
-                      disabled
-                      expectedDate={project.inspection_expected_date || null}
-                      completionDate={project.inspection_completion_date || null}
-                      completionIsActual={project.inspection_status === 'COMPLETED'}
-                      summaryText={getWorkflowOuterDisplay('ACCEPTANCE', project.inspection_status, project.inspection_expected_date, project.inspection_completion_date).label}
-                      onChange={() => undefined}
+                    <WorkflowMilestoneQuickEditor
+                      projectId={project.id}
+                      milestoneId={project.inspection_milestone_id ?? null}
+                      milestoneKey="INTERNAL_ACCEPTANCE"
+                      kind="ACCEPTANCE"
+                      status={project.inspection_status ?? null}
+                      plannedDate={project.inspection_expected_date ?? null}
+                      actualDate={project.inspection_completion_date ?? null}
+                      disabled={currentUser?.role === 'VIEWER'}
+                      onUpdated={fetchProjects}
                     />
                   </td>}
                   {showMeter && <td className="p-1">
-                    <DateDualInput 
-                      baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
-                      disabled
-                      expectedDate={project.meter_expected_date || null}
-                      completionDate={project.meter_completion_date || null}
-                      completionIsActual={project.meter_status === 'COMPLETED'}
-                      summaryText={getWorkflowOuterDisplay('METER', project.meter_status, project.meter_expected_date, project.meter_completion_date).label}
-                      onChange={() => undefined}
+                    <WorkflowMilestoneQuickEditor
+                      projectId={project.id}
+                      milestoneId={project.meter_milestone_id ?? null}
+                      milestoneKey="METER_INSTALLATION"
+                      kind="METER"
+                      status={project.meter_status ?? null}
+                      plannedDate={project.meter_expected_date ?? null}
+                      actualDate={project.meter_completion_date ?? null}
+                      disabled={currentUser?.role === 'VIEWER'}
+                      onUpdated={fetchProjects}
                     />
                   </td>}
                   {showRoof && <td className="p-1">

@@ -16,7 +16,7 @@ type WorkflowActivityAction = Extract<ActivityActionType, `WORKFLOW_${string}`>;
 
 type OuterMilestoneFields = Pick<
   ProjectMilestone,
-  'milestone_key' | 'status' | 'planned_date' | 'actual_date' | 'deleted_at' | 'is_applicable'
+  'id' | 'milestone_key' | 'status' | 'planned_date' | 'actual_date' | 'deleted_at' | 'is_applicable'
 >;
 
 export type WorkflowOuterKind = 'ACCEPTANCE' | 'METER';
@@ -28,9 +28,11 @@ export interface WorkflowOuterDisplay {
 }
 
 export interface ProjectOuterWorkflowFields {
+  inspection_milestone_id: string | null;
   inspection_status: ProjectMilestoneStatus | null;
   inspection_expected_date: string | null;
   inspection_completion_date: string | null;
+  meter_milestone_id: string | null;
   meter_status: ProjectMilestoneStatus | null;
   meter_expected_date: string | null;
   meter_completion_date: string | null;
@@ -69,13 +71,26 @@ export function getProjectOuterWorkflowFields(
   const hasAnyMeterMilestone = milestones.some(milestone => milestone.milestone_key === 'METER_INSTALLATION');
 
   return {
+    inspection_milestone_id: acceptance?.id ?? null,
     inspection_status: acceptance?.status ?? null,
     inspection_expected_date: acceptance?.planned_date ?? null,
     inspection_completion_date: acceptance?.actual_date ?? null,
+    meter_milestone_id: meter?.id ?? null,
     meter_status: meter?.status ?? null,
     meter_expected_date: meter ? meter.planned_date : hasAnyMeterMilestone ? null : legacyMeterDate,
     meter_completion_date: meter?.actual_date ?? null,
   };
+}
+
+export function validateWorkflowActualDate(
+  kind: WorkflowOuterKind,
+  actualDate: string | null,
+  today: string,
+): string | null {
+  if (!actualDate || actualDate <= today) return null;
+  return kind === 'ACCEPTANCE'
+    ? '實際驗收日期不可晚於今天'
+    : '實際掛表日期不可晚於今天';
 }
 
 export interface WorkflowActivityInput {

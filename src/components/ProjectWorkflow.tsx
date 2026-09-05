@@ -22,9 +22,11 @@ import {
   normalizeMilestoneCompletion,
   reorderWorkflowMilestones,
   sortWorkflowMilestones,
+  validateWorkflowActualDate,
 } from '@/lib/project-workflow';
 import { logWorkflowActivitySafely } from '@/lib/workflow-activity';
 import { runMutationWithParentRefresh } from '@/lib/mutation-refresh';
+import { getConstructionToday } from '@/lib/construction-progress';
 
 const STATUS_OPTIONS: { value: ProjectMilestoneStatus; label: string }[] = [
   { value: 'NOT_STARTED', label: '未開始' },
@@ -172,6 +174,17 @@ export function ProjectWorkflow({ projectId, projectName, canEdit, actor, constr
     updates: ProjectMilestoneUpdate,
     action: WorkflowMutationAction,
   ): Promise<boolean> => {
+    const outerKind = milestone.milestone_key === 'INTERNAL_ACCEPTANCE'
+      ? 'ACCEPTANCE'
+      : milestone.milestone_key === 'METER_INSTALLATION' ? 'METER' : null;
+    const dateError = outerKind && updates.actual_date !== undefined
+      ? validateWorkflowActualDate(outerKind, updates.actual_date ?? null, getConstructionToday())
+      : null;
+    if (dateError) {
+      setError(dateError);
+      return false;
+    }
+
     const before: Record<string, unknown> = {};
     const after: Record<string, unknown> = {};
     const source = milestone as unknown as Record<string, unknown>;
@@ -218,7 +231,7 @@ export function ProjectWorkflow({ projectId, projectName, canEdit, actor, constr
   };
 
   const changeStatus = async (milestone: ProjectMilestone, status: ProjectMilestoneStatus) => {
-    const completion = normalizeMilestoneCompletion(status, milestone.actual_date);
+    const completion = normalizeMilestoneCompletion(status, milestone.actual_date, getConstructionToday());
     await persistMilestone(milestone, completion, 'WORKFLOW_STATUS_CHANGED');
   };
 

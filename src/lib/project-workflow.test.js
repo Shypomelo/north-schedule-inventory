@@ -87,9 +87,11 @@ test('acceptance and meter outer fields use active authoritative milestones', ()
     milestone('meter', 110, 'COMPLETED', { milestone_key: 'METER_INSTALLATION', planned_date: '2026-10-20', actual_date: '2026-10-21' }),
   ], '2026-09-01');
   assert.deepEqual(fields, {
+    inspection_milestone_id: 'acceptance',
     inspection_status: 'IN_PROGRESS',
     inspection_expected_date: '2026-10-15',
     inspection_completion_date: null,
+    meter_milestone_id: 'meter',
     meter_status: 'COMPLETED',
     meter_expected_date: '2026-10-20',
     meter_completion_date: '2026-10-21',
@@ -117,8 +119,9 @@ test('outer workflow paths do not write legacy inspection or meter fields', () =
   assert.doesNotMatch(pageSource, /handleProjectDatesChange\(project\.id, \{ inspection_/);
   assert.doesNotMatch(pageSource, /handleProjectDatesChange\(project\.id, \{ meter_/);
   assert.doesNotMatch(modalSource, /handleSave\(\{ meter_expected_date/);
-  assert.match(pageSource, /getWorkflowOuterDisplay\('ACCEPTANCE'/);
-  assert.match(pageSource, /getWorkflowOuterDisplay\('METER'/);
+  assert.match(pageSource, /milestoneKey="INTERNAL_ACCEPTANCE"/);
+  assert.match(pageSource, /milestoneKey="METER_INSTALLATION"/);
+  assert.match(pageSource, /onUpdated=\{fetchProjects\}/);
 });
 
 test('TEMPLATE milestones can reorder but cannot edit identity or delete', () => {
