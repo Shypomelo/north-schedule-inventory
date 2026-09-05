@@ -861,7 +861,8 @@ export default function ProjectsPage() {
       </div>
 
       {viewingProject && (
-        <ProjectDetailModal 
+        <ProjectDetailModal
+          key={viewingProject.id}
           project={viewingProject as any} 
           onClose={() => setViewingProject(null)} 
           onUpdate={async () => {

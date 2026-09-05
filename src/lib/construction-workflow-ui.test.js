@@ -256,23 +256,32 @@ test('viewer cannot edit construction rows or create/delete/enable work', () => 
   assert.doesNotMatch(html, /新增其他工項|確認刪除|>刪除</);
   assert.match(html, /disabled=""/);
 });
-test('Workflow and original progress tab render the same shared model and persisted rows', () => {
+test('Project Detail defaults to Workflow with embedded construction and no standalone progress tab', () => {
   const shared = model([row({ work_name: '共用工項', notes: '同一份資料' })]);
-  for (const tab of ['workflow', 'progress']) {
-    let modelReads = 0;
-    const { ProjectDetailModal } = load('../components/ProjectDetailModal.tsx', {
-      react: { ...React, useState: initial => React.useState(initial === 'basic' ? tab : initial) },
-      '@/lib/db': { dbAdapter: {} },
-      './UserContext': { useUser: () => ({ currentUser: { role: 'EDITOR', id: 'user', name: 'user' } }) },
-      './DateDualInput': { DateDualInput: () => null },
-      './ProjectWorkflow': { ProjectWorkflow: props => props.construction },
-      './ConstructionProgressSection': { ConstructionProgressSection, ConstructionWorkTypeControls },
-      './useConstructionProgress': { useConstructionProgress: () => { modelReads++; return shared; } },
-    });
-    const html = renderToStaticMarkup(React.createElement(ProjectDetailModal, { project: { id: 'project-1', name: 'Test' }, onClose() {}, onUpdate() {} }));
-    assert.equal(modelReads, 1);
-    assert.match(html, /共用工項/); assert.match(html, /同一份資料/); assert.match(html, /施工進度/);
-  }
+  let modelReads = 0;
+  const { ProjectDetailModal } = load('../components/ProjectDetailModal.tsx', {
+    '@/lib/db': { dbAdapter: {} },
+    './UserContext': { useUser: () => ({ currentUser: { role: 'EDITOR', id: 'user', name: 'user' } }) },
+    './DateDualInput': { DateDualInput: () => null },
+    './ProjectWorkflow': { ProjectWorkflow: props => props.construction },
+    './ConstructionProgressSection': { ConstructionProgressSection, ConstructionWorkTypeControls },
+    './useConstructionProgress': { useConstructionProgress: () => { modelReads++; return shared; } },
+  });
+  const html = renderToStaticMarkup(React.createElement(ProjectDetailModal, { project: { id: 'project-1', name: 'Test' }, onClose() {}, onUpdate() {} }));
+  assert.equal(modelReads, 1);
+  assert.match(html, /共用工項/);
+  assert.match(html, /同一份資料/);
+  assert.doesNotMatch(html, />施工進度</);
+});
+
+test('Project Detail tab contract is Workflow, Basic, Notes and resets per project', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'components', 'ProjectDetailModal.tsx'), 'utf8');
+  const pageSource = fs.readFileSync(path.join(__dirname, '..', 'app', 'projects', '[[...filter]]', 'page.tsx'), 'utf8');
+  assert.match(source, /useState<TabType>\('workflow'\)/);
+  assert.match(pageSource, /<ProjectDetailModal\s+key=\{viewingProject\.id\}/);
+  assert.ok(source.indexOf("id: 'workflow'") < source.indexOf("id: 'basic'"));
+  assert.ok(source.indexOf("id: 'basic'") < source.indexOf("id: 'notes'"));
+  assert.doesNotMatch(source, /id: 'progress'/);
 });
 
 function fakeClient(result = { data: row(), error: null }) {

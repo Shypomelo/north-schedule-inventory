@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Project, User } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
-import { X, Building2, Calendar, FileText, ListChecks } from 'lucide-react';
+import { X, Building2, FileText, ListChecks } from 'lucide-react';
 import { useUser } from './UserContext';
 import { ProjectWorkflow } from './ProjectWorkflow';
 import { ConstructionProgressSection, ConstructionWorkTypeControls } from './ConstructionProgressSection';
@@ -18,11 +18,11 @@ interface Props {
   onMilestoneUpdated: (milestone: ProjectMilestone) => void;
 }
 
-type TabType = 'basic' | 'workflow' | 'progress' | 'notes';
+type TabType = 'workflow' | 'basic' | 'notes';
 
 export function ProjectDetailModal({ project, onClose, onUpdate, onConstructionUpdated, onMilestoneUpdated }: Props) {
   const { currentUser } = useUser();
-  const [activeTab, setActiveTab] = useState<TabType>('basic');
+  const [activeTab, setActiveTab] = useState<TabType>('workflow');
   const [editedProject, setEditedProject] = useState<Project>(project);
   
   const [users, setUsers] = useState<User[]>([]);
@@ -157,9 +157,8 @@ export function ProjectDetailModal({ project, onClose, onUpdate, onConstructionU
   );
 
   const tabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
-    { id: 'basic', label: '基本資料', icon: <Building2 size={18} /> },
     { id: 'workflow', label: '專案流程', icon: <ListChecks size={18} /> },
-    { id: 'progress', label: '施工進度', icon: <Calendar size={18} /> },
+    { id: 'basic', label: '基本資料', icon: <Building2 size={18} /> },
     { id: 'notes', label: '備註', icon: <FileText size={18} /> }
   ];
 
@@ -207,7 +206,6 @@ export function ProjectDetailModal({ project, onClose, onUpdate, onConstructionU
           <div className="min-w-0 flex-1 overflow-y-auto p-6 bg-page/30">
             {activeTab === 'basic' && renderBasicInfo()}
             {activeTab === 'workflow' && <ProjectWorkflow projectId={project.id} projectName={editedProject.name} actor={currentUser ? { id: currentUser.id, name: currentUser.name } : null} canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')} construction={<ConstructionProgressSection model={construction} />} onUpdate={onUpdate} onMilestoneUpdated={onMilestoneUpdated} />}
-            {activeTab === 'progress' && <ConstructionProgressSection model={construction} />}
             {activeTab === 'notes' && renderNotes()}
           </div>
         </div>
