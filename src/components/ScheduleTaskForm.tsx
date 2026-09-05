@@ -17,6 +17,12 @@ const OTHER_TIME_HOURS = [
 const TIME_HOURS = [...PRIMARY_TIME_HOURS, ...OTHER_TIME_HOURS];
 const TIME_MINUTES = ['00', '30'];
 const OTHER_HOUR_VALUE = '__OTHER__';
+const CREATION_SOURCE_LABELS: Record<NonNullable<ScheduleTask['creation_source']>, string> = {
+  APP: '系統排程',
+  GOOGLE_IMPORT: 'Google 匯入',
+  SYSTEM: '系統建立',
+  LEGACY: '歷史資料',
+};
 
 interface ScheduleTaskFormProps {
   initialData?: Partial<ScheduleTask>;
@@ -58,7 +64,7 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
     created_by: initialData?.created_by || currentUser?.id || null,
     created_by_user_id: initialData?.created_by_user_id || currentUser?.id || null,
     created_by_name: initialData?.created_by_name || currentUser?.name || null,
-    creation_source: initialData?.creation_source || 'APP',
+    creation_source: initialData?.creation_source || (initialData?.id ? 'LEGACY' : 'APP'),
     source_todo_id: initialData?.source_todo_id || null,
   });
 
@@ -265,6 +271,10 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
   const coworkerUsers = users;
   const startTimeParts = splitTime(formData.start_time);
   const endTimeParts = splitTime(formData.end_time);
+  const creatorName = formData.created_by_name?.trim()
+    || (!isEditingExistingTask ? currentUser?.name?.trim() : '')
+    || '未知';
+  const creationSourceLabel = CREATION_SOURCE_LABELS[formData.creation_source || 'LEGACY'];
   const timeSelectClassName = "bg-[var(--input-bg)] text-[var(--input-text)] border border-[var(--input-border)] rounded p-1.5 focus:border-[var(--accent)] outline-none font-mono text-center";
 
   return (
@@ -519,6 +529,17 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
         </div>
 
       </div>
+
+      <dl aria-label="建立資訊" className="grid grid-cols-1 gap-2 rounded border border-[var(--border)] bg-[var(--surface-secondary)]/40 px-3 py-2 text-xs text-[var(--modal-muted)] sm:grid-cols-2">
+        <div className="flex gap-2">
+          <dt className="font-semibold text-[var(--modal-text)]">建立者：</dt>
+          <dd>{creatorName}</dd>
+        </div>
+        <div className="flex gap-2">
+          <dt className="font-semibold text-[var(--modal-text)]">來源：</dt>
+          <dd>{creationSourceLabel}</dd>
+        </div>
+      </dl>
 
       <div className="flex justify-between items-center mt-3 pt-3 border-t border-[var(--border)]">
         <div className="text-[var(--danger)] text-sm font-semibold">{errorMsg || ''}</div>

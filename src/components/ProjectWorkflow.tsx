@@ -388,6 +388,7 @@ export function ProjectWorkflow({ projectId, projectName, canEdit, actor, constr
             {visibleMilestones.map((milestone, index) => {
               const previous = visibleMilestones[index - 1];
               const showPhase = !previous || previous.phase_key_snapshot !== milestone.phase_key_snapshot;
+              const showConstruction = showPhase && milestone.phase_key_snapshot === 'CONSTRUCTION';
               const isSaving = savingId === milestone.id;
               const capabilities = getMilestoneCapabilities(milestone.origin);
               const dragged = orderedMilestones.find(row => row.id === draggedId);
@@ -395,6 +396,11 @@ export function ProjectWorkflow({ projectId, projectName, canEdit, actor, constr
               return (
                 <div key={milestone.id}>
                   {showPhase ? <div className="border-b border-theme-border bg-page/60 px-3 py-1.5 text-xs font-bold tracking-wide text-secondary">{milestone.phase_name_snapshot}</div> : null}
+                  {showConstruction ? (
+                    <div data-workflow-phase-content="CONSTRUCTION" className="border-b border-theme-border bg-card px-3 py-3">
+                      {construction}
+                    </div>
+                  ) : null}
                   <div
                     onDragOver={event => {
                       if (canDrop) {
@@ -456,8 +462,6 @@ export function ProjectWorkflow({ projectId, projectName, canEdit, actor, constr
           </div>
         )}
       </div>
-
-      {construction}
 
       {showCreate ? (
         <CreateCustomMilestoneDialog projectId={projectId} milestones={orderedMilestones} phases={phases} types={types} onClose={() => setShowCreate(false)} onCreated={async created => {

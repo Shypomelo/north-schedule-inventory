@@ -308,6 +308,26 @@ test('Project Detail defaults to Workflow with embedded construction and no stan
   assert.doesNotMatch(html, />施工進度</);
 });
 
+test('construction renders inside the CONSTRUCTION phase instead of after the milestone list', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'components', 'ProjectWorkflow.tsx'), 'utf8');
+  const phaseInsertion = source.indexOf('data-workflow-phase-content="CONSTRUCTION"');
+  const milestoneMap = source.indexOf('visibleMilestones.map');
+  const createDialog = source.indexOf('{showCreate ?');
+
+  assert.ok(milestoneMap >= 0 && phaseInsertion > milestoneMap && phaseInsertion < createDialog);
+  assert.match(source, /showPhase && milestone\.phase_key_snapshot === 'CONSTRUCTION'/);
+  assert.doesNotMatch(source.slice(createDialog - 80, createDialog), /\{construction\}/);
+});
+
+test('construction phase integration reuses the supplied section without milestone date synchronization', () => {
+  const workflowSource = fs.readFileSync(path.join(__dirname, '..', 'components', 'ProjectWorkflow.tsx'), 'utf8');
+  const detailSource = fs.readFileSync(path.join(__dirname, '..', 'components', 'ProjectDetailModal.tsx'), 'utf8');
+
+  assert.equal((detailSource.match(/useConstructionProgress\(/g) || []).length, 1);
+  assert.equal((detailSource.match(/<ConstructionProgressSection model=\{construction\} \/>/g) || []).length, 1);
+  assert.doesNotMatch(workflowSource, /planned_start_date|planned_end_date|actual_completed_date/);
+});
+
 test('Project Detail tab contract is Workflow, Basic, Notes and resets per project', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'components', 'ProjectDetailModal.tsx'), 'utf8');
   const pageSource = fs.readFileSync(path.join(__dirname, '..', 'app', 'projects', '[[...filter]]', 'page.tsx'), 'utf8');

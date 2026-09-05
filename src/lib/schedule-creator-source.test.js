@@ -17,7 +17,25 @@ test('migration preserves legacy rows without guessing an app creator', () => {
 test('app creation captures the authenticated member and immutable name snapshot', () => {
   assert.match(form, /created_by_user_id: initialData\?\.created_by_user_id \|\| currentUser\?\.id \|\| null/);
   assert.match(form, /created_by_name: initialData\?\.created_by_name \|\| currentUser\?\.name \|\| null/);
-  assert.match(form, /creation_source: initialData\?\.creation_source \|\| 'APP'/);
+  assert.match(form, /creation_source: initialData\?\.creation_source \|\| \(initialData\?\.id \? 'LEGACY' : 'APP'\)/);
+});
+
+test('schedule form renders creator and source as read-only secondary information', () => {
+  assert.match(form, /<dl aria-label="建立資訊"/);
+  assert.match(form, /<dt[^>]*>建立者：<\/dt>/);
+  assert.match(form, /<dt[^>]*>來源：<\/dt>/);
+  assert.match(form, /formData\.created_by_name\?\.trim\(\)/);
+  assert.match(form, /!isEditingExistingTask \? currentUser\?\.name\?\.trim\(\) : ''/);
+  assert.match(form, /\|\| '未知'/);
+  assert.doesNotMatch(form, /<input[^>]+(?:created_by_name|creation_source)/);
+  assert.doesNotMatch(form, /<select[^>]+(?:created_by_name|creation_source)/);
+});
+
+test('all schedule creation sources have user-facing labels', () => {
+  assert.match(form, /APP: '系統排程'/);
+  assert.match(form, /GOOGLE_IMPORT: 'Google 匯入'/);
+  assert.match(form, /SYSTEM: '系統建立'/);
+  assert.match(form, /LEGACY: '歷史資料'/);
 });
 
 test('schedule updates cannot overwrite creator or creation source', () => {
