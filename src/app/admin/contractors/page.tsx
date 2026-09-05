@@ -3,24 +3,35 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/components/UserContext';
-import { Contractor, ContractorType } from '@/lib/db/types';
+import { Contractor, ContractorCapability, ContractorType } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
 import {
+  CONTRACTOR_CAPABILITY_OPTIONS,
+  CONTRACTOR_TYPE_OPTIONS,
   ensurePrimaryCapability,
   getContractorCapabilities,
   validateContractorCapabilities,
 } from '@/lib/contractors';
 import { Plus, Edit2, Wrench } from 'lucide-react';
 
-const CONTRACTOR_TYPES: { key: ContractorType; label: string; color: string }[] = [
-  { key: 'racking', label: '支架', color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' },
-  { key: 'electrical', label: '電力', color: 'text-blue-400 bg-blue-500/10 border-blue-500/20' },
-  { key: 'steel', label: '鋼構', color: 'text-purple-400 bg-purple-500/10 border-purple-500/20' },
-  { key: 'roof_cover', label: '新設頂蓋', color: 'text-orange-400 bg-orange-500/10 border-orange-500/20' },
-  { key: 'civil', label: '土木', color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' },
-  { key: 'other', label: '其他', color: 'text-slate-400 bg-slate-500/10 border-slate-500/20' },
-];
+const CONTRACTOR_COLORS: Record<ContractorCapability, string> = {
+  racking: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+  electrical: 'text-blue-400 bg-blue-500/10 border-blue-500/20',
+  steel: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
+  roof_cover: 'text-orange-400 bg-orange-500/10 border-orange-500/20',
+  civil: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
+  ladder_installation: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20',
+  other: 'text-slate-400 bg-slate-500/10 border-slate-500/20',
+};
+const CONTRACTOR_TYPES = CONTRACTOR_TYPE_OPTIONS.map(option => ({
+  ...option,
+  color: CONTRACTOR_COLORS[option.key],
+}));
+const CONTRACTOR_CAPABILITIES = CONTRACTOR_CAPABILITY_OPTIONS.map(option => ({
+  ...option,
+  color: CONTRACTOR_COLORS[option.key],
+}));
 
 export default function AdminContractorsPage() {
   const router = useRouter();
@@ -147,17 +158,17 @@ export default function AdminContractorsPage() {
     }
   };
 
-  const getTypeStyle = (type: ContractorType) => {
-    const t = CONTRACTOR_TYPES.find(x => x.key === type);
+  const getTypeStyle = (type: ContractorCapability) => {
+    const t = CONTRACTOR_CAPABILITIES.find(x => x.key === type);
     return t ? t.color : 'text-secondary bg-theme-border/20 border-theme-border/40';
   };
 
-  const getTypeLabel = (type: ContractorType) => {
-    const t = CONTRACTOR_TYPES.find(x => x.key === type);
+  const getTypeLabel = (type: ContractorCapability) => {
+    const t = CONTRACTOR_CAPABILITIES.find(x => x.key === type);
     return t ? t.label : '未知';
   };
 
-  const handleCapabilityChange = (capability: ContractorType, checked: boolean) => {
+  const handleCapabilityChange = (capability: ContractorCapability, checked: boolean) => {
     setFormData(current => {
       const currentCapabilities = current.work_capabilities || [];
       const nextCapabilities = checked
@@ -286,7 +297,7 @@ export default function AdminContractorsPage() {
               <fieldset>
                 <legend className="block text-sm font-medium text-secondary mb-2">可施作工項 *</legend>
                 <div className="grid grid-cols-2 gap-2 rounded-lg border border-theme-border bg-page/40 p-3">
-                  {CONTRACTOR_TYPES.map(type => {
+                  {CONTRACTOR_CAPABILITIES.map(type => {
                     const checked = (formData.work_capabilities || []).includes(type.key);
                     const isPrimary = formData.contractor_type === type.key;
                     return (

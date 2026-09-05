@@ -120,12 +120,12 @@ export function ConstructionWorkTypeControls({ model }: { model: ConstructionPro
   </div>;
 }
 
-function ContractorSelect({ contractors, workType, value, savedName, disabled, onChange }: {
-  contractors: Contractor[]; workType: ConstructionWorkType; value: string | null; savedName?: string | null;
+function ContractorSelect({ contractors, workType, workName, value, savedName, disabled, onChange }: {
+  contractors: Contractor[]; workType: ConstructionWorkType; workName?: string | null; value: string | null; savedName?: string | null;
   disabled: boolean; onChange: (id: string | null, name: string | null) => void;
 }) {
   const [showAll, setShowAll] = useState(false);
-  const options = getContractorsForWorkType(contractors, workType, showAll);
+  const options = getContractorsForWorkType(contractors, workType, showAll, workName);
   const selected = contractors.find(contractor => contractor.id === value);
   return <div className="space-y-1">
     <select aria-label="包商" className={inputClass} value={value ?? ''} disabled={disabled} onChange={event => {
@@ -163,7 +163,7 @@ function ConstructionRow({ row, model, today }: { row: ProjectConstructionProgre
       {nameError && <span role="alert" className="text-xs text-danger">{nameError}</span>}
       <span className="mt-1 block text-xs text-secondary">{statusLabels[status]}</span>
     </div>
-    <ContractorSelect contractors={model.contractors} workType={row.work_type} value={row.contractor_id} savedName={row.contractor_name} disabled={disabled} onChange={(id, name) => void save({ contractor_id: id, contractor_name: name })} />
+    <ContractorSelect contractors={model.contractors} workType={row.work_type} workName={row.work_name} value={row.contractor_id} savedName={row.contractor_name} disabled={disabled} onChange={(id, name) => void save({ contractor_id: id, contractor_name: name })} />
     <input aria-label={`${label}進場日期`} type="date" className={inputClass} value={row.planned_start_date ?? ''} disabled={disabled} onChange={event => void save({ planned_start_date: event.target.value || null })} />
     <ConstructionCompletionDateInput value={getConstructionEndDate(row)} today={today} isCompleted={row.is_completed} disabled={disabled} onCommit={date => {
       void save(row.is_completed ? constructionCompletionPatch(true, date, today) : { planned_end_date: date });
@@ -189,7 +189,7 @@ function NewConstructionRow({ model, nextOrder, onCreated }: { model: Constructi
   }}>
     <div className="grid grid-cols-2 gap-2 lg:grid-cols-5">
       <label className="text-xs text-secondary">工項名稱<input required aria-label="新增工項名稱" className={inputClass} value={name} disabled={model.busy} onChange={event => setName(event.target.value)} /></label>
-      <ContractorSelect contractors={model.contractors} workType="other" value={values.contractor_id ?? null} disabled={model.busy} onChange={(id, name) => setValues(current => ({ ...current, contractor_id: id, contractor_name: name }))} />
+      <ContractorSelect contractors={model.contractors} workType="other" workName={name} value={values.contractor_id ?? null} disabled={model.busy} onChange={(id, name) => setValues(current => ({ ...current, contractor_id: id, contractor_name: name }))} />
       <label className="text-xs text-secondary">進場日期<input type="date" className={inputClass} disabled={model.busy} onChange={event => setValues(current => ({ ...current, planned_start_date: event.target.value || null }))} /></label>
       <label className="text-xs text-secondary">完工日期<input type="date" className={inputClass} disabled={model.busy} onChange={event => setValues(current => ({ ...current, planned_end_date: event.target.value || null }))} /></label>
       <label className="text-xs text-secondary">備註<input className={inputClass} disabled={model.busy} onChange={event => setValues(current => ({ ...current, notes: event.target.value || null }))} /></label>

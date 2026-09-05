@@ -198,6 +198,7 @@ export interface Project {
 }
 
 export type ContractorType = 'racking' | 'electrical' | 'steel' | 'roof_cover' | 'civil' | 'other';
+export type ContractorCapability = ContractorType | 'ladder_installation';
 
 export type ConstructionWorkType = ContractorType;
 export type DerivedConstructionStatus =
@@ -231,7 +232,7 @@ export interface Contractor {
   id: string;
   name: string;
   contractor_type: ContractorType;
-  work_capabilities: ContractorType[];
+  work_capabilities: ContractorCapability[];
   contact_person: string | null;
   phone: string | null;
   notes: string | null;

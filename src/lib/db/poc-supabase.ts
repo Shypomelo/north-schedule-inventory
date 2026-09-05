@@ -32,6 +32,7 @@ import { throwMissingCoreTablesErrorIfNeeded } from './supabase-errors';
 import { getInventoryTransactionQuantityDelta } from './inventory-stock';
 import { getConstructionEndDate, getConstructionToday, validateActualCompletionDate } from '../construction-progress';
 import { getProjectOuterWorkflowFields } from '../project-workflow';
+import { isContractorType, validateContractorCapabilities, validateContractorCapabilityValues } from '../contractors';
 
 const mapUser = (row: any): User => ({
   id: row.id,
@@ -1726,6 +1727,8 @@ export const pocSupabaseAdapter = {
   },
 
   createContractor: async (c: Omit<Contractor, 'id' | 'created_at' | 'updated_at'>): Promise<Contractor> => {
+    const validationError = validateContractorCapabilities(c.contractor_type, c.work_capabilities);
+    if (validationError) throw new Error(validationError);
     const dbData = {
       name: c.name,
       contractor_type: c.contractor_type,
@@ -1752,6 +1755,17 @@ export const pocSupabaseAdapter = {
   },
 
   updateContractor: async (id: string, updates: Partial<Contractor>): Promise<Contractor> => {
+    if (updates.contractor_type !== undefined && !isContractorType(updates.contractor_type)) {
+      throw new Error('主要類別包含不支援的類別');
+    }
+    if (updates.work_capabilities !== undefined) {
+      const valuesError = validateContractorCapabilityValues(updates.work_capabilities);
+      if (valuesError) throw new Error(valuesError);
+    }
+    if (updates.contractor_type !== undefined && updates.work_capabilities !== undefined) {
+      const validationError = validateContractorCapabilities(updates.contractor_type, updates.work_capabilities);
+      if (validationError) throw new Error(validationError);
+    }
     const dbUpdates: any = {};
     if (updates.name !== undefined) dbUpdates.name = updates.name;
     if (updates.contractor_type !== undefined) dbUpdates.contractor_type = updates.contractor_type;
