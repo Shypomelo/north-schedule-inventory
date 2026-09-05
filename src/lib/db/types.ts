@@ -145,6 +145,7 @@ export interface Project {
   racking_contractor_name?: string | null;
   racking_expected_start_date: string | null;
   racking_completion_date: string | null;
+  racking_is_completed?: boolean;
   racking_status: string | null;
   racking_notes: string | null;
 
@@ -153,6 +154,7 @@ export interface Project {
   electrical_contractor_name?: string | null;
   electrical_expected_start_date: string | null;
   electrical_completion_date: string | null;
+  electrical_is_completed?: boolean;
   electrical_status: string | null;
   electrical_notes: string | null;
 
@@ -161,6 +163,7 @@ export interface Project {
   steel_contractor_name?: string | null;
   steel_expected_start_date: string | null;
   steel_completion_date: string | null;
+  steel_is_completed?: boolean;
   steel_status: string | null;
   steel_notes: string | null;
 
@@ -169,6 +172,7 @@ export interface Project {
   roof_cover_contractor_name?: string | null;
   roof_cover_expected_start_date: string | null;
   roof_cover_completion_date: string | null;
+  roof_cover_is_completed?: boolean;
   roof_cover_status: string | null;
   roof_cover_notes: string | null;
 
@@ -177,6 +181,7 @@ export interface Project {
   civil_contractor_name?: string | null;
   civil_expected_start_date: string | null;
   civil_completion_date: string | null;
+  civil_is_completed?: boolean;
   civil_status: string | null;
   civil_notes: string | null;
 
@@ -185,6 +190,7 @@ export interface Project {
   other_contractor_name?: string | null;
   other_expected_start_date: string | null;
   other_completion_date: string | null;
+  other_is_completed?: boolean;
   other_status: string | null;
   other_notes: string | null;
 }

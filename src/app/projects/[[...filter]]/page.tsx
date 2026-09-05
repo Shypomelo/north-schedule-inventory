@@ -15,6 +15,7 @@ import { parseTaiwanProjectLocation, projectMatchesSearchQuery } from '@/lib/pro
 import { buildWorkflowActivityLog } from '@/lib/project-workflow';
 import { logWorkflowActivitySafely } from '@/lib/workflow-activity';
 import { supabase } from '@/lib/db/supabaseClient';
+import { getConstructionToday, validateActualCompletionDate } from '@/lib/construction-progress';
 import { MapPin, Plus, Search, Filter, Maximize2 } from 'lucide-react';
 import { useParams } from 'next/navigation';
 
@@ -414,6 +415,29 @@ export default function ProjectsPage() {
     }
   };
 
+  const handleConstructionDatesChange = (
+    project: Project,
+    type: 'racking' | 'electrical' | 'roof_cover',
+    expectedStart: string | null,
+    endDate: string | null,
+  ) => {
+    const isCompleted = Boolean(project[`${type}_is_completed` as keyof Project]);
+    const today = getConstructionToday();
+    const normalizedEndDate = isCompleted ? endDate || today : endDate;
+    const validationError = isCompleted
+      ? validateActualCompletionDate(normalizedEndDate, today)
+      : null;
+    if (validationError) {
+      alert(validationError);
+      return;
+    }
+    void handleProjectDatesChange(project.id, {
+      [`${type}_expected_start_date`]: expectedStart,
+      [`${type}_completion_date`]: normalizedEndDate,
+      [`${type}_is_completed`]: isCompleted,
+    } as Partial<Project>);
+  };
+
   const handleProjectInlineChange = async (id: string, field: string, value: string) => {
     try {
       setSaveStatus('儲存中');
@@ -524,7 +548,9 @@ export default function ProjectsPage() {
                       disabled={currentUser?.role === 'VIEWER'}
                       expectedDate={project.racking_expected_start_date || null}
                       completionDate={project.racking_completion_date || null}
-                      onChange={(exp, comp) => handleProjectDatesChange(project.id, { racking_expected_start_date: exp, racking_completion_date: comp })}
+                      showCompletionInSummary
+                      completionIsActual={project.racking_is_completed}
+                      onChange={(exp, comp) => handleConstructionDatesChange(project, 'racking', exp, comp)}
                     />
                   </td>}
                   {showPower && <td className="p-1">
@@ -533,7 +559,9 @@ export default function ProjectsPage() {
                       disabled={currentUser?.role === 'VIEWER'}
                       expectedDate={project.electrical_expected_start_date || null}
                       completionDate={project.electrical_completion_date || null}
-                      onChange={(exp, comp) => handleProjectDatesChange(project.id, { electrical_expected_start_date: exp, electrical_completion_date: comp })}
+                      showCompletionInSummary
+                      completionIsActual={project.electrical_is_completed}
+                      onChange={(exp, comp) => handleConstructionDatesChange(project, 'electrical', exp, comp)}
                     />
                   </td>}
                   {showInspection && <td className="p-1">
@@ -560,7 +588,9 @@ export default function ProjectsPage() {
                       disabled={currentUser?.role === 'VIEWER'}
                       expectedDate={project.roof_cover_expected_start_date || null}
                       completionDate={project.roof_cover_completion_date || null}
-                      onChange={(exp, comp) => handleProjectDatesChange(project.id, { roof_cover_expected_start_date: exp, roof_cover_completion_date: comp })}
+                      showCompletionInSummary
+                      completionIsActual={project.roof_cover_is_completed}
+                      onChange={(exp, comp) => handleConstructionDatesChange(project, 'roof_cover', exp, comp)}
                     />
                   </td>}
                   {showStartDate && <td className="p-1">

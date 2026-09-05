@@ -30,6 +30,7 @@ import {
 } from './types';
 import { throwMissingCoreTablesErrorIfNeeded } from './supabase-errors';
 import { getInventoryTransactionQuantityDelta } from './inventory-stock';
+import { getConstructionEndDate, getConstructionToday, validateActualCompletionDate } from '../construction-progress';
 
 const mapUser = (row: any): User => ({
   id: row.id,
@@ -1271,12 +1272,13 @@ const syncProjectProgress = async (projectId: string, p: Partial<Project>) => {
     const cidKey = `${type}_contractor_id` as keyof Project;
     const sDateKey = `${type}_expected_start_date` as keyof Project;
     const eDateKey = `${type}_completion_date` as keyof Project;
+    const completedKey = `${type}_is_completed` as keyof Project;
     const statusKey = `${type}_status` as keyof Project;
     const notesKey = `${type}_notes` as keyof Project;
 
     if (
       p[cidKey] === undefined && p[sDateKey] === undefined && 
-      p[eDateKey] === undefined && p[statusKey] === undefined && 
+      p[eDateKey] === undefined && p[completedKey] === undefined && p[statusKey] === undefined &&
       p[notesKey] === undefined
     ) {
       continue;
@@ -1307,7 +1309,17 @@ const syncProjectProgress = async (projectId: string, p: Partial<Project>) => {
     if (p[sDateKey] !== undefined) { payload.planned_start_date = p[sDateKey] || null; hasData = true; }
     else if (existing) { payload.planned_start_date = existing.planned_start_date; }
 
-    if (p[eDateKey] !== undefined) { payload.completed_date = p[eDateKey] || null; hasData = true; }
+    if (p[completedKey] !== undefined) {
+      const isCompleted = p[completedKey] === true;
+      const endDate = (p[eDateKey] as string | null | undefined) ?? null;
+      const actualDate = isCompleted ? endDate || getConstructionToday() : null;
+      const validationError = validateActualCompletionDate(actualDate, getConstructionToday());
+      if (validationError) throw new Error(validationError);
+      payload.is_completed = isCompleted;
+      payload.actual_completed_date = actualDate;
+      if (!isCompleted) payload.planned_end_date = endDate;
+      hasData = true;
+    } else if (p[eDateKey] !== undefined) { payload.completed_date = p[eDateKey] || null; hasData = true; }
     else if (existing) { payload.completed_date = existing.completed_date; }
 
     if (p[statusKey] !== undefined) { payload.status_override = p[statusKey] || null; hasData = true; }
@@ -1332,6 +1344,17 @@ const syncProjectProgress = async (projectId: string, p: Partial<Project>) => {
           }
        }
     }
+  }
+};
+
+const validateProjectConstructionCompletionUpdates = (p: Partial<Project>) => {
+  const today = getConstructionToday();
+  for (const type of ['racking', 'electrical', 'steel', 'roof_cover', 'civil', 'other']) {
+    const completed = p[`${type}_is_completed` as keyof Project];
+    if (completed !== true) continue;
+    const actualDate = (p[`${type}_completion_date` as keyof Project] as string | null | undefined) ?? today;
+    const validationError = validateActualCompletionDate(actualDate, today);
+    if (validationError) throw new Error(validationError);
   }
 };
 
@@ -1794,7 +1817,8 @@ export const pocSupabaseAdapter = {
           pData[`${type}_contractor_id`] = prog.contractor_id;
           pData[`${type}_contractor_name`] = prog.contractor_name;
           pData[`${type}_expected_start_date`] = prog.planned_start_date;
-          pData[`${type}_completion_date`] = prog.completed_date;
+          pData[`${type}_completion_date`] = getConstructionEndDate(prog);
+          pData[`${type}_is_completed`] = prog.is_completed === true;
           pData[`${type}_status`] = prog.status_override;
           pData[`${type}_notes`] = prog.notes;
         });
@@ -1832,6 +1856,7 @@ export const pocSupabaseAdapter = {
         racking_contractor_name: pData.racking_contractor_name || null,
         racking_expected_start_date: pData.racking_expected_start_date || null,
         racking_completion_date: pData.racking_completion_date || null,
+        racking_is_completed: pData.racking_is_completed || false,
         racking_status: pData.racking_status || null,
         racking_notes: pData.racking_notes || null,
         
@@ -1839,6 +1864,7 @@ export const pocSupabaseAdapter = {
         electrical_contractor_name: pData.electrical_contractor_name || null,
         electrical_expected_start_date: pData.electrical_expected_start_date || null,
         electrical_completion_date: pData.electrical_completion_date || null,
+        electrical_is_completed: pData.electrical_is_completed || false,
         electrical_status: pData.electrical_status || null,
         electrical_notes: pData.electrical_notes || null,
         
@@ -1846,6 +1872,7 @@ export const pocSupabaseAdapter = {
         steel_contractor_name: pData.steel_contractor_name || null,
         steel_expected_start_date: pData.steel_expected_start_date || null,
         steel_completion_date: pData.steel_completion_date || null,
+        steel_is_completed: pData.steel_is_completed || false,
         steel_status: pData.steel_status || null,
         steel_notes: pData.steel_notes || null,
         
@@ -1853,6 +1880,7 @@ export const pocSupabaseAdapter = {
         roof_cover_contractor_name: pData.roof_cover_contractor_name || null,
         roof_cover_expected_start_date: pData.roof_cover_expected_start_date || null,
         roof_cover_completion_date: pData.roof_cover_completion_date || null,
+        roof_cover_is_completed: pData.roof_cover_is_completed || false,
         roof_cover_status: pData.roof_cover_status || null,
         roof_cover_notes: pData.roof_cover_notes || null,
         
@@ -1860,6 +1888,7 @@ export const pocSupabaseAdapter = {
         civil_contractor_name: pData.civil_contractor_name || null,
         civil_expected_start_date: pData.civil_expected_start_date || null,
         civil_completion_date: pData.civil_completion_date || null,
+        civil_is_completed: pData.civil_is_completed || false,
         civil_status: pData.civil_status || null,
         civil_notes: pData.civil_notes || null,
         
@@ -1867,6 +1896,7 @@ export const pocSupabaseAdapter = {
         other_contractor_name: pData.other_contractor_name || null,
         other_expected_start_date: pData.other_expected_start_date || null,
         other_completion_date: pData.other_completion_date || null,
+        other_is_completed: pData.other_is_completed || false,
         other_status: pData.other_status || null,
         other_notes: pData.other_notes || null,
       };
@@ -1874,6 +1904,7 @@ export const pocSupabaseAdapter = {
   },
 
   createProject: async (p: Partial<Project>): Promise<Project> => {
+    validateProjectConstructionCompletionUpdates(p);
     // Current user context is not easily available here unless passed down. 
     // We'll skip created_by/updated_by for now or assume it's handled by trigger/rls later if needed.
     const dbData: any = {
@@ -1919,6 +1950,7 @@ export const pocSupabaseAdapter = {
   },
 
   updateProject: async (id: string, p: Partial<Project>): Promise<Project> => {
+    validateProjectConstructionCompletionUpdates(p);
     const dbUpdates: any = {};
     if (p.project_code !== undefined) dbUpdates.project_code = p.project_code;
     if (p.name !== undefined) dbUpdates.project_name = p.name;

@@ -27,6 +27,7 @@ function load(relative, mocks = {}) {
 
 const helpers = load('construction-progress.ts');
 const { ConstructionProgressSection, ConstructionWorkTypeControls } = load('../components/ConstructionProgressSection.tsx');
+const { DateDualInput } = load('../components/DateDualInput.tsx');
 const { createConstructionProgressAdapter } = load('db/construction-progress.ts');
 const row = (values = {}) => ({
   id: 'row-1', project_id: 'project-1', work_type: 'other', work_name: null,
@@ -63,9 +64,31 @@ test('completion is an atomic pair: today default, manual date preserved, undo c
   assert.deepEqual(helpers.constructionCompletionPatch(false, '2026-09-01', '2026-09-08'), { is_completed: false, actual_completed_date: null });
 });
 test('one completion date displays planned before completion and actual after completion', () => {
-  const item = row({ planned_end_date: '2026-09-10', actual_completed_date: '2026-09-12' });
-  assert.equal(helpers.getConstructionCompletionDate(item), '2026-09-10');
-  assert.equal(helpers.getConstructionCompletionDate({ ...item, is_completed: true }), '2026-09-12');
+  const item = row({ planned_end_date: '2026-09-30', actual_completed_date: '2026-09-20', completed_date: '1999-01-01' });
+  assert.equal(helpers.getConstructionEndDate(item), '2026-09-30');
+  assert.equal(helpers.getConstructionEndDate({ ...item, is_completed: true }), '2026-09-20');
+  assert.equal(helpers.getConstructionEndDate({ ...item, completed_date: '2099-01-01' }), '2026-09-30');
+});
+test('outer date summary uses the V2 end date and completion state', () => {
+  const planned = renderToStaticMarkup(React.createElement(DateDualInput, {
+    expectedDate: '2026-09-08', completionDate: '2026-09-30', baseDate: '2026-09-05',
+    showCompletionInSummary: true, completionIsActual: false, onChange() {},
+  }));
+  const actual = renderToStaticMarkup(React.createElement(DateDualInput, {
+    expectedDate: '2026-09-08', completionDate: '2026-09-20', baseDate: '2026-09-05',
+    showCompletionInSummary: true, completionIsActual: true, onChange() {},
+  }));
+  assert.match(planned, /預計完工09\/30/);
+  assert.match(actual, /實際09\/20/);
+  const adapterSource = fs.readFileSync(path.resolve(__dirname, 'db/poc-supabase.ts'), 'utf8');
+  assert.match(adapterSource, /completion_date`] = getConstructionEndDate\(prog\)/);
+  assert.doesNotMatch(adapterSource, /completion_date`] = prog\.completed_date/);
+  const updateProjectSource = adapterSource.slice(adapterSource.indexOf('updateProject: async'));
+  assert.ok(
+    updateProjectSource.indexOf('validateProjectConstructionCompletionUpdates(p)')
+      < updateProjectSource.indexOf(".from('projects')"),
+    'future completion must be rejected before the project update query',
+  );
 });
 test('sort uses order, creation timestamp and ID without changing original array', () => {
   const rows = [row({ id: 'b', sort_order: 20 }), row({ id: 'c' }), row({ id: 'a' }), row({ id: 'd', created_at: '2025-01-01' })];
@@ -163,6 +186,22 @@ test('update targets exact project/row, leaves legacy name and completed_date un
   assert.ok(client.calls.some(c => c[0] === 'eq' && c[1] === 'id' && c[2] === 'id'));
   assert.ok(client.calls.some(c => c[0] === 'eq' && c[1] === 'project_id' && c[2] === 'p'));
   assert.ok(client.calls.some(c => c[0] === 'single'));
+});
+test('actual completion accepts today and past, but blocks future before a query', async () => {
+  assert.equal(helpers.validateActualCompletionDate('2026-09-05', '2026-09-05'), null);
+  assert.equal(helpers.validateActualCompletionDate('2026-09-04', '2026-09-05'), null);
+  assert.equal(helpers.validateActualCompletionDate('2026-09-06', '2026-09-05'), '實際完工日期不可晚於今天');
+  const futureClient = fakeClient();
+  await assert.rejects(
+    createConstructionProgressAdapter(futureClient).update('p', 'id', { is_completed: true, actual_completed_date: '9999-01-01' }),
+    /實際完工日期不可晚於今天/,
+  );
+  assert.equal(futureClient.calls.length, 0);
+});
+test('a future planned end remains valid while incomplete', async () => {
+  const client = fakeClient();
+  await createConstructionProgressAdapter(client).update('p', 'id', { planned_end_date: '9999-01-01' });
+  assert.ok(client.calls.some(call => call[0] === 'update'));
 });
 test('fixed disable keeps dates/completion/notes; other deletion is type-scoped soft delete', async () => {
   const client = fakeClient();

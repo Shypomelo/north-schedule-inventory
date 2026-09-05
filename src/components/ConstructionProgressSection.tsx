@@ -6,7 +6,7 @@ import type { ConstructionProgressModel } from './useConstructionProgress';
 import type { ConstructionUpdate } from '@/lib/db/construction-progress';
 import {
   CONSTRUCTION_WORK_LABELS, classifyConstructionItem, constructionCompletionPatch,
-  getConstructionCompletionDate, getConstructionToday, getConstructionWorkLabel, getProjectEntryDate,
+  getConstructionEndDate, getConstructionToday, getConstructionWorkLabel, getProjectEntryDate,
   getConstructionConflict,
   isConstructionPrework, sortConstructionRows, validateConstructionWorkName,
 } from '@/lib/construction-progress';
@@ -113,7 +113,7 @@ function ConstructionRow({ row, model, today }: { row: ProjectConstructionProgre
     </div>
     <ContractorSelect contractors={model.contractors} workType={row.work_type} value={row.contractor_id} savedName={row.contractor_name} disabled={disabled} onChange={(id, name) => void save({ contractor_id: id, contractor_name: name })} />
     <input aria-label={`${label}進場日期`} type="date" className={inputClass} value={row.planned_start_date ?? ''} disabled={disabled} onChange={event => void save({ planned_start_date: event.target.value || null })} />
-    <input aria-label={`${label}完工日期`} type="date" className={inputClass} value={getConstructionCompletionDate(row) ?? ''} disabled={disabled} onChange={event => {
+    <input aria-label={`${label}完工日期`} type="date" max={row.is_completed ? today : undefined} className={inputClass} value={getConstructionEndDate(row) ?? ''} disabled={disabled} onChange={event => {
       const date = event.target.value || null;
       void save(row.is_completed ? constructionCompletionPatch(true, date, today) : { planned_end_date: date });
     }} />

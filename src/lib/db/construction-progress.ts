@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ConstructionWorkType, ProjectConstructionProgress } from './types';
-import { validateConstructionWorkName } from '../construction-progress';
+import { getConstructionToday, validateActualCompletionDate, validateConstructionWorkName } from '../construction-progress';
 import type { ConstructionConflictRow } from '../construction-progress';
 import { supabase } from './supabaseClient';
 
@@ -32,6 +32,8 @@ export function createConstructionProgressAdapter(client: SupabaseClient) {
         const error = validateConstructionWorkName(values.work_name ?? null);
         if (error) throw new Error(error);
       }
+      const completionError = validateActualCompletionDate(values.actual_completed_date ?? null, getConstructionToday());
+      if (completionError) throw new Error(completionError);
       const { data, error } = await client.from('project_construction_progress')
         .insert({ ...values, project_id: projectId }).select('*').single();
       if (error) throw error;
@@ -42,6 +44,8 @@ export function createConstructionProgressAdapter(client: SupabaseClient) {
         const error = validateConstructionWorkName(values.work_name);
         if (error) throw new Error(error);
       }
+      const completionError = validateActualCompletionDate(values.actual_completed_date ?? null, getConstructionToday());
+      if (completionError) throw new Error(completionError);
       const { data, error } = await client.from('project_construction_progress').update(values)
         .eq('project_id', projectId).eq('id', id).is('deleted_at', null).select('*').single();
       if (error) throw error;

@@ -8,9 +8,11 @@ interface DateDualInputProps {
   baseDate: string;
   onChange: (expected: string | null, completion: string | null) => void;
   disabled?: boolean;
+  showCompletionInSummary?: boolean;
+  completionIsActual?: boolean;
 }
 
-export function DateDualInput({ expectedDate, completionDate, baseDate, onChange, disabled }: DateDualInputProps) {
+export function DateDualInput({ expectedDate, completionDate, baseDate, onChange, disabled, showCompletionInSummary = false, completionIsActual = false }: DateDualInputProps) {
   const [isFocused, setIsFocused] = useState(false);
   const [localExpected, setLocalExpected] = useState(expectedDate || '');
   const [localCompletion, setLocalCompletion] = useState(completionDate || '');
@@ -137,6 +139,16 @@ export function DateDualInput({ expectedDate, completionDate, baseDate, onChange
 
   const getDisplayValue = () => {
     if (isFocused) return localExpected;
+
+    if (showCompletionInSummary && completionDate) {
+      const parsed = parseDateField(completionDate.replace(/\./g, '/'), baseDate);
+      if (parsed) {
+        const month = String(parsed.getMonth() + 1).padStart(2, '0');
+        const day = String(parsed.getDate()).padStart(2, '0');
+        return `${completionIsActual ? '實際' : '預計完工'}${month}/${day}`;
+      }
+      return completionDate;
+    }
     
     if (expectedDate) {
       const parsed = parseDateField(expectedDate.replace(/\./g, '/'), baseDate);
@@ -160,7 +172,9 @@ export function DateDualInput({ expectedDate, completionDate, baseDate, onChange
 
   let textClass = 'text-primary';
   if (!isFocused) {
-    if (expectedDate) {
+    if (showCompletionInSummary && completionDate) {
+      textClass = completionIsActual ? 'text-emerald-400 font-medium' : 'text-blue-400 font-medium';
+    } else if (expectedDate) {
       const parsed = parseDateField(expectedDate.replace(/\./g, '/'), baseDate);
       if (parsed) {
         const today = new Date();
@@ -217,7 +231,7 @@ export function DateDualInput({ expectedDate, completionDate, baseDate, onChange
             />
           </div>
           <div>
-            <label className="block text-xs text-emerald-400/80 mb-1">實際完工日期</label>
+            <label className="block text-xs text-emerald-400/80 mb-1">{completionIsActual ? '實際完工日期' : '預計完工日期'}</label>
             <input 
               type="text" 
               value={localCompletion} 

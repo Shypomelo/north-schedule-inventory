@@ -34,10 +34,14 @@ export function constructionCompletionPatch(completed: boolean, actualDate: stri
   return { is_completed: completed, actual_completed_date: completed ? actualDate || today : null };
 }
 
-export function getConstructionCompletionDate(
+export function getConstructionEndDate(
   row: Pick<ProjectConstructionProgress, 'is_completed' | 'planned_end_date' | 'actual_completed_date'>,
 ): string | null {
   return row.is_completed ? row.actual_completed_date : row.planned_end_date;
+}
+
+export function validateActualCompletionDate(actualDate: string | null, today: string): string | null {
+  return actualDate && actualDate > today ? '實際完工日期不可晚於今天' : null;
 }
 
 export function validateConstructionWorkName(name: string | null): string | null {
