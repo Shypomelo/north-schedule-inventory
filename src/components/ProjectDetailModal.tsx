@@ -1,14 +1,14 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Project, Contractor, User } from '@/lib/db/types';
+import { Project, User } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
-import { X, Building2, Wrench, Calendar, FileText, Plus, AlertTriangle, ListChecks } from 'lucide-react';
-import { parseISO, format } from 'date-fns';
+import { X, Building2, Calendar, FileText, ListChecks } from 'lucide-react';
 import { useUser } from './UserContext';
 import { DateDualInput } from './DateDualInput';
 import { ProjectWorkflow } from './ProjectWorkflow';
-import { getContractorsForWorkType } from '@/lib/contractors';
+import { ConstructionProgressSection, ConstructionWorkTypeControls } from './ConstructionProgressSection';
+import { useConstructionProgress } from './useConstructionProgress';
 
 interface Props {
   project: Project;
@@ -18,25 +18,13 @@ interface Props {
 
 type TabType = 'basic' | 'workflow' | 'progress' | 'notes';
 
-const CONTRACTOR_TYPES = [
-  { key: 'racking', label: '支架' },
-  { key: 'electrical', label: '機電' },
-  { key: 'steel', label: '鋼構' },
-  { key: 'roof_cover', label: '浪板' },
-  { key: 'civil', label: '土木' },
-  { key: 'other', label: '其他' }
-] as const;
-
 export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
   const { currentUser } = useUser();
   const [activeTab, setActiveTab] = useState<TabType>('basic');
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [editedProject, setEditedProject] = useState<Project>(project);
   
   const [users, setUsers] = useState<User[]>([]);
-  const [contractors, setContractors] = useState<Contractor[]>([]);
-  const [showAllContractors, setShowAllContractors] = useState<Partial<Record<(typeof CONTRACTOR_TYPES)[number]['key'], boolean>>>({});
-  const [allProjects, setAllProjects] = useState<Project[]>([]);
+  const construction = useConstructionProgress(project.id, Boolean(currentUser && currentUser.role !== 'VIEWER'));
   const [saveStatus, setSaveStatus] = useState<'已儲存' | '儲存中' | '儲存失敗' | ''>('');
 
   useEffect(() => {
@@ -44,18 +32,12 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
       const allUsers = await dbAdapter.getUsers();
       const engineeringUsers = allUsers.filter(u => u.category === 'ENGINEERING' && u.is_active);
       setUsers(engineeringUsers);
-      
-      const allContractors = await dbAdapter.getContractors();
-      setContractors(allContractors.filter(c => c.is_active));
-      
-      const allActiveProjects = await dbAdapter.getProjects();
-      setAllProjects(allActiveProjects.filter(p => p.is_active && p.id !== project.id));
     };
     fetchData();
   }, [project.id]);
 
   const handleSave = async (updates: Partial<Project>) => {
-    if (currentUser?.role === 'VIEWER') return;
+    if (!currentUser || currentUser.role === 'VIEWER') return;
     try {
       setSaveStatus('儲存中');
       const updated = { ...editedProject, ...updates };
@@ -68,45 +50,6 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
       console.error(e);
       setSaveStatus('儲存失敗');
     }
-  };
-
-  
-  const getConflictWarning = (typeKey: string) => {
-    const contractorId = editedProject[`${typeKey}_contractor_id` as keyof Project];
-    const startStr = editedProject[`${typeKey}_expected_start_date` as keyof Project] as string;
-    const endStr = editedProject[`${typeKey}_completion_date` as keyof Project] as string;
-    
-    if (!contractorId || !startStr || !endStr) return null;
-
-    const startDate = parseISO(startStr);
-    const endDate = parseISO(endStr);
-    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) return null;
-
-    for (const p of allProjects) {
-      for (const t of CONTRACTOR_TYPES) {
-        if (p[`${t.key}_contractor_id` as keyof Project] === contractorId) {
-          const pStart = p[`${t.key}_expected_start_date` as keyof Project] as string;
-          const pEnd = p[`${t.key}_completion_date` as keyof Project] as string;
-          if (pStart && pEnd) {
-            const psDate = parseISO(pStart);
-            const peDate = parseISO(pEnd);
-            if (!isNaN(psDate.getTime()) && !isNaN(peDate.getTime())) {
-              // start1 <= end2 && start2 <= end1
-              if (startDate.getTime() <= peDate.getTime() && psDate.getTime() <= endDate.getTime()) {
-                 const contractor = contractors.find(c => c.id === contractorId);
-                 return `撞期警示：${contractor?.name} 已於「${p.name}」安排施工 (${format(psDate, 'MM/dd')} ~ ${format(peDate, 'MM/dd')})`;
-              }
-            }
-          }
-        }
-      }
-    }
-    return null;
-  };
-
-  const getContractorDetails = (id: string | null) => {
-    if (!id) return null;
-    return contractors.find(c => c.id === id);
   };
 
   const renderBasicInfo = () => (
@@ -203,134 +146,10 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
           </div>
         </div>
       </div>
-
-      <div className="pt-6 mt-6 border-t border-theme-border/50">
-        <label className="block text-sm font-medium text-secondary mb-4">參與工種 (勾選代表該案場包含此工程)</label>
-        <div className="flex flex-wrap gap-4">
-          {CONTRACTOR_TYPES.map(type => {
-            const statusField = `${type.key}_status` as keyof Project;
-            const isEnabled = editedProject[statusField] !== 'disabled';
-            
-            return (
-              <label key={type.key} className={`flex items-center gap-2 px-4 py-2 rounded-lg border cursor-pointer transition-colors ${isEnabled ? 'bg-accent/10 border-accent/30 text-accent' : 'bg-page/50 border-theme-border/50 text-secondary hover:bg-card'}`}>
-                <input
-                  type="checkbox"
-                  className="hidden"
-                  checked={isEnabled}
-                  onChange={(e) => handleSave({ [statusField]: e.target.checked ? null : 'disabled' })}
-                  disabled={currentUser?.role === 'VIEWER'}
-                />
-                <div className={`w-4 h-4 rounded border flex items-center justify-center ${isEnabled ? 'bg-accent border-accent' : 'border-theme-border'}`}>
-                  {isEnabled && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
-                </div>
-                <span className="font-medium">{type.label}</span>
-              </label>
-            );
-          })}
-        </div>
+      <div className="border-t border-theme-border pt-4">
+        <p className="mb-3 text-sm text-secondary">參與工種（其他工項請至施工區逐筆新增）</p>
+        <ConstructionWorkTypeControls model={construction} />
       </div>
-    </div>
-  );
-
-  const renderProgress = () => (
-    <div className="space-y-6">
-      {CONTRACTOR_TYPES.map(type => {
-        const idField = `${type.key}_contractor_id` as keyof Project;
-        const startField = `${type.key}_expected_start_date` as keyof Project;
-        const endField = `${type.key}_completion_date` as keyof Project;
-        const statusField = `${type.key}_status` as keyof Project;
-        
-        const isDisabled = editedProject[statusField] === 'disabled';
-        const contractorId = editedProject[idField] as string | null;
-        const contractor = getContractorDetails(contractorId);
-        const availableContractors = getContractorsForWorkType(
-          contractors,
-          type.key,
-          showAllContractors[type.key] === true,
-        );
-
-        if (isDisabled) return null;
-
-        return (
-          <div key={type.key} className="bg-card/40 p-5 rounded-xl border border-theme-border">
-            <h3 className="font-semibold text-accent flex items-center gap-2 mb-4">
-              <Wrench size={18} />
-              {type.label}工程
-            </h3>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-              <div>
-                <div className="mb-1 flex items-center justify-between gap-2">
-                  <label className="block text-xs text-secondary">發包對象</label>
-                  <label className="flex cursor-pointer items-center gap-1 text-[11px] text-secondary">
-                    <input
-                      type="checkbox"
-                      className="h-3.5 w-3.5 accent-accent"
-                      checked={showAllContractors[type.key] === true}
-                      onChange={event => setShowAllContractors(current => ({
-                        ...current,
-                        [type.key]: event.target.checked,
-                      }))}
-                    />
-                    顯示全部包商
-                  </label>
-                </div>
-                <select
-                  className="w-full bg-page px-3 py-2 rounded-lg border border-theme-border text-sm text-primary outline-none focus:border-accent cursor-pointer"
-                  value={contractorId || ''}
-                  onChange={e => handleSave({ [idField]: e.target.value || null })}
-                  disabled={currentUser?.role === 'VIEWER'}
-                >
-                  <option value="">未指定</option>
-                  {availableContractors.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs text-secondary mb-1">預計進場日</label>
-                <input
-                  type="date"
-                  className="w-full bg-page px-3 py-2 rounded-lg border border-theme-border text-sm text-primary outline-none focus:border-accent"
-                  value={(editedProject[startField] as string) || ''}
-                  onChange={e => handleSave({ [startField]: e.target.value })}
-                  disabled={currentUser?.role === 'VIEWER'}
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-secondary mb-1">預計完工日</label>
-                <input
-                  type="date"
-                  className="w-full bg-page px-3 py-2 rounded-lg border border-theme-border text-sm text-primary outline-none focus:border-accent"
-                  value={(editedProject[endField] as string) || ''}
-                  onChange={e => handleSave({ [endField]: e.target.value })}
-                  disabled={currentUser?.role === 'VIEWER'}
-                />
-              </div>
-            </div>
-            
-            {(contractor?.contact_person || contractor?.phone) && (
-              <div className="flex items-center gap-4 text-xs text-secondary bg-page/30 p-2.5 rounded-lg border border-theme-border/50">
-                {contractor.contact_person && <span>聯絡人：<span className="text-primary font-medium">{contractor.contact_person}</span></span>}
-                {contractor.phone && <span>電話：<span className="text-primary font-medium">{contractor.phone}</span></span>}
-              </div>
-            )}
-
-            {getConflictWarning(type.key) && (
-              <div className="mt-3 px-3 py-2 bg-danger/10 border border-danger/20 rounded-lg text-danger text-xs flex items-center gap-2">
-                <AlertTriangle size={14} className="shrink-0" />
-                {getConflictWarning(type.key)}
-              </div>
-            )}
-          </div>
-        );
-      })}
-      
-      {CONTRACTOR_TYPES.every(type => editedProject[`${type.key}_status` as keyof Project] === 'disabled') && (
-        <div className="p-8 text-center text-secondary/70 bg-page/20 rounded-xl border border-theme-border/30 border-dashed">
-          基本資料中尚未勾選任何參與工種
-        </div>
-      )}
     </div>
   );
 
@@ -397,8 +216,8 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
 
           <div className="min-w-0 flex-1 overflow-y-auto p-6 bg-page/30">
             {activeTab === 'basic' && renderBasicInfo()}
-            {activeTab === 'workflow' && <ProjectWorkflow projectId={project.id} projectName={editedProject.name} actor={currentUser ? { id: currentUser.id, name: currentUser.name } : null} canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')} />}
-            {activeTab === 'progress' && renderProgress()}
+            {activeTab === 'workflow' && <ProjectWorkflow projectId={project.id} projectName={editedProject.name} actor={currentUser ? { id: currentUser.id, name: currentUser.name } : null} canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')} construction={<ConstructionProgressSection model={construction} />} />}
+            {activeTab === 'progress' && <ConstructionProgressSection model={construction} />}
             {activeTab === 'notes' && renderNotes()}
           </div>
         </div>

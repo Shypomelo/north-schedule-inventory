@@ -1,6 +1,7 @@
 import type {
   ConstructionWorkType,
   DerivedConstructionStatus,
+  ProjectConstructionProgress,
 } from '@/lib/db/types';
 
 export interface ConstructionProgressForDerivation {
@@ -8,6 +9,52 @@ export interface ConstructionProgressForDerivation {
   planned_start_date: string | null;
   is_completed: boolean;
   deleted_at: string | null;
+}
+
+export const CONSTRUCTION_WORK_LABELS: Record<ConstructionWorkType, string> = {
+  racking: '支架', electrical: '電力', steel: '鋼構', roof_cover: '浪板', civil: '土木', other: '其他',
+};
+
+export function getConstructionWorkLabel(row: Pick<ProjectConstructionProgress, 'work_type' | 'work_name'>): string {
+  return row.work_type === 'other' ? row.work_name?.trim() || '其他' : CONSTRUCTION_WORK_LABELS[row.work_type];
+}
+
+export function isConstructionPrework(row: ConstructionProgressForDerivation, entry: string | null): boolean {
+  return !row.deleted_at && !MAIN_CONSTRUCTION_WORK_TYPES.has(row.work_type)
+    && isValidIsoDate(row.planned_start_date) && isValidIsoDate(entry)
+    && row.planned_start_date < entry;
+}
+
+export function sortConstructionRows<T extends Pick<ProjectConstructionProgress, 'sort_order' | 'created_at' | 'id'>>(rows: readonly T[]): T[] {
+  return [...rows].sort((a, b) => a.sort_order - b.sort_order
+    || a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
+}
+
+export function constructionCompletionPatch(completed: boolean, actualDate: string | null, today: string) {
+  return { is_completed: completed, actual_completed_date: completed ? actualDate || today : null };
+}
+
+export function validateConstructionWorkName(name: string | null): string | null {
+  return name?.trim() ? null : '請輸入其他工項名稱';
+}
+
+export function getConstructionToday(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+}
+
+export interface ConstructionConflictRow {
+  project_id: string;
+  contractor_id: string | null;
+  planned_start_date: string | null;
+  planned_end_date: string | null;
+  projects: { project_name: string };
+}
+
+export function getConstructionConflict(row: Pick<ProjectConstructionProgress, 'project_id' | 'contractor_id' | 'planned_start_date' | 'planned_end_date'>, others: readonly ConstructionConflictRow[]): ConstructionConflictRow | undefined {
+  if (!row.contractor_id || !isValidIsoDate(row.planned_start_date) || !isValidIsoDate(row.planned_end_date)) return;
+  return others.find(other => other.project_id !== row.project_id && other.contractor_id === row.contractor_id
+    && isValidIsoDate(other.planned_start_date) && isValidIsoDate(other.planned_end_date)
+    && row.planned_start_date! <= other.planned_end_date && other.planned_start_date <= row.planned_end_date!);
 }
 
 const MAIN_CONSTRUCTION_WORK_TYPES = new Set<ConstructionWorkType>([

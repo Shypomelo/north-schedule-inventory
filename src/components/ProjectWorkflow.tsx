@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, CircleAlert, GripVertical, ListChecks, MoreHorizontal, Play, Plus, X } from 'lucide-react';
 import { dbAdapter } from '@/lib/db';
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
@@ -41,11 +41,12 @@ interface ProjectWorkflowProps {
   projectName: string;
   canEdit: boolean;
   actor: { id: string; name: string } | null;
+  construction?: ReactNode;
 }
 
 type WorkflowMutationAction = Extract<ActivityActionType, `WORKFLOW_${string}`>;
 
-export function ProjectWorkflow({ projectId, projectName, canEdit, actor }: ProjectWorkflowProps) {
+export function ProjectWorkflow({ projectId, projectName, canEdit, actor, construction }: ProjectWorkflowProps) {
   const [workflow, setWorkflow] = useState<ProjectWorkflowData>({ instance: null, milestones: [] });
   const [phases, setPhases] = useState<WorkflowPhase[]>([]);
   const [types, setTypes] = useState<WorkflowType[]>([]);
@@ -316,11 +317,11 @@ export function ProjectWorkflow({ projectId, projectName, canEdit, actor }: Proj
     }
   };
 
-  if (isLoading) return <div className="py-16 text-center text-secondary">專案流程載入中...</div>;
+  if (isLoading) return <div><div className="py-16 text-center text-secondary">專案流程載入中...</div>{construction}</div>;
 
   if (!workflow.instance) {
     return (
-      <div className="flex min-h-[22rem] items-center justify-center">
+      <div><div className="flex min-h-[22rem] items-center justify-center">
         <div className="max-w-md rounded-2xl border border-dashed border-theme-border bg-page/30 p-8 text-center">
           <ListChecks className="mx-auto mb-3 text-secondary" size={32} />
           <h3 className="font-semibold text-primary">此案場尚未建立專案流程</h3>
@@ -332,7 +333,7 @@ export function ProjectWorkflow({ projectId, projectName, canEdit, actor }: Proj
             </button>
           ) : <p className="mt-4 text-xs text-secondary">請由可編輯成員建立流程。</p>}
         </div>
-      </div>
+      </div>{construction}</div>
     );
   }
 
@@ -438,6 +439,8 @@ export function ProjectWorkflow({ projectId, projectName, canEdit, actor }: Proj
           </div>
         )}
       </div>
+
+      {construction}
 
       {showCreate ? (
         <CreateCustomMilestoneDialog projectId={projectId} milestones={orderedMilestones} phases={phases} types={types} onClose={() => setShowCreate(false)} onCreated={async created => {
