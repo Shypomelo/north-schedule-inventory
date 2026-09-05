@@ -12,7 +12,7 @@ import { DateDualInput } from '@/components/DateDualInput';
 import { useUser } from '@/components/UserContext';
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
 import { parseTaiwanProjectLocation, projectMatchesSearchQuery } from '@/lib/project-location';
-import { buildWorkflowActivityLog } from '@/lib/project-workflow';
+import { buildWorkflowActivityLog, getWorkflowOuterDisplay } from '@/lib/project-workflow';
 import { logWorkflowActivitySafely } from '@/lib/workflow-activity';
 import { supabase } from '@/lib/db/supabaseClient';
 import { getConstructionOuterDisplay, getConstructionToday, validateActualCompletionDate } from '@/lib/construction-progress';
@@ -578,19 +578,23 @@ export default function ProjectsPage() {
                   {showInspection && <td className="p-1">
                     <DateDualInput 
                       baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
-                      disabled={currentUser?.role === 'VIEWER'}
+                      disabled
                       expectedDate={project.inspection_expected_date || null}
                       completionDate={project.inspection_completion_date || null}
-                      onChange={(exp, comp) => handleProjectDatesChange(project.id, { inspection_expected_date: exp, inspection_completion_date: comp })}
+                      completionIsActual={project.inspection_status === 'COMPLETED'}
+                      summaryText={getWorkflowOuterDisplay('ACCEPTANCE', project.inspection_status, project.inspection_expected_date, project.inspection_completion_date).label}
+                      onChange={() => undefined}
                     />
                   </td>}
                   {showMeter && <td className="p-1">
                     <DateDualInput 
                       baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
-                      disabled={currentUser?.role === 'VIEWER'}
+                      disabled
                       expectedDate={project.meter_expected_date || null}
                       completionDate={project.meter_completion_date || null}
-                      onChange={(exp, comp) => handleProjectDatesChange(project.id, { meter_expected_date: exp, meter_completion_date: comp })}
+                      completionIsActual={project.meter_status === 'COMPLETED'}
+                      summaryText={getWorkflowOuterDisplay('METER', project.meter_status, project.meter_expected_date, project.meter_completion_date).label}
+                      onChange={() => undefined}
                     />
                   </td>}
                   {showRoof && <td className="p-1">

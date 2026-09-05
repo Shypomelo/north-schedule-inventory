@@ -26,6 +26,7 @@ function load(relative, mocks = {}) {
 }
 
 const helpers = load('construction-progress.ts');
+const { runMutationWithParentRefresh } = load('mutation-refresh.ts');
 const { ConstructionProgressSection, ConstructionWorkTypeControls } = load('../components/ConstructionProgressSection.tsx');
 const { DateDualInput } = load('../components/DateDualInput.tsx');
 const { createConstructionProgressAdapter } = load('db/construction-progress.ts');
@@ -38,6 +39,16 @@ const row = (values = {}) => ({
 });
 const model = (rows) => ({ rows, contractors: [], conflicts: [], loading: false, busy: false, error: null, canEdit: true,
   save: () => { throw new Error('render must not mutate'); }, remove: () => { throw new Error('render must not delete'); }, reload: () => {} });
+
+test('construction refresh callback runs on success and not on failure', async () => {
+  let refreshes = 0;
+  await runMutationWithParentRefresh(async () => undefined, async () => { refreshes++; });
+  assert.equal(refreshes, 1);
+  await assert.rejects(runMutationWithParentRefresh(async () => { throw new Error('save failed'); }, async () => { refreshes++; }), /save failed/);
+  assert.equal(refreshes, 1);
+  const hookSource = fs.readFileSync(path.resolve(__dirname, '../components/useConstructionProgress.ts'), 'utf8');
+  assert.match(hookSource, /runMutationWithParentRefresh\(operation, onMutationSuccess\)/);
+});
 
 test('entry ignores early other and steel and deleted main rows', () => {
   assert.equal(helpers.getProjectEntryDate([

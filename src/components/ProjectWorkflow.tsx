@@ -24,6 +24,7 @@ import {
   sortWorkflowMilestones,
 } from '@/lib/project-workflow';
 import { logWorkflowActivitySafely } from '@/lib/workflow-activity';
+import { runMutationWithParentRefresh } from '@/lib/mutation-refresh';
 
 const STATUS_OPTIONS: { value: ProjectMilestoneStatus; label: string }[] = [
   { value: 'NOT_STARTED', label: '未開始' },
@@ -42,11 +43,12 @@ interface ProjectWorkflowProps {
   canEdit: boolean;
   actor: { id: string; name: string } | null;
   construction?: ReactNode;
+  onUpdate?: () => Promise<void>;
 }
 
 type WorkflowMutationAction = Extract<ActivityActionType, `WORKFLOW_${string}`>;
 
-export function ProjectWorkflow({ projectId, projectName, canEdit, actor, construction }: ProjectWorkflowProps) {
+export function ProjectWorkflow({ projectId, projectName, canEdit, actor, construction, onUpdate }: ProjectWorkflowProps) {
   const [workflow, setWorkflow] = useState<ProjectWorkflowData>({ instance: null, milestones: [] });
   const [phases, setPhases] = useState<WorkflowPhase[]>([]);
   const [types, setTypes] = useState<WorkflowType[]>([]);
@@ -157,6 +159,7 @@ export function ProjectWorkflow({ projectId, projectName, canEdit, actor, constr
         ));
       }
       await loadWorkflow();
+      await onUpdate?.();
     } catch (initializeError) {
       setError(getDatabaseErrorMessage(initializeError, '建立專案流程失敗'));
     } finally {
@@ -191,12 +194,15 @@ export function ProjectWorkflow({ projectId, projectName, canEdit, actor, constr
     }));
 
     try {
-      const updated = await dbAdapter.updateProjectMilestone(milestone.id, updates);
-      setWorkflow(current => ({
-        ...current,
-        milestones: current.milestones.map(row => row.id === milestone.id ? updated : row),
-      }));
-      setNotesDrafts(current => ({ ...current, [milestone.id]: updated.notes ?? '' }));
+      const updated = await runMutationWithParentRefresh(async () => {
+        const saved = await dbAdapter.updateProjectMilestone(milestone.id, updates);
+        setWorkflow(current => ({
+          ...current,
+          milestones: current.milestones.map(row => row.id === milestone.id ? saved : row),
+        }));
+        setNotesDrafts(current => ({ ...current, [milestone.id]: saved.notes ?? '' }));
+        return saved;
+      }, onUpdate);
       setNotice('流程項目已更新。');
       void logWorkflowActivitySafely(activityLog(
         action, 'PROJECT_MILESTONE', milestone.id, updated.label, before, after,

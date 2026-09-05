@@ -14,6 +14,70 @@ type SummaryFields = Pick<
 type PhaseOrderFields = MilestoneOrderFields & Pick<ProjectMilestone, 'phase_key_snapshot'>;
 type WorkflowActivityAction = Extract<ActivityActionType, `WORKFLOW_${string}`>;
 
+type OuterMilestoneFields = Pick<
+  ProjectMilestone,
+  'milestone_key' | 'status' | 'planned_date' | 'actual_date' | 'deleted_at' | 'is_applicable'
+>;
+
+export type WorkflowOuterKind = 'ACCEPTANCE' | 'METER';
+
+export interface WorkflowOuterDisplay {
+  label: string;
+  date: string | null;
+  isCompleted: boolean;
+}
+
+export interface ProjectOuterWorkflowFields {
+  inspection_status: ProjectMilestoneStatus | null;
+  inspection_expected_date: string | null;
+  inspection_completion_date: string | null;
+  meter_status: ProjectMilestoneStatus | null;
+  meter_expected_date: string | null;
+  meter_completion_date: string | null;
+}
+
+const formatOuterDate = (date: string) => date.slice(5).replace('-', '/');
+
+export function getWorkflowOuterDisplay(
+  kind: WorkflowOuterKind,
+  status: string | null | undefined,
+  plannedDate: string | null | undefined,
+  actualDate: string | null | undefined,
+): WorkflowOuterDisplay {
+  const noun = kind === 'ACCEPTANCE' ? '驗收' : '掛表';
+  if (actualDate || status === 'COMPLETED') {
+    return {
+      label: actualDate ? `已${noun} ${formatOuterDate(actualDate)}` : `已${noun}`,
+      date: actualDate ?? null,
+      isCompleted: true,
+    };
+  }
+  return {
+    label: plannedDate ? `預計${noun} ${formatOuterDate(plannedDate)}` : '未排程',
+    date: plannedDate ?? null,
+    isCompleted: false,
+  };
+}
+
+export function getProjectOuterWorkflowFields(
+  milestones: readonly OuterMilestoneFields[],
+  legacyMeterDate: string | null,
+): ProjectOuterWorkflowFields {
+  const active = milestones.filter(milestone => milestone.deleted_at === null && milestone.is_applicable);
+  const acceptance = active.find(milestone => milestone.milestone_key === 'INTERNAL_ACCEPTANCE');
+  const meter = active.find(milestone => milestone.milestone_key === 'METER_INSTALLATION');
+  const hasAnyMeterMilestone = milestones.some(milestone => milestone.milestone_key === 'METER_INSTALLATION');
+
+  return {
+    inspection_status: acceptance?.status ?? null,
+    inspection_expected_date: acceptance?.planned_date ?? null,
+    inspection_completion_date: acceptance?.actual_date ?? null,
+    meter_status: meter?.status ?? null,
+    meter_expected_date: meter ? meter.planned_date : hasAnyMeterMilestone ? null : legacyMeterDate,
+    meter_completion_date: meter?.actual_date ?? null,
+  };
+}
+
 export interface WorkflowActivityInput {
   action: WorkflowActivityAction;
   targetType: 'PROJECT_WORKFLOW' | 'PROJECT_MILESTONE';

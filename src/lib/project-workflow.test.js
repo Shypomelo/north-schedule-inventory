@@ -21,10 +21,21 @@ const {
   getMilestoneCapabilities,
   getVisibleWorkflowMilestones,
   getWorkflowActivityMessage,
+  getWorkflowOuterDisplay,
+  getProjectOuterWorkflowFields,
   normalizeMilestoneCompletion,
   normalizeWorkflowSortOrders,
   reorderWorkflowMilestones,
 } = sourceModule.exports;
+
+const mutationRefreshPath = path.join(__dirname, 'mutation-refresh.ts');
+const mutationRefreshModule = new Module(mutationRefreshPath);
+mutationRefreshModule.filename = mutationRefreshPath;
+mutationRefreshModule.paths = module.paths;
+mutationRefreshModule._compile(ts.transpileModule(fs.readFileSync(mutationRefreshPath, 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+}).outputText, mutationRefreshPath);
+const { runMutationWithParentRefresh } = mutationRefreshModule.exports;
 
 const milestone = (id, sortOrder, status = 'NOT_STARTED', overrides = {}) => ({
   id,
@@ -56,6 +67,58 @@ test('reopening a completed milestone clears actual date', () => {
   assert.deepEqual(normalizeMilestoneCompletion('BLOCKED', '2026-09-03'), {
     status: 'BLOCKED', actual_date: null,
   });
+});
+
+test('parent refresh runs only after a successful mutation', async () => {
+  let refreshes = 0;
+  const result = await runMutationWithParentRefresh(async () => 'saved', async () => { refreshes++; });
+  assert.equal(result, 'saved');
+  assert.equal(refreshes, 1);
+  await assert.rejects(
+    runMutationWithParentRefresh(async () => { throw new Error('failed'); }, async () => { refreshes++; }),
+    /failed/,
+  );
+  assert.equal(refreshes, 1);
+});
+
+test('acceptance and meter outer fields use active authoritative milestones', () => {
+  const fields = getProjectOuterWorkflowFields([
+    milestone('acceptance', 100, 'IN_PROGRESS', { milestone_key: 'INTERNAL_ACCEPTANCE', planned_date: '2026-10-15', actual_date: null }),
+    milestone('meter', 110, 'COMPLETED', { milestone_key: 'METER_INSTALLATION', planned_date: '2026-10-20', actual_date: '2026-10-21' }),
+  ], '2026-09-01');
+  assert.deepEqual(fields, {
+    inspection_status: 'IN_PROGRESS',
+    inspection_expected_date: '2026-10-15',
+    inspection_completion_date: null,
+    meter_status: 'COMPLETED',
+    meter_expected_date: '2026-10-20',
+    meter_completion_date: '2026-10-21',
+  });
+  assert.deepEqual(getWorkflowOuterDisplay('ACCEPTANCE', fields.inspection_status, fields.inspection_expected_date, fields.inspection_completion_date), {
+    label: '預計驗收 10/15', date: '2026-10-15', isCompleted: false,
+  });
+  assert.deepEqual(getWorkflowOuterDisplay('METER', fields.meter_status, fields.meter_expected_date, fields.meter_completion_date), {
+    label: '已掛表 10/21', date: '2026-10-21', isCompleted: true,
+  });
+});
+
+test('milestone beats legacy meter date and fallback is read-only only when no meter milestone exists', () => {
+  const meter = milestone('meter', 110, 'IN_PROGRESS', {
+    milestone_key: 'METER_INSTALLATION', planned_date: '2026-10-20', actual_date: null,
+  });
+  assert.equal(getProjectOuterWorkflowFields([meter], '2026-09-01').meter_expected_date, '2026-10-20');
+  assert.equal(getProjectOuterWorkflowFields([], '2026-09-01').meter_expected_date, '2026-09-01');
+  assert.equal(getProjectOuterWorkflowFields([{ ...meter, is_applicable: false }], '2026-09-01').meter_expected_date, null);
+});
+
+test('outer workflow paths do not write legacy inspection or meter fields', () => {
+  const pageSource = fs.readFileSync(path.join(__dirname, '..', 'app', 'projects', '[[...filter]]', 'page.tsx'), 'utf8');
+  const modalSource = fs.readFileSync(path.join(__dirname, '..', 'components', 'ProjectDetailModal.tsx'), 'utf8');
+  assert.doesNotMatch(pageSource, /handleProjectDatesChange\(project\.id, \{ inspection_/);
+  assert.doesNotMatch(pageSource, /handleProjectDatesChange\(project\.id, \{ meter_/);
+  assert.doesNotMatch(modalSource, /handleSave\(\{ meter_expected_date/);
+  assert.match(pageSource, /getWorkflowOuterDisplay\('ACCEPTANCE'/);
+  assert.match(pageSource, /getWorkflowOuterDisplay\('METER'/);
 });
 
 test('TEMPLATE milestones can reorder but cannot edit identity or delete', () => {

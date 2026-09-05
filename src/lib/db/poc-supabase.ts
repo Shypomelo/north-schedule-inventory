@@ -31,6 +31,7 @@ import {
 import { throwMissingCoreTablesErrorIfNeeded } from './supabase-errors';
 import { getInventoryTransactionQuantityDelta } from './inventory-stock';
 import { getConstructionEndDate, getConstructionToday, validateActualCompletionDate } from '../construction-progress';
+import { getProjectOuterWorkflowFields } from '../project-workflow';
 
 const mapUser = (row: any): User => ({
   id: row.id,
@@ -1796,16 +1797,30 @@ export const pocSupabaseAdapter = {
   // --- Projects (Step 3: Basic Data + Step 4: Progress) ---
   
   getProjects: async (): Promise<Project[]> => {
-    const { data, error } = await supabase
-      .from('projects')
-      .select('*, project_construction_progress(*)')
-      .is('deleted_at', null)
-      .order('created_at', { ascending: true });
+    const [{ data, error }, { data: milestoneData, error: milestoneError }] = await Promise.all([
+      supabase
+        .from('projects')
+        .select('*, project_construction_progress(*)')
+        .is('deleted_at', null)
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('project_milestones')
+        .select('project_id,milestone_key,status,planned_date,actual_date,deleted_at,is_applicable')
+        .in('milestone_key', ['INTERNAL_ACCEPTANCE', 'METER_INSTALLATION']),
+    ]);
 
-    if (error) {
-      console.error('Error fetching projects:', error);
-      throwMissingCoreTablesErrorIfNeeded(error);
-      throw error;
+    if (error || milestoneError) {
+      const loadError = error || milestoneError;
+      console.error('Error fetching projects:', loadError);
+      throwMissingCoreTablesErrorIfNeeded(loadError);
+      throw loadError;
+    }
+
+    const milestonesByProject = new Map<string, typeof milestoneData>();
+    for (const milestone of milestoneData ?? []) {
+      const projectMilestones = milestonesByProject.get(milestone.project_id) ?? [];
+      projectMilestones.push(milestone);
+      milestonesByProject.set(milestone.project_id, projectMilestones);
     }
 
     return data.map((row: any) => {
@@ -1823,6 +1838,10 @@ export const pocSupabaseAdapter = {
           pData[`${type}_notes`] = prog.notes;
         });
       }
+      const workflowFields = getProjectOuterWorkflowFields(
+        milestonesByProject.get(row.id) ?? [],
+        row.meter_date || null,
+      );
 
       return {
         id: row.id,
@@ -1834,7 +1853,7 @@ export const pocSupabaseAdapter = {
         region: row.region || null,
         manager: row.responsible_member_name || null,
         status: row.status || '開案',
-        meter_expected_date: row.meter_date || null,
+        meter_expected_date: workflowFields.meter_expected_date,
         notes: row.notes || null,
         is_active: row.deleted_at === null,
         created_at: row.created_at || new Date().toISOString(),
@@ -1848,8 +1867,10 @@ export const pocSupabaseAdapter = {
         last_inspection_date: null, inspection_cycle_months: null, next_inspection_date: null,
         inspection_reminder_days: null, report_base_date: null, report_section: row.stage || null,
         
-        bracket_status: null, power_status: null, inspection_status: null, inspection_expected_date: null,
-        inspection_completion_date: null, meter_status: null, meter_completion_date: null,
+        bracket_status: null, power_status: null, inspection_status: workflowFields.inspection_status,
+        inspection_expected_date: workflowFields.inspection_expected_date,
+        inspection_completion_date: workflowFields.inspection_completion_date,
+        meter_status: workflowFields.meter_status, meter_completion_date: workflowFields.meter_completion_date,
         roof_status: null, start_date: null,
         
         racking_contractor_id: pData.racking_contractor_id || null,

@@ -6,8 +6,9 @@ import { constructionProgressAdapter, ConstructionCreate, ConstructionUpdate } f
 import type { Contractor, ProjectConstructionProgress } from '@/lib/db/types';
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
 import type { ConstructionConflictRow } from '@/lib/construction-progress';
+import { runMutationWithParentRefresh } from '@/lib/mutation-refresh';
 
-export function useConstructionProgress(projectId: string, canEdit: boolean) {
+export function useConstructionProgress(projectId: string, canEdit: boolean, onMutationSuccess?: () => Promise<void>) {
   const [rows, setRows] = useState<ProjectConstructionProgress[]>([]);
   const [contractors, setContractors] = useState<Contractor[]>([]);
   const [conflicts, setConflicts] = useState<ConstructionConflictRow[]>([]);
@@ -50,7 +51,7 @@ export function useConstructionProgress(projectId: string, canEdit: boolean) {
     setBusy(true);
     setError(null);
     try {
-      await operation();
+      await runMutationWithParentRefresh(operation, onMutationSuccess);
       return true;
     } catch (cause) {
       setError(getDatabaseErrorMessage(cause, '施工資料儲存失敗，請重試'));

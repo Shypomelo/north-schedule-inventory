@@ -5,7 +5,6 @@ import { Project, User } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { X, Building2, Calendar, FileText, ListChecks } from 'lucide-react';
 import { useUser } from './UserContext';
-import { DateDualInput } from './DateDualInput';
 import { ProjectWorkflow } from './ProjectWorkflow';
 import { ConstructionProgressSection, ConstructionWorkTypeControls } from './ConstructionProgressSection';
 import { useConstructionProgress } from './useConstructionProgress';
@@ -24,7 +23,7 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
   const [editedProject, setEditedProject] = useState<Project>(project);
   
   const [users, setUsers] = useState<User[]>([]);
-  const construction = useConstructionProgress(project.id, Boolean(currentUser && currentUser.role !== 'VIEWER'));
+  const construction = useConstructionProgress(project.id, Boolean(currentUser && currentUser.role !== 'VIEWER'), onUpdate);
   const [saveStatus, setSaveStatus] = useState<'已儲存' | '儲存中' | '儲存失敗' | ''>('');
 
   useEffect(() => {
@@ -133,18 +132,6 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
             <option value="作廢">作廢</option>
           </select>
         </div>
-        <div>
-          <label className="block text-sm font-medium text-secondary mb-1">掛表日期</label>
-          <div className="h-[38px]">
-            <DateDualInput 
-              baseDate={new Date().toISOString().split('T')[0]}
-              expectedDate={editedProject.meter_expected_date || null}
-              completionDate={editedProject.meter_completion_date || null}
-              onChange={(exp: string | null, comp: string | null) => handleSave({ meter_expected_date: exp, meter_completion_date: comp })}
-              disabled={currentUser?.role === 'VIEWER'}
-            />
-          </div>
-        </div>
       </div>
       <div className="border-t border-theme-border pt-4">
         <p className="mb-3 text-sm text-secondary">參與工種（其他工項請至施工區逐筆新增）</p>
@@ -216,7 +203,7 @@ export function ProjectDetailModal({ project, onClose, onUpdate }: Props) {
 
           <div className="min-w-0 flex-1 overflow-y-auto p-6 bg-page/30">
             {activeTab === 'basic' && renderBasicInfo()}
-            {activeTab === 'workflow' && <ProjectWorkflow projectId={project.id} projectName={editedProject.name} actor={currentUser ? { id: currentUser.id, name: currentUser.name } : null} canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')} construction={<ConstructionProgressSection model={construction} />} />}
+            {activeTab === 'workflow' && <ProjectWorkflow projectId={project.id} projectName={editedProject.name} actor={currentUser ? { id: currentUser.id, name: currentUser.name } : null} canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')} construction={<ConstructionProgressSection model={construction} />} onUpdate={onUpdate} />}
             {activeTab === 'progress' && <ConstructionProgressSection model={construction} />}
             {activeTab === 'notes' && renderNotes()}
           </div>
