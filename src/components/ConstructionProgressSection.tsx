@@ -117,7 +117,7 @@ function ConstructionRow({ row, model, today }: { row: ProjectConstructionProgre
       const date = event.target.value || null;
       void save(row.is_completed ? constructionCompletionPatch(true, date, today) : { planned_end_date: date });
     }} />
-    <input aria-label={`${label}完成`} type="checkbox" checked={row.is_completed} disabled={disabled} onChange={event => void save(constructionCompletionPatch(event.target.checked, event.target.checked ? row.planned_end_date : row.actual_completed_date, today))} />
+    <input aria-label={`${label}完成`} type="checkbox" checked={row.is_completed} disabled={disabled} onChange={event => void save(constructionCompletionPatch(event.target.checked, event.target.checked ? null : row.actual_completed_date, today))} />
     <input aria-label={`${label}備註`} className={inputClass} value={notes} disabled={disabled} onChange={event => setNotes(event.target.value)} onBlur={() => { if (notes !== (row.notes ?? '')) void save({ notes: notes || null }); }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} />
     {row.work_type === 'other' && model.canEdit ? <div className="text-xs">
       {confirmDelete ? <><button type="button" disabled={disabled} className="text-danger" onClick={() => void model.remove(row.id)}>確認刪除</button><button type="button" onClick={() => setConfirmDelete(false)}>取消</button></> : <button type="button" disabled={disabled} className="text-danger" onClick={() => setConfirmDelete(true)}>刪除</button>}

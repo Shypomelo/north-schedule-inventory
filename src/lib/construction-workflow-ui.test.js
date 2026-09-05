@@ -69,17 +69,23 @@ test('one completion date displays planned before completion and actual after co
   assert.equal(helpers.getConstructionEndDate({ ...item, is_completed: true }), '2026-09-20');
   assert.equal(helpers.getConstructionEndDate({ ...item, completed_date: '2099-01-01' }), '2026-09-30');
 });
-test('outer date summary uses the V2 end date and completion state', () => {
-  const planned = renderToStaticMarkup(React.createElement(DateDualInput, {
-    expectedDate: '2026-09-08', completionDate: '2026-09-30', baseDate: '2026-09-05',
-    showCompletionInSummary: true, completionIsActual: false, onChange() {},
+test('outer construction stage follows V2 start, end, and completion fields', () => {
+  const display = values => helpers.getConstructionOuterDisplay(row(values), '2026-09-05');
+  assert.deepEqual(display({ planned_start_date: null }), { status: 'UNSCHEDULED', label: '未排程', date: null });
+  assert.deepEqual(display({ planned_start_date: '2026-09-06', planned_end_date: '2026-09-30' }), { status: 'EXPECTED_START', label: '預計進場 09/06', date: '2026-09-06' });
+  assert.deepEqual(display({ planned_start_date: '2026-09-05', planned_end_date: '2026-09-30' }), { status: 'EXPECTED_END', label: '預計完工 09/30', date: '2026-09-30' });
+  assert.deepEqual(display({ planned_start_date: '2026-09-04', planned_end_date: '2026-09-30' }), { status: 'EXPECTED_END', label: '預計完工 09/30', date: '2026-09-30' });
+  assert.deepEqual(display({ planned_start_date: '2026-09-04' }), { status: 'IN_PROGRESS', label: '施工中', date: null });
+  assert.deepEqual(display({ is_completed: true, actual_completed_date: '2026-09-03', completed_date: '2099-01-01' }), { status: 'COMPLETED', label: '已完工 09/03', date: '2026-09-03' });
+
+  const summary = renderToStaticMarkup(React.createElement(DateDualInput, {
+    expectedDate: '2026-09-06', completionDate: '2026-09-30', baseDate: '2026-09-05',
+    summaryText: '預計進場 09/06', onChange() {},
   }));
-  const actual = renderToStaticMarkup(React.createElement(DateDualInput, {
-    expectedDate: '2026-09-08', completionDate: '2026-09-20', baseDate: '2026-09-05',
-    showCompletionInSummary: true, completionIsActual: true, onChange() {},
-  }));
-  assert.match(planned, /預計完工09\/30/);
-  assert.match(actual, /實際09\/20/);
+  assert.match(summary, /預計進場 09\/06/);
+  const projectsPageSource = fs.readFileSync(path.resolve(__dirname, '../app/projects/[[...filter]]/page.tsx'), 'utf8');
+  assert.match(projectsPageSource, /getConstructionOuterDisplay/);
+  assert.doesNotMatch(projectsPageSource, /showCompletionInSummary/);
   const adapterSource = fs.readFileSync(path.resolve(__dirname, 'db/poc-supabase.ts'), 'utf8');
   assert.match(adapterSource, /completion_date`] = getConstructionEndDate\(prog\)/);
   assert.doesNotMatch(adapterSource, /completion_date`] = prog\.completed_date/);
@@ -186,6 +192,30 @@ test('update targets exact project/row, leaves legacy name and completed_date un
   assert.ok(client.calls.some(c => c[0] === 'eq' && c[1] === 'id' && c[2] === 'id'));
   assert.ok(client.calls.some(c => c[0] === 'eq' && c[1] === 'project_id' && c[2] === 'p'));
   assert.ok(client.calls.some(c => c[0] === 'single'));
+});
+test('planned end can be changed repeatedly and completion preserves it', async () => {
+  const client = fakeClient();
+  const adapter = createConstructionProgressAdapter(client);
+  for (const planned_end_date of ['2026-10-08', '2026-10-15', '2026-10-20']) {
+    await adapter.update('p', 'id', { planned_end_date });
+  }
+  assert.deepEqual(client.calls.filter(call => call[0] === 'update').map(call => call[1].planned_end_date), [
+    '2026-10-08', '2026-10-15', '2026-10-20',
+  ]);
+
+  const item = row({ planned_end_date: '2026-10-20' });
+  const completed = { ...item, ...helpers.constructionCompletionPatch(true, null, '2026-10-12') };
+  assert.equal(completed.planned_end_date, '2026-10-20');
+  assert.equal(completed.actual_completed_date, '2026-10-12');
+  const reopened = { ...completed, ...helpers.constructionCompletionPatch(false, completed.actual_completed_date, '2026-10-12') };
+  assert.equal(reopened.actual_completed_date, null);
+  assert.equal(helpers.getConstructionEndDate(reopened), '2026-10-20');
+  await adapter.update('p', 'id', { planned_end_date: '2026-10-25' });
+  assert.equal(client.calls.filter(call => call[0] === 'update').at(-1)[1].planned_end_date, '2026-10-25');
+
+  const sectionSource = fs.readFileSync(path.resolve(__dirname, '../components/ConstructionProgressSection.tsx'), 'utf8');
+  assert.match(sectionSource, /event\.target\.checked \? null : row\.actual_completed_date/);
+  assert.doesNotMatch(sectionSource, /event\.target\.checked \? row\.planned_end_date/);
 });
 test('actual completion accepts today and past, but blocks future before a query', async () => {
   assert.equal(helpers.validateActualCompletionDate('2026-09-05', '2026-09-05'), null);

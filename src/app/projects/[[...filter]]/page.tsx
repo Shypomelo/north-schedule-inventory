@@ -15,7 +15,7 @@ import { parseTaiwanProjectLocation, projectMatchesSearchQuery } from '@/lib/pro
 import { buildWorkflowActivityLog } from '@/lib/project-workflow';
 import { logWorkflowActivitySafely } from '@/lib/workflow-activity';
 import { supabase } from '@/lib/db/supabaseClient';
-import { getConstructionToday, validateActualCompletionDate } from '@/lib/construction-progress';
+import { getConstructionOuterDisplay, getConstructionToday, validateActualCompletionDate } from '@/lib/construction-progress';
 import { MapPin, Plus, Search, Filter, Maximize2 } from 'lucide-react';
 import { useParams } from 'next/navigation';
 
@@ -23,6 +23,17 @@ const getCity = (address: string | null) => {
   if (!address) return null;
   return parseTaiwanProjectLocation(address)?.city || '其他';
 };
+
+const getProjectConstructionDisplay = (
+  plannedStartDate: string | null | undefined,
+  endDate: string | null | undefined,
+  isCompleted: boolean | undefined,
+) => getConstructionOuterDisplay({
+  planned_start_date: plannedStartDate ?? null,
+  planned_end_date: isCompleted ? null : endDate ?? null,
+  is_completed: isCompleted === true,
+  actual_completed_date: isCompleted ? endDate ?? null : null,
+}, getConstructionToday());
 
 const logWorkflowInitialization = (
   project: Project,
@@ -548,8 +559,8 @@ export default function ProjectsPage() {
                       disabled={currentUser?.role === 'VIEWER'}
                       expectedDate={project.racking_expected_start_date || null}
                       completionDate={project.racking_completion_date || null}
-                      showCompletionInSummary
                       completionIsActual={project.racking_is_completed}
+                      summaryText={getProjectConstructionDisplay(project.racking_expected_start_date, project.racking_completion_date, project.racking_is_completed).label}
                       onChange={(exp, comp) => handleConstructionDatesChange(project, 'racking', exp, comp)}
                     />
                   </td>}
@@ -559,8 +570,8 @@ export default function ProjectsPage() {
                       disabled={currentUser?.role === 'VIEWER'}
                       expectedDate={project.electrical_expected_start_date || null}
                       completionDate={project.electrical_completion_date || null}
-                      showCompletionInSummary
                       completionIsActual={project.electrical_is_completed}
+                      summaryText={getProjectConstructionDisplay(project.electrical_expected_start_date, project.electrical_completion_date, project.electrical_is_completed).label}
                       onChange={(exp, comp) => handleConstructionDatesChange(project, 'electrical', exp, comp)}
                     />
                   </td>}
@@ -588,8 +599,8 @@ export default function ProjectsPage() {
                       disabled={currentUser?.role === 'VIEWER'}
                       expectedDate={project.roof_cover_expected_start_date || null}
                       completionDate={project.roof_cover_completion_date || null}
-                      showCompletionInSummary
                       completionIsActual={project.roof_cover_is_completed}
+                      summaryText={getProjectConstructionDisplay(project.roof_cover_expected_start_date, project.roof_cover_completion_date, project.roof_cover_is_completed).label}
                       onChange={(exp, comp) => handleConstructionDatesChange(project, 'roof_cover', exp, comp)}
                     />
                   </td>}

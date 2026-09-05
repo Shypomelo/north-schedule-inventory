@@ -40,6 +40,50 @@ export function getConstructionEndDate(
   return row.is_completed ? row.actual_completed_date : row.planned_end_date;
 }
 
+export type ConstructionOuterDisplayStatus =
+  | 'UNSCHEDULED'
+  | 'EXPECTED_START'
+  | 'EXPECTED_END'
+  | 'IN_PROGRESS'
+  | 'COMPLETED';
+
+export interface ConstructionOuterDisplay {
+  status: ConstructionOuterDisplayStatus;
+  label: string;
+  date: string | null;
+}
+
+function formatConstructionDisplayDate(date: string): string {
+  const [, month, day] = date.split('-');
+  return `${month}/${day}`;
+}
+
+export function getConstructionOuterDisplay(
+  row: Pick<ProjectConstructionProgress, 'planned_start_date' | 'planned_end_date' | 'is_completed' | 'actual_completed_date'>,
+  today: string,
+): ConstructionOuterDisplay {
+  if (!isValidIsoDate(today)) throw new Error('today must be a valid YYYY-MM-DD date');
+
+  if (row.is_completed) {
+    const date = isValidIsoDate(row.actual_completed_date) ? row.actual_completed_date : null;
+    return { status: 'COMPLETED', label: date ? `已完工 ${formatConstructionDisplayDate(date)}` : '已完工', date };
+  }
+
+  if (!isValidIsoDate(row.planned_start_date)) {
+    return { status: 'UNSCHEDULED', label: '未排程', date: null };
+  }
+
+  if (row.planned_start_date > today) {
+    return { status: 'EXPECTED_START', label: `預計進場 ${formatConstructionDisplayDate(row.planned_start_date)}`, date: row.planned_start_date };
+  }
+
+  if (isValidIsoDate(row.planned_end_date)) {
+    return { status: 'EXPECTED_END', label: `預計完工 ${formatConstructionDisplayDate(row.planned_end_date)}`, date: row.planned_end_date };
+  }
+
+  return { status: 'IN_PROGRESS', label: '施工中', date: null };
+}
+
 export function validateActualCompletionDate(actualDate: string | null, today: string): string | null {
   return actualDate && actualDate > today ? '實際完工日期不可晚於今天' : null;
 }

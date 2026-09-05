@@ -10,9 +10,10 @@ interface DateDualInputProps {
   disabled?: boolean;
   showCompletionInSummary?: boolean;
   completionIsActual?: boolean;
+  summaryText?: string;
 }
 
-export function DateDualInput({ expectedDate, completionDate, baseDate, onChange, disabled, showCompletionInSummary = false, completionIsActual = false }: DateDualInputProps) {
+export function DateDualInput({ expectedDate, completionDate, baseDate, onChange, disabled, showCompletionInSummary = false, completionIsActual = false, summaryText }: DateDualInputProps) {
   const [isFocused, setIsFocused] = useState(false);
   const [localExpected, setLocalExpected] = useState(expectedDate || '');
   const [localCompletion, setLocalCompletion] = useState(completionDate || '');
@@ -139,6 +140,8 @@ export function DateDualInput({ expectedDate, completionDate, baseDate, onChange
 
   const getDisplayValue = () => {
     if (isFocused) return localExpected;
+
+    if (summaryText) return summaryText;
 
     if (showCompletionInSummary && completionDate) {
       const parsed = parseDateField(completionDate.replace(/\./g, '/'), baseDate);
