@@ -134,6 +134,24 @@ test('missing milestones use formal workflow initialization before authoritative
   ]);
 });
 
+test('ACTIVE acceptance and meter stay compact until the existing date popover is opened', () => {
+  const compact = renderToStaticMarkup(React.createElement(DateDualInput, {
+    expectedDate: '2026-10-15', completionDate: null, baseDate: '2026-09-05',
+    summaryText: '預計驗收 10/15', showCompletionToggle: true, isCompleted: false,
+    defaultCompletionDate: '2026-09-05', completionIsActual: true, onChange() {},
+  }));
+  assert.match(compact, /type="text"/);
+  assert.match(compact, /預計驗收 10\/15/);
+  assert.doesNotMatch(compact, /type="date"|type="checkbox"/);
+
+  const quickEditorSource = fs.readFileSync(path.resolve(__dirname, '../components/WorkflowMilestoneQuickEditor.tsx'), 'utf8');
+  const dateInputSource = fs.readFileSync(path.resolve(__dirname, '../components/DateDualInput.tsx'), 'utf8');
+  assert.match(quickEditorSource, /<DateDualInput/);
+  assert.doesNotMatch(quickEditorSource, /type="date"|type="checkbox"/);
+  assert.match(dateInputSource, /showCompletionToggle/);
+  assert.match(dateInputSource, /type="checkbox"/);
+});
+
 test('entry ignores early other and steel and deleted main rows', () => {
   assert.equal(helpers.getProjectEntryDate([
     row({ work_type: 'other', planned_start_date: '2026-09-01' }),

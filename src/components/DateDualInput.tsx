@@ -6,17 +6,23 @@ interface DateDualInputProps {
   expectedDate: string | null;
   completionDate: string | null;
   baseDate: string;
-  onChange: (expected: string | null, completion: string | null) => void;
+  onChange: (expected: string | null, completion: string | null, completed?: boolean) => void;
   disabled?: boolean;
   showCompletionInSummary?: boolean;
   completionIsActual?: boolean;
   summaryText?: string;
+  showCompletionToggle?: boolean;
+  isCompleted?: boolean;
+  defaultCompletionDate?: string;
+  expectedLabel?: string;
+  completionLabel?: string;
 }
 
-export function DateDualInput({ expectedDate, completionDate, baseDate, onChange, disabled, showCompletionInSummary = false, completionIsActual = false, summaryText }: DateDualInputProps) {
+export function DateDualInput({ expectedDate, completionDate, baseDate, onChange, disabled, showCompletionInSummary = false, completionIsActual = false, summaryText, showCompletionToggle = false, isCompleted = false, defaultCompletionDate, expectedLabel = '進場日期', completionLabel }: DateDualInputProps) {
   const [isFocused, setIsFocused] = useState(false);
   const [localExpected, setLocalExpected] = useState(expectedDate || '');
   const [localCompletion, setLocalCompletion] = useState(completionDate || '');
+  const [localCompleted, setLocalCompleted] = useState(isCompleted);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -25,7 +31,8 @@ export function DateDualInput({ expectedDate, completionDate, baseDate, onChange
   useEffect(() => {
     setLocalExpected(expectedDate || '');
     setLocalCompletion(completionDate || '');
-  }, [expectedDate, completionDate, isFocused]);
+    setLocalCompleted(isCompleted);
+  }, [expectedDate, completionDate, isCompleted, isFocused]);
 
   const updateCoords = () => {
     if (containerRef.current) {
@@ -73,7 +80,7 @@ export function DateDualInput({ expectedDate, completionDate, baseDate, onChange
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [isFocused, localExpected, localCompletion]); // Need local states to save correctly
+  }, [isFocused, localExpected, localCompletion, localCompleted]); // Need local states to save correctly
 
   const handleFocus = () => {
     if (disabled) return;
@@ -97,7 +104,7 @@ export function DateDualInput({ expectedDate, completionDate, baseDate, onChange
     setIsFocused(false);
     const parsedExpected = parseAndFormatExpected(localExpected);
     const parsedCompletion = parseAndFormatExpected(localCompletion);
-    onChange(parsedExpected || null, parsedCompletion || null);
+    onChange(parsedExpected || null, parsedCompletion || null, showCompletionToggle ? localCompleted : undefined);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -127,6 +134,7 @@ export function DateDualInput({ expectedDate, completionDate, baseDate, onChange
       setIsFocused(false);
       setLocalExpected(expectedDate || '');
       setLocalCompletion(completionDate || '');
+      setLocalCompleted(isCompleted);
     }
   };
 
@@ -222,7 +230,7 @@ export function DateDualInput({ expectedDate, completionDate, baseDate, onChange
           }}
         >
           <div>
-            <label className="block text-xs text-secondary mb-1">進場日期</label>
+            <label className="block text-xs text-secondary mb-1">{expectedLabel}</label>
             <input 
               type="text" 
               value={localExpected} 
@@ -234,10 +242,26 @@ export function DateDualInput({ expectedDate, completionDate, baseDate, onChange
             />
           </div>
           <div>
-            <label className="block text-xs text-emerald-400/80 mb-1">{completionIsActual ? '實際完工日期' : '預計完工日期'}</label>
+            {showCompletionToggle ? (
+              <label className="mb-2 flex items-center gap-2 text-xs text-secondary">
+                <input
+                  type="checkbox"
+                  checked={localCompleted}
+                  onChange={event => {
+                    const completed = event.target.checked;
+                    setLocalCompleted(completed);
+                    setLocalCompletion(current => completed ? current || defaultCompletionDate || '' : '');
+                  }}
+                  className="h-4 w-4 accent-accent"
+                />
+                完成
+              </label>
+            ) : null}
+            <label className="block text-xs text-emerald-400/80 mb-1">{completionLabel ?? (completionIsActual ? '實際完工日期' : '預計完工日期')}</label>
             <input 
               type="text" 
               value={localCompletion} 
+              disabled={showCompletionToggle && !localCompleted}
               onChange={e => setLocalCompletion(e.target.value)}
               onBlur={handlePopoverCompletionBlur}
               onKeyDown={e => { if(e.key==='Enter') handlePopoverCompletionBlur(); }}
