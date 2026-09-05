@@ -1,5 +1,5 @@
 import type { calendar_v3 } from 'googleapis';
-import type { ScheduleTask } from '@/lib/db/types';
+import type { ScheduleCreationSource, ScheduleTask } from '@/lib/db/types';
 
 export const GOOGLE_SYNC_SOURCE = 'north-schedule-inventory';
 
@@ -42,6 +42,9 @@ export type ScheduleTaskSyncRow = {
   google_sync_error: string | null;
   last_synced_at: string | null;
   created_by: string | null;
+  created_by_user_id: string | null;
+  created_by_name: string | null;
+  creation_source: ScheduleCreationSource;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -98,6 +101,9 @@ export type ManualScheduleTaskInsert = {
   google_sync_error: null;
   last_synced_at: string;
   created_by: 'google-calendar-import';
+  created_by_user_id: string | null;
+  created_by_name: string | null;
+  creation_source: 'GOOGLE_IMPORT';
   updated_by: 'google-calendar-import';
 };
 
@@ -312,6 +318,9 @@ export function mapManualGoogleEvent(
       google_sync_error: null,
       last_synced_at: options.syncedAt,
       created_by: 'google-calendar-import',
+      created_by_user_id: member?.id || null,
+      created_by_name: member?.name || null,
+      creation_source: 'GOOGLE_IMPORT',
       updated_by: 'google-calendar-import',
     },
   };
@@ -351,6 +360,9 @@ const mapRowToScheduleTask = (row: ScheduleTaskSyncRow): ScheduleTask => ({
   google_sync_error: row.google_sync_error || null,
   last_synced_at: row.last_synced_at || null,
   created_by: row.created_by || 'system',
+  created_by_user_id: row.created_by_user_id || null,
+  created_by_name: row.created_by_name || null,
+  creation_source: row.creation_source || 'LEGACY',
   created_at: row.created_at || new Date().toISOString(),
   updated_at: row.updated_at || new Date().toISOString(),
 });
@@ -384,6 +396,9 @@ export async function loadScheduleTaskSyncRow(
       google_sync_error,
       last_synced_at,
       created_by,
+      created_by_user_id,
+      created_by_name,
+      creation_source,
       created_at,
       updated_at
     `)
@@ -456,6 +471,9 @@ export async function buildGoogleEventBody(
     google_sync_error: task.google_sync_error,
     last_synced_at: task.last_synced_at,
     created_by: task.created_by,
+    created_by_user_id: task.created_by_user_id,
+    created_by_name: task.created_by_name,
+    creation_source: task.creation_source,
     created_at: task.created_at,
     updated_at: task.updated_at,
   } satisfies ScheduleTaskSyncRow);

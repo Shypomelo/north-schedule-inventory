@@ -51,6 +51,9 @@ const createTask = (overrides = {}) => ({
   google_sync_error: null,
   last_synced_at: null,
   created_by: 'system',
+  created_by_user_id: null,
+  created_by_name: null,
+  creation_source: 'SYSTEM',
   created_at: '2026-09-01T00:00:00.000Z',
   updated_at: '2026-09-01T00:00:00.000Z',
   ...overrides,
@@ -194,6 +197,26 @@ test('Google import binds the only matching member', () => {
   assert.equal(result.ok, true);
   assert.equal(result.task.primary_member_id, importMember.id);
   assert.equal(result.task.primary_member_name, importMember.name);
+  assert.equal(result.task.created_by_user_id, importMember.id);
+  assert.equal(result.task.created_by_name, importMember.name);
+  assert.equal(result.task.creation_source, 'GOOGLE_IMPORT');
+});
+
+test('Google import does not guess creator identity without one unique member match', () => {
+  const noMatch = mapImport(importEvent, [], []);
+  const multipleMatches = mapImport(importEvent, [], [
+    importMember,
+    { ...importMember, id: 'member-2' },
+  ]);
+
+  assert.equal(noMatch.ok, true);
+  assert.equal(noMatch.task.created_by_user_id, null);
+  assert.equal(noMatch.task.created_by_name, null);
+  assert.equal(noMatch.task.creation_source, 'GOOGLE_IMPORT');
+  assert.equal(multipleMatches.ok, true);
+  assert.equal(multipleMatches.task.created_by_user_id, null);
+  assert.equal(multipleMatches.task.created_by_name, null);
+  assert.equal(multipleMatches.task.creation_source, 'GOOGLE_IMPORT');
 });
 
 test('unbound schedule task creates a Google event and stores the new binding', async () => {

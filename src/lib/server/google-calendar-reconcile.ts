@@ -38,6 +38,9 @@ const SCHEDULE_TASK_SYNC_COLUMNS = `
   google_sync_error,
   last_synced_at,
   created_by,
+  created_by_user_id,
+  created_by_name,
+  creation_source,
   created_at,
   updated_at
 `;

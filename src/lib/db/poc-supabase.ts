@@ -1543,6 +1543,9 @@ export const pocSupabaseAdapter = {
       google_sync_error: row.google_sync_error || null,
       last_synced_at: row.last_synced_at || null,
       created_by: row.created_by || 'system',
+      created_by_user_id: row.created_by_user_id || null,
+      created_by_name: row.created_by_name || null,
+      creation_source: row.creation_source || 'LEGACY',
       created_at: row.created_at || new Date().toISOString(),
       updated_at: row.updated_at || new Date().toISOString(),
     })) as ScheduleTask[];
@@ -1586,7 +1589,10 @@ export const pocSupabaseAdapter = {
       is_tentative: t.is_tentative || false,
       address: t.address || null,
       google_maps_url: null,
-      created_by: 'system',
+      created_by: t.created_by || t.created_by_user_id || 'system',
+      created_by_user_id: t.created_by_user_id || null,
+      created_by_name: t.created_by_name || null,
+      creation_source: t.creation_source || 'APP',
       updated_by: 'system',
     };
 
@@ -1686,6 +1692,9 @@ export const pocSupabaseAdapter = {
       google_sync_error: data.google_sync_error || null,
       last_synced_at: data.last_synced_at || null,
       created_by: data.created_by || 'system',
+      created_by_user_id: data.created_by_user_id || null,
+      created_by_name: data.created_by_name || null,
+      creation_source: data.creation_source || 'LEGACY',
       created_at: data.created_at || new Date().toISOString(),
       updated_at: data.updated_at || new Date().toISOString(),
     } as ScheduleTask;

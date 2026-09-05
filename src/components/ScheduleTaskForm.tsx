@@ -56,6 +56,9 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
     google_sync_error: initialData?.google_sync_error || null,
     last_synced_at: initialData?.last_synced_at || null,
     created_by: initialData?.created_by || currentUser?.id || null,
+    created_by_user_id: initialData?.created_by_user_id || currentUser?.id || null,
+    created_by_name: initialData?.created_by_name || currentUser?.name || null,
+    creation_source: initialData?.creation_source || 'APP',
     source_todo_id: initialData?.source_todo_id || null,
   });
 

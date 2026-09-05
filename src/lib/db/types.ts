@@ -1,6 +1,7 @@
 export type UserRole = 'ADMIN' | 'ENGINEER' | 'VIEWER';
 export type TaskStatus = '未開始' | '進行中' | '已完成' | '取消' | '' | '改期' | '完成';
 export type TodoStatus = '待安排' | '已排程' | '已完成' | '取消';
+export type ScheduleCreationSource = 'APP' | 'GOOGLE_IMPORT' | 'SYSTEM' | 'LEGACY';
 export type TransactionType = 'IN' | 'OUT' | 'RETURN' | 'ADJUST';
 export type StockCategory = 'CONSTRUCTION' | 'MAINTENANCE' | 'VENDOR_SPARE';
 export type SerialStatus = '在庫' | '已出庫' | '已使用' | '已退回' | '待補' | '報廢' | '作廢';
@@ -263,6 +264,9 @@ export interface ScheduleTask {
   google_sync_error: string | null;
   last_synced_at: string | null;
   created_by: string | null;
+  created_by_user_id: string | null;
+  created_by_name: string | null;
+  creation_source: ScheduleCreationSource;
   source_todo_id: string | null;
   created_at: string;
   updated_at: string;
