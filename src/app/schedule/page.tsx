@@ -991,8 +991,9 @@ export default function SchedulePage() {
           {viewMode === 'week' ? (
             renderWeeklySchedule(weekDays, true)
           ) : (
-            <>
-              <div data-month-calendar className="flex-1 min-h-0 flex flex-col border border-[var(--border)] rounded-xl bg-[var(--surface)] overflow-hidden">
+            <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3">
+              <div className="min-h-full flex flex-col">
+                <div data-month-calendar className="flex-1 min-h-0 flex flex-col border border-[var(--border)] rounded-xl bg-[var(--surface)] overflow-hidden">
                 <div className="grid grid-cols-7 bg-[var(--surface-secondary)] border-b border-[var(--border)]">
                   {['一','二','三','四','五','六','日'].map(d => (
                     <div key={d} className="text-center py-2 text-sm font-bold text-[var(--text-secondary)]">週{d}</div>
@@ -1107,13 +1108,14 @@ export default function SchedulePage() {
                   );
                   })}
                 </div>
+                </div>
               </div>
               {expandedMonthWeekStart && (
-                <section data-expanded-week-panel className="mt-3 shrink-0 border border-[var(--border)] rounded-xl bg-[var(--surface-secondary)] p-3">
+                <section data-expanded-week-panel className="shrink-0 border border-[var(--border)] rounded-xl bg-[var(--surface-secondary)] p-3">
                   {renderWeeklySchedule(expandedMonthWeekDays, false)}
                 </section>
               )}
-            </>
+            </div>
           )}
         </div>
       )}

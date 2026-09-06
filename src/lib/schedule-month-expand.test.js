@@ -39,8 +39,13 @@ test('month cells remove only their nested scrollbar', () => {
 
 test('clicking a week preserves the month calendar and adds one external panel', () => {
   assert.equal(toggleExpandedMonthWeek(null, '2026-09-07'), '2026-09-07');
-  assert.match(schedulePage, /<div data-month-calendar[\s\S]*?<\/div>\s*\{expandedMonthWeekStart && \(\s*<section data-expanded-week-panel/);
+  assert.match(schedulePage, /<div data-month-calendar[\s\S]*?\{expandedMonthWeekStart && \(\s*<section data-expanded-week-panel/);
   assert.match(schedulePage, /renderWeeklySchedule\(expandedMonthWeekDays, false\)/);
+});
+
+test('external panel cannot shrink the original month calendar', () => {
+  assert.match(schedulePage, /className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3"/);
+  assert.match(schedulePage, /className="min-h-full flex flex-col"/);
 });
 
 test('clicking the same week removes the panel without changing the calendar contract', () => {
