@@ -4,3 +4,5 @@ export const toggleExpandedMonthWeek = (
 ): string | null => (
   currentWeekStart === selectedWeekStart ? null : selectedWeekStart
 );
+
+export const collapseExpandedMonthWeek = (): null => null;

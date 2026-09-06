@@ -2,7 +2,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
-const { toggleExpandedMonthWeek } = require('./schedule-month-expand.ts');
+const {
+  collapseExpandedMonthWeek,
+  toggleExpandedMonthWeek,
+} = require('./schedule-month-expand.ts');
 
 const schedulePage = fs.readFileSync(
   path.join(__dirname, '..', 'app', 'schedule', 'page.tsx'),
@@ -16,7 +19,14 @@ test('month view uses a stable week-start string with the shared toggle', () => 
 });
 
 test('expanded week is initially null', () => {
-  assert.match(schedulePage, /useState<string \| null>\(null\)/);
+  assert.equal(collapseExpandedMonthWeek(), null);
+  assert.match(schedulePage, /useState<string \| null>\(collapseExpandedMonthWeek\)/);
+});
+
+test('today being inside a month week does not auto-expand it', () => {
+  const todayWeekStart = '2026-09-07';
+  assert.ok(todayWeekStart);
+  assert.equal(collapseExpandedMonthWeek(), null);
 });
 
 test('clicking week A expands A', () => {
@@ -59,6 +69,8 @@ test('expanded week retains the shared daily display limit and full day drawer',
 });
 
 test('month navigation and view changes collapse expanded week state', () => {
-  const resetCount = schedulePage.match(/setExpandedMonthWeekStart\(null\)/g)?.length ?? 0;
-  assert.ok(resetCount >= 4, `expected at least four reset paths, received ${resetCount}`);
+  assert.match(schedulePage, /const visibleMonthKey = format\(currentDate, 'yyyy-MM'\)/);
+  assert.match(schedulePage, /\[viewMode, visibleMonthKey\]/);
+  assert.match(schedulePage, /setViewMode\('month'\);[\s\S]*?setExpandedMonthWeekStart\(null\)/);
+  assert.equal(collapseExpandedMonthWeek(), null);
 });

@@ -16,7 +16,7 @@ import { useUser } from '@/components/UserContext';
 import { getDatabaseErrorMessage, isMissingCoreTablesError } from '@/lib/db/supabase-errors';
 import { supabase } from '@/lib/db/supabaseClient';
 import { parseTaiwanProjectLocation } from '@/lib/project-location';
-import { toggleExpandedMonthWeek } from '@/lib/schedule-month-expand';
+import { collapseExpandedMonthWeek, toggleExpandedMonthWeek } from '@/lib/schedule-month-expand';
 import {
   collectUniqueWeatherRequests,
   resolveTaskWeatherRequest,
@@ -126,7 +126,12 @@ export default function SchedulePage() {
   const [viewMode, setViewMode] = useState<ViewMode>('week');
   const [scheduleFontSize, setScheduleFontSize] = useState<ScheduleFontSize>('medium');
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [expandedMonthWeekStart, setExpandedMonthWeekStart] = useState<string | null>(null);
+  const [expandedMonthWeekStart, setExpandedMonthWeekStart] = useState<string | null>(collapseExpandedMonthWeek);
+  const visibleMonthKey = format(currentDate, 'yyyy-MM');
+
+  useEffect(() => {
+    setExpandedMonthWeekStart(collapseExpandedMonthWeek());
+  }, [viewMode, visibleMonthKey]);
   
   const [tasks, setTasks] = useState<ScheduleTask[]>([]);
   const [todos, setTodos] = useState<Todo[]>([]);
