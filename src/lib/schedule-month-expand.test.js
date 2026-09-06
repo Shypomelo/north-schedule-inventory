@@ -32,9 +32,9 @@ test('month days render at most eight cards and show the original +N summary', (
   assert.match(schedulePage, /\+\{dayTasks\.length - DAILY_TASK_DISPLAY_LIMIT\} 筆/);
 });
 
-test('month cells remove only their nested scrollbar', () => {
-  assert.match(schedulePage, /className="flex-1 min-h-0 overflow-hidden flex flex-col gap-1"/);
-  assert.doesNotMatch(schedulePage, /className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1"/);
+test('month day cards restore the pre-Phase-C nested scrollbar contract', () => {
+  assert.match(schedulePage, /className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1"/);
+  assert.doesNotMatch(schedulePage, /className="flex-1 min-h-0 overflow-hidden flex flex-col gap-1"/);
 });
 
 test('clicking a week preserves the month calendar and adds one external panel', () => {
@@ -46,6 +46,7 @@ test('clicking a week preserves the month calendar and adds one external panel',
 test('external panel cannot shrink the original month calendar', () => {
   assert.match(schedulePage, /className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3"/);
   assert.match(schedulePage, /className="min-h-full flex flex-col"/);
+  assert.match(schedulePage, /data-month-calendar[\s\S]*?overflow-y-auto flex flex-col gap-1[\s\S]*?data-expanded-week-panel/);
 });
 
 test('clicking the same week removes the panel without changing the calendar contract', () => {
