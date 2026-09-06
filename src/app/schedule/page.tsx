@@ -996,7 +996,7 @@ export default function SchedulePage() {
                   <div key={d} className="text-center py-2 text-sm font-bold text-[var(--text-secondary)]">週{d}</div>
                 ))}
               </div>
-              <div className="flex-1 min-h-0 overflow-y-auto">
+              <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
                 {monthWeeks.map(monthWeek => {
                   const monthWeekStart = format(monthWeek[0], 'yyyy-MM-dd');
                   const isExpanded = expandedMonthWeekStart === monthWeekStart;
@@ -1014,7 +1014,7 @@ export default function SchedulePage() {
                         {format(monthWeek[0], 'MM/dd')}–{format(monthWeek[5], 'MM/dd')} 週排程
                         {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                       </button>
-                      <div className="grid h-80 grid-cols-7 overflow-hidden">
+                      <div className="grid flex-1 basis-0 min-h-[160px] grid-cols-7 overflow-hidden">
                 {monthWeek.map(day => {
                   const dateStr = format(day, 'yyyy-MM-dd');
                   const dayTasks = sortTasks(tasks.filter(t => t.task_date === dateStr));
@@ -1042,8 +1042,9 @@ export default function SchedulePage() {
                       <div className={`text-right text-xs p-1 font-semibold ${isSameDay(day, new Date()) ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'}`}>
                         {format(day, 'd')}
                       </div>
-                      <div className="flex-1 min-h-0 overflow-hidden flex flex-col gap-1">
-                        {displayTasks.map(task => {
+                      <div className="relative flex-1 min-h-0 overflow-hidden">
+                        <div className={`absolute inset-0 flex flex-col gap-1 overflow-hidden ${hiddenCount > 0 ? 'pb-4' : ''}`}>
+                          {displayTasks.map(task => {
                           const { projName, assigneeDisplay, coworkerDisplay, district, searchAddress } = getTaskDisplay(task);
                           const weatherDisplay = getTaskWeatherDisplay(task);
                           const isDone = task.status === '完成';
@@ -1062,7 +1063,7 @@ export default function SchedulePage() {
                                 setEditingTaskMembers(members.filter(m => m.task_id === task.id).map(m => m.user_id));
                                 setIsFormOpen(true);
                               }}
-                              className={`${fontSizeClasses.month} h-7 shrink-0 min-w-0 overflow-hidden px-1 py-0.5 rounded cursor-pointer ${
+                              className={`${fontSizeClasses.month} shrink-0 min-w-0 px-1 py-0.5 rounded cursor-pointer ${
                                 isDone ? 'bg-[var(--surface-secondary)] text-[var(--text-muted)] opacity-50' :
                                 isRescheduled ? 'bg-[var(--surface-secondary)] text-[var(--text-muted)] border border-dashed border-[var(--text-muted)] opacity-60' :
                                 task.is_tentative ? 'bg-[var(--surface-secondary)] text-[var(--warning)] border border-[var(--warning)]' :
@@ -1092,11 +1093,12 @@ export default function SchedulePage() {
                                 )}
                               </div>
                             </div>
-                          );
-                        })}
+                            );
+                          })}
+                        </div>
                         {hiddenCount > 0 && (
                           <div 
-                            className="shrink-0 text-[10px] text-center text-[var(--text-muted)] cursor-pointer hover:text-[var(--accent)]"
+                            className="absolute inset-x-0 bottom-0 z-[1] bg-[var(--surface)] text-[10px] text-center text-[var(--text-muted)] cursor-pointer hover:text-[var(--accent)]"
                             onClick={() => setSelectedDayTasks({ date: day, tasks: dayTasks })}
                           >
                             +{hiddenCount} 筆

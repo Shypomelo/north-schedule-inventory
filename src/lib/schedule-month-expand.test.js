@@ -81,18 +81,25 @@ test('a day with 10 tasks renders 8 cards and +2', () => {
   assert.deepEqual(getMonthDaySummaryCounts(10), { visibleCount: 8, hiddenCount: 2 });
 });
 
-test('large task counts cannot grow the fixed month row', () => {
+test('large task counts keep the pre-Phase-C flexible month row contract', () => {
   assert.deepEqual(getMonthDaySummaryCounts(20), { visibleCount: 8, hiddenCount: 12 });
-  assert.match(schedulePage, /className="grid h-80 grid-cols-7 overflow-hidden"/);
-  assert.match(schedulePage, /className="flex-1 min-h-0 overflow-hidden flex flex-col gap-1"/);
+  assert.match(schedulePage, /className="grid flex-1 basis-0 min-h-\[160px\] grid-cols-7 overflow-hidden"/);
+  assert.doesNotMatch(schedulePage, /\bh-80\b/);
+  assert.doesNotMatch(schedulePage, /\bh-7\b/);
+  assert.match(schedulePage, /className="relative flex-1 min-h-0 overflow-hidden"/);
   assert.doesNotMatch(schedulePage, /className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1"/);
 });
 
 test('weekly detail remains a separate conditional block below the compact month row', () => {
   assert.match(
     schedulePage,
-    /className="grid h-80 grid-cols-7 overflow-hidden"[\s\S]*?\{isExpanded && \([\s\S]*?renderWeeklySchedule\(monthWeek\.slice\(0, 6\), false\)/,
+    /className="grid flex-1 basis-0 min-h-\[160px\] grid-cols-7 overflow-hidden"[\s\S]*?\{isExpanded && \([\s\S]*?renderWeeklySchedule\(monthWeek\.slice\(0, 6\), false\)/,
   );
+});
+
+test('+N remains pinned to the bottom of the month cell without an inner scrollbar', () => {
+  assert.match(schedulePage, /absolute inset-x-0 bottom-0[\s\S]*?\+\{hiddenCount\} 筆/);
+  assert.match(schedulePage, /hiddenCount > 0 \? 'pb-4' : ''/);
 });
 
 test('month navigation and view changes collapse expanded week state', () => {
