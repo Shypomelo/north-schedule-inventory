@@ -18,21 +18,20 @@ const localDateKey = date => (
 test('month view starts with no expanded week panel', () => {
   assert.equal(collapseExpandedMonthWeek(), null);
   assert.match(schedulePage, /useState<string \| null>\(collapseExpandedMonthWeek\)/);
-  assert.match(schedulePage, /\{isExpanded && \(\s*<section/);
+  assert.match(schedulePage, /\{isExpanded \? \(\s*<section/);
 });
 
 test('single month grid keeps its seven-column day layout', () => {
   assert.equal(september2026Weeks[0].calendarDays.length, 7);
   assert.match(schedulePage, /className="flex-1 min-h-0 grid grid-cols-7 overflow-y-auto"/);
-  assert.match(schedulePage, /\{monthDays\.map\(\(day, index\) => \{/);
-  assert.doesNotMatch(schedulePage, /monthWeeks\.map|WeekWrapper/);
+  assert.match(schedulePage, /\{monthWeeks\.map\(week => \{/);
+  assert.doesNotMatch(schedulePage, /WeekWrapper/);
 });
 
-test('each completed seven-day row inserts its own compact week control', () => {
-  assert.match(schedulePage, /const isWeekEnd = \(index \+ 1\) % 7 === 0/);
-  assert.match(schedulePage, /const week = monthWeeks\[Math\.floor\(index \/ 7\)\]/);
-  assert.match(schedulePage, /\{isWeekEnd && \(\s*<>\s*<button\s*data-week-expand-control=\{week\.key\}/);
+test('each authoritative week renders one control after its current mode', () => {
+  assert.match(schedulePage, /\{monthWeeks\.map\(week => \{[\s\S]*?<button\s*data-week-expand-control=\{week\.key\}/);
   assert.match(schedulePage, /\{week\.label\}/);
+  assert.equal((schedulePage.match(/data-week-expand-control=/g) || []).length, 1);
   assert.doesNotMatch(schedulePage, /data-week-expand-controls/);
 });
 
@@ -53,6 +52,7 @@ test('clicking the first week expands and collapses the same cross-month key', (
 test('expanded panel receives the selected authoritative week days', () => {
   assert.match(schedulePage, /const expandedMonthWeek = monthWeeks\.find\(week => week\.key === expandedMonthWeekStart\) \?\? null/);
   assert.match(schedulePage, /renderWeeklySchedule\(week\.scheduleDays, false\)/);
+  assert.match(schedulePage, /data-expanded-week=\{week\.key\}/);
   assert.doesNotMatch(schedulePage, /new Date\(`\$\{expandedMonthWeekStart\}T00:00:00`\)/);
 });
 
@@ -61,7 +61,7 @@ test('switching from A to B keeps only B expanded', () => {
   expandedWeek = toggleExpandedMonthWeek(expandedWeek, '2026-09-14');
   assert.equal(expandedWeek, '2026-09-14');
   assert.match(schedulePage, /const isExpanded = expandedMonthWeekStart === week\.key/);
-  assert.equal((schedulePage.match(/data-expanded-week-panel/g) || []).length, 1);
+  assert.equal((schedulePage.match(/data-expanded-week=/g) || []).length, 1);
 });
 
 test('panel columns and schedule filtering use the exact same day key', () => {
@@ -87,13 +87,13 @@ test('September 2026 last week keeps its October crossover dates', () => {
   assert.equal(localDateKey(lastWeek.calendarDays[6]), '2026-10-04');
 });
 
-test('expanded panel is placed immediately after its week control inside the month grid', () => {
+test('compact and expanded representations are mutually exclusive for each week', () => {
   assert.match(
     schedulePage,
-    /data-week-expand-control=\{week\.key\}[\s\S]*?<\/button>\s*\{isExpanded && \(\s*<section\s*data-expanded-week-panel=\{week\.key\}/,
+    /\{isExpanded \? \(\s*<section\s*data-expanded-week=\{week\.key\}[\s\S]*?renderWeeklySchedule\(week\.scheduleDays, false\)[\s\S]*?\) : \(\s*week\.calendarDays\.map/,
   );
-  assert.match(schedulePage, /data-expanded-week-panel=\{week\.key\}[\s\S]*?renderWeeklySchedule\(week\.scheduleDays, false\)/);
-  assert.match(schedulePage, /className="col-span-full border-b/);
+  assert.match(schedulePage, /data-compact-week=\{dayIndex === 0 \? week\.key : undefined\}/);
+  assert.doesNotMatch(schedulePage, /data-expanded-week-panel/);
 });
 
 test('schedule card click remains separate from week expansion', () => {

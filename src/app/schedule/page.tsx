@@ -325,9 +325,8 @@ export default function SchedulePage() {
   }));
   const expandedMonthWeek = monthWeeks.find(week => week.key === expandedMonthWeekStart) ?? null;
   const monthGridTemplateRows = monthWeeks.flatMap(week => [
-    'minmax(160px, 1fr)',
+    expandedMonthWeekStart === week.key ? 'auto' : 'minmax(160px, 1fr)',
     'auto',
-    ...(expandedMonthWeekStart === week.key ? ['auto'] : []),
   ]).join(' ');
   const fontSizeClasses = SCHEDULE_FONT_SIZE_CLASSES[scheduleFontSize];
 
@@ -1008,95 +1007,107 @@ export default function SchedulePage() {
                   className="flex-1 min-h-0 grid grid-cols-7 overflow-y-auto"
                   style={{ gridTemplateRows: monthGridTemplateRows }}
                 >
-                  {monthDays.map((day, index) => {
-                  const dateStr = format(day, 'yyyy-MM-dd');
-                  const dayTasks = sortTasks(tasks.filter(t => t.task_date === dateStr));
-                  const isCurrentMonth = day.getMonth() === currentDate.getMonth();
-                  const isWeekEnd = (index + 1) % 7 === 0;
-                  const week = monthWeeks[Math.floor(index / 7)];
-                  const isExpanded = expandedMonthWeekStart === week.key;
+                  {monthWeeks.map(week => {
+                    const isExpanded = expandedMonthWeekStart === week.key;
 
-                  return (
-                    <React.Fragment key={dateStr}>
-                    <div 
-                      className={`min-h-0 min-w-0 border-r border-b border-[var(--border)] last:border-r-0 flex flex-col p-1 ${!isCurrentMonth ? 'bg-[var(--surface-secondary)] opacity-50' : ''}`}
-                      onDragOver={e => e.preventDefault()}
-                      onDrop={e => handleDropToDate(e, dateStr)}
-                      onContextMenu={e => {
-                        e.preventDefault();
-                        if (currentUser?.role === 'VIEWER') return;
-                        setContextMenu(null);
-                        setTodoContextMenu(null);
-                        setDayContextMenu({ dateStr, x: e.clientX, y: e.clientY });
-                      }}
-                    >
-                      <div className={`text-right text-xs p-1 font-semibold ${isSameDay(day, new Date()) ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'}`}>
-                        {format(day, 'd')}
-                      </div>
-                      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1">
-                        {dayTasks.slice(0, DAILY_TASK_DISPLAY_LIMIT).map(task => {
-                          const { projName, assigneeDisplay, coworkerDisplay, district, searchAddress } = getTaskDisplay(task);
-                          const weatherDisplay = getTaskWeatherDisplay(task);
-                          const isDone = task.status === '完成';
-                          const isRescheduled = task.status === '改期';
-                          return (
-                            <div
-                              key={task.id}
-                              draggable={currentUser?.role !== 'VIEWER'}
-                              onDragStart={(e) => handleDragStart(e, task.id, 'task')}
-                              onContextMenu={(e) => {
-                                if (currentUser?.role === 'VIEWER') return;
-                                handleContextMenu(e, task.id);
-                              }}
-                              onClick={() => {
-                                setEditingTask(task);
-                                setEditingTaskMembers(members.filter(m => m.task_id === task.id).map(m => m.user_id));
-                                setIsFormOpen(true);
-                              }}
-                              className={`${fontSizeClasses.month} shrink-0 min-w-0 px-1 py-0.5 rounded cursor-pointer ${
-                                isDone ? 'bg-[var(--surface-secondary)] text-[var(--text-muted)] opacity-50' :
-                                isRescheduled ? 'bg-[var(--surface-secondary)] text-[var(--text-muted)] border border-dashed border-[var(--text-muted)] opacity-60' :
-                                task.is_tentative ? 'bg-[var(--surface-secondary)] text-[var(--warning)] border border-[var(--warning)]' :
-                                'bg-[var(--surface-secondary)] text-[var(--text-primary)] border border-[var(--accent)]'
-                              }`}
-                            >
-                              <div className="font-semibold truncate">
-                                {isDone ? '✓ ' : ''}{isRescheduled ? '【改期】 ' : ''}{task.is_tentative ? '[暫] ' : ''}{projName} {formatTaskTime(task)}
-                              </div>
-                              <div className="truncate opacity-80">{district}[{task.task_type}] {task.title || '無標題'}</div>
-                              {assigneeDisplay && <div className="truncate opacity-80">{assigneeDisplay}</div>}
-                              {coworkerDisplay && <div className="truncate opacity-80">{coworkerDisplay}</div>}
-                              <div className="mt-0.5 flex items-center justify-between gap-1">
-                                <a
-                                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchAddress)}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  onClick={e => e.stopPropagation()}
-                                  className="underline font-bold text-[var(--accent)]"
-                                >
-                                  MAP
-                                </a>
-                                {weatherDisplay && (
-                                  <span title={weatherDisplay.label} aria-label={`天氣：${weatherDisplay.label}`}>
-                                    {weatherDisplay.icon}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                        {dayTasks.length > DAILY_TASK_DISPLAY_LIMIT && (
-                          <div 
-                            className="shrink-0 text-[10px] text-center text-[var(--text-muted)] cursor-pointer hover:text-[var(--accent)]"
-                            onClick={() => setSelectedDayTasks({ date: day, tasks: dayTasks })}
+                    return (
+                      <React.Fragment key={week.key}>
+                        {isExpanded ? (
+                          <section
+                            data-expanded-week={week.key}
+                            className="col-span-full border-b border-[var(--border)] bg-[var(--surface-secondary)] p-3"
                           >
-                            +{dayTasks.length - DAILY_TASK_DISPLAY_LIMIT} 筆
-                          </div>
+                            {renderWeeklySchedule(week.scheduleDays, false)}
+                          </section>
+                        ) : (
+                          week.calendarDays.map((day, dayIndex) => {
+                            const dateStr = format(day, 'yyyy-MM-dd');
+                            const dayTasks = sortTasks(tasks.filter(t => t.task_date === dateStr));
+                            const isCurrentMonth = day.getMonth() === currentDate.getMonth();
+
+                            return (
+                              <div
+                                key={dateStr}
+                                data-compact-week={dayIndex === 0 ? week.key : undefined}
+                                className={`min-h-0 min-w-0 border-r border-b border-[var(--border)] last:border-r-0 flex flex-col p-1 ${!isCurrentMonth ? 'bg-[var(--surface-secondary)] opacity-50' : ''}`}
+                                onDragOver={e => e.preventDefault()}
+                                onDrop={e => handleDropToDate(e, dateStr)}
+                                onContextMenu={e => {
+                                  e.preventDefault();
+                                  if (currentUser?.role === 'VIEWER') return;
+                                  setContextMenu(null);
+                                  setTodoContextMenu(null);
+                                  setDayContextMenu({ dateStr, x: e.clientX, y: e.clientY });
+                                }}
+                              >
+                                <div className={`text-right text-xs p-1 font-semibold ${isSameDay(day, new Date()) ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'}`}>
+                                  {format(day, 'd')}
+                                </div>
+                                <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1">
+                                  {dayTasks.slice(0, DAILY_TASK_DISPLAY_LIMIT).map(task => {
+                                    const { projName, assigneeDisplay, coworkerDisplay, district, searchAddress } = getTaskDisplay(task);
+                                    const weatherDisplay = getTaskWeatherDisplay(task);
+                                    const isDone = task.status === '完成';
+                                    const isRescheduled = task.status === '改期';
+                                    return (
+                                      <div
+                                        key={task.id}
+                                        draggable={currentUser?.role !== 'VIEWER'}
+                                        onDragStart={(e) => handleDragStart(e, task.id, 'task')}
+                                        onContextMenu={(e) => {
+                                          if (currentUser?.role === 'VIEWER') return;
+                                          handleContextMenu(e, task.id);
+                                        }}
+                                        onClick={() => {
+                                          setEditingTask(task);
+                                          setEditingTaskMembers(members.filter(m => m.task_id === task.id).map(m => m.user_id));
+                                          setIsFormOpen(true);
+                                        }}
+                                        className={`${fontSizeClasses.month} shrink-0 min-w-0 px-1 py-0.5 rounded cursor-pointer ${
+                                          isDone ? 'bg-[var(--surface-secondary)] text-[var(--text-muted)] opacity-50' :
+                                          isRescheduled ? 'bg-[var(--surface-secondary)] text-[var(--text-muted)] border border-dashed border-[var(--text-muted)] opacity-60' :
+                                          task.is_tentative ? 'bg-[var(--surface-secondary)] text-[var(--warning)] border border-[var(--warning)]' :
+                                          'bg-[var(--surface-secondary)] text-[var(--text-primary)] border border-[var(--accent)]'
+                                        }`}
+                                      >
+                                        <div className="font-semibold truncate">
+                                          {isDone ? '✓ ' : ''}{isRescheduled ? '【改期】 ' : ''}{task.is_tentative ? '[暫] ' : ''}{projName} {formatTaskTime(task)}
+                                        </div>
+                                        <div className="truncate opacity-80">{district}[{task.task_type}] {task.title || '無標題'}</div>
+                                        {assigneeDisplay && <div className="truncate opacity-80">{assigneeDisplay}</div>}
+                                        {coworkerDisplay && <div className="truncate opacity-80">{coworkerDisplay}</div>}
+                                        <div className="mt-0.5 flex items-center justify-between gap-1">
+                                          <a
+                                            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchAddress)}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            onClick={e => e.stopPropagation()}
+                                            className="underline font-bold text-[var(--accent)]"
+                                          >
+                                            MAP
+                                          </a>
+                                          {weatherDisplay && (
+                                            <span title={weatherDisplay.label} aria-label={`天氣：${weatherDisplay.label}`}>
+                                              {weatherDisplay.icon}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                  {dayTasks.length > DAILY_TASK_DISPLAY_LIMIT && (
+                                    <div
+                                      className="shrink-0 text-[10px] text-center text-[var(--text-muted)] cursor-pointer hover:text-[var(--accent)]"
+                                      onClick={() => setSelectedDayTasks({ date: day, tasks: dayTasks })}
+                                    >
+                                      +{dayTasks.length - DAILY_TASK_DISPLAY_LIMIT} 筆
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })
                         )}
-                      </div>
-                    </div>
-                    {isWeekEnd && (
-                      <>
                         <button
                           data-week-expand-control={week.key}
                           type="button"
@@ -1109,18 +1120,8 @@ export default function SchedulePage() {
                           <span>{week.label}</span>
                           <span aria-hidden="true">{isExpanded ? '▴' : '▾'}</span>
                         </button>
-                        {isExpanded && (
-                          <section
-                            data-expanded-week-panel={week.key}
-                            className="col-span-full border-b border-[var(--border)] bg-[var(--surface-secondary)] p-3"
-                          >
-                            {renderWeeklySchedule(week.scheduleDays, false)}
-                          </section>
-                        )}
-                      </>
-                    )}
-                    </React.Fragment>
-                  );
+                      </React.Fragment>
+                    );
                   })}
                 </div>
                 </div>
