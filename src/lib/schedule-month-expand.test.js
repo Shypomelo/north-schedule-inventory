@@ -4,107 +4,74 @@ const path = require('node:path');
 const test = require('node:test');
 const {
   collapseExpandedMonthWeek,
-  getMonthDaySummaryCounts,
   toggleExpandedMonthWeek,
 } = require('./schedule-month-expand.ts');
 
-const schedulePage = fs.readFileSync(
-  path.join(__dirname, '..', 'app', 'schedule', 'page.tsx'),
-  'utf8',
-);
+const schedulePage = fs.readFileSync(path.join(__dirname, '..', 'app', 'schedule', 'page.tsx'), 'utf8');
+const scheduleForm = fs.readFileSync(path.join(__dirname, '..', 'components', 'ScheduleTaskForm.tsx'), 'utf8');
 
-test('month view uses a stable week-start string with the shared toggle', () => {
-  assert.match(schedulePage, /expandedMonthWeekStart/);
-  assert.match(schedulePage, /const monthWeekStart = format\(monthWeek\[0\], 'yyyy-MM-dd'\)/);
-  assert.match(schedulePage, /toggleExpandedMonthWeek\(current, monthWeekStart\)/);
-});
-
-test('expanded week is initially null', () => {
+test('collapsed month view renders the original calendar without an expanded panel', () => {
   assert.equal(collapseExpandedMonthWeek(), null);
   assert.match(schedulePage, /useState<string \| null>\(collapseExpandedMonthWeek\)/);
+  assert.match(schedulePage, /<div data-month-calendar className="flex-1 min-h-0 flex flex-col border/);
+  assert.match(schedulePage, /\{expandedMonthWeekStart && \(\s*<section data-expanded-week-panel/);
 });
 
-test('today being inside a month week does not auto-expand it', () => {
-  const todayWeekStart = '2026-09-07';
-  assert.ok(todayWeekStart);
-  assert.equal(collapseExpandedMonthWeek(), null);
+test('month calendar restores the pre-Phase-C single-grid layout contract', () => {
+  assert.match(schedulePage, /className="flex-1 min-h-0 grid grid-cols-7 overflow-y-auto"/);
+  assert.match(schedulePage, /gridTemplateRows: `repeat\(\$\{monthWeekCount\}, minmax\(160px, 1fr\)\)`/);
+  assert.match(schedulePage, /\{monthDays\.map\(\(day, index\) => \{/);
+  assert.doesNotMatch(schedulePage, /monthWeeks\.map/);
+  assert.doesNotMatch(schedulePage, /\bh-80\b|\bh-7\b|basis-0/);
 });
 
-test('clicking week A expands A', () => {
-  assert.equal(toggleExpandedMonthWeek(null, '2026-09-07'), '2026-09-07');
-});
-
-test('clicking expanded week A collapses it', () => {
-  assert.equal(toggleExpandedMonthWeek('2026-09-07', '2026-09-07'), null);
-});
-
-test('clicking week B while A is expanded replaces A with B', () => {
-  assert.equal(toggleExpandedMonthWeek('2026-09-07', '2026-09-14'), '2026-09-14');
-});
-
-test('the state can identify at most one expanded week', () => {
-  let expandedWeek = null;
-  expandedWeek = toggleExpandedMonthWeek(expandedWeek, '2026-09-07');
-  expandedWeek = toggleExpandedMonthWeek(expandedWeek, '2026-09-14');
-  assert.equal(expandedWeek, '2026-09-14');
-  assert.equal(typeof expandedWeek, 'string');
-});
-
-test('week A can be expanded again after it is collapsed', () => {
-  let expandedWeek = toggleExpandedMonthWeek(null, '2026-09-07');
-  expandedWeek = toggleExpandedMonthWeek(expandedWeek, '2026-09-07');
-  expandedWeek = toggleExpandedMonthWeek(expandedWeek, '2026-09-07');
-  assert.equal(expandedWeek, '2026-09-07');
-});
-
-test('expanded month week renders Monday through Saturday with the shared weekly renderer', () => {
-  assert.match(schedulePage, /renderWeeklySchedule\(monthWeek\.slice\(0, 6\), false\)/);
-  assert.match(schedulePage, /renderWeeklySchedule\(weekDays, true\)/);
-  assert.match(schedulePage, /const weekDays = Array\.from\(\{ length: 6 \}\)/);
-});
-
-test('expanded week retains the shared daily display limit and full day drawer', () => {
+test('month days render at most eight cards and show the original +N summary', () => {
   assert.match(schedulePage, /const DAILY_TASK_DISPLAY_LIMIT = 8/);
-  assert.match(schedulePage, /const displayTasks = dayTasks\.slice\(0, DAILY_TASK_DISPLAY_LIMIT\)/);
-  assert.match(schedulePage, /setSelectedDayTasks\(\{ date: day, tasks: dayTasks \}\)/);
+  assert.match(schedulePage, /dayTasks\.slice\(0, DAILY_TASK_DISPLAY_LIMIT\)\.map/);
+  assert.match(schedulePage, /dayTasks\.length > DAILY_TASK_DISPLAY_LIMIT/);
+  assert.match(schedulePage, /\+\{dayTasks\.length - DAILY_TASK_DISPLAY_LIMIT\} 筆/);
 });
 
-test('a day with 3 tasks renders 3 cards without a remainder', () => {
-  assert.deepEqual(getMonthDaySummaryCounts(3), { visibleCount: 3, hiddenCount: 0 });
-});
-
-test('a day with 8 tasks renders 8 cards without a remainder', () => {
-  assert.deepEqual(getMonthDaySummaryCounts(8), { visibleCount: 8, hiddenCount: 0 });
-});
-
-test('a day with 10 tasks renders 8 cards and +2', () => {
-  assert.deepEqual(getMonthDaySummaryCounts(10), { visibleCount: 8, hiddenCount: 2 });
-});
-
-test('large task counts keep the pre-Phase-C flexible month row contract', () => {
-  assert.deepEqual(getMonthDaySummaryCounts(20), { visibleCount: 8, hiddenCount: 12 });
-  assert.match(schedulePage, /className="grid flex-1 basis-0 min-h-\[160px\] grid-cols-7 overflow-hidden"/);
-  assert.doesNotMatch(schedulePage, /\bh-80\b/);
-  assert.doesNotMatch(schedulePage, /\bh-7\b/);
-  assert.match(schedulePage, /className="relative flex-1 min-h-0 overflow-hidden"/);
+test('month cells remove only their nested scrollbar', () => {
+  assert.match(schedulePage, /className="flex-1 min-h-0 overflow-hidden flex flex-col gap-1"/);
   assert.doesNotMatch(schedulePage, /className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1"/);
 });
 
-test('weekly detail remains a separate conditional block below the compact month row', () => {
-  assert.match(
-    schedulePage,
-    /className="grid flex-1 basis-0 min-h-\[160px\] grid-cols-7 overflow-hidden"[\s\S]*?\{isExpanded && \([\s\S]*?renderWeeklySchedule\(monthWeek\.slice\(0, 6\), false\)/,
-  );
+test('clicking a week preserves the month calendar and adds one external panel', () => {
+  assert.equal(toggleExpandedMonthWeek(null, '2026-09-07'), '2026-09-07');
+  assert.match(schedulePage, /<div data-month-calendar[\s\S]*?<\/div>\s*\{expandedMonthWeekStart && \(\s*<section data-expanded-week-panel/);
+  assert.match(schedulePage, /renderWeeklySchedule\(expandedMonthWeekDays, false\)/);
 });
 
-test('+N remains pinned to the bottom of the month cell without an inner scrollbar', () => {
-  assert.match(schedulePage, /absolute inset-x-0 bottom-0[\s\S]*?\+\{hiddenCount\} 筆/);
-  assert.match(schedulePage, /hiddenCount > 0 \? 'pb-4' : ''/);
+test('clicking the same week removes the panel without changing the calendar contract', () => {
+  assert.equal(toggleExpandedMonthWeek('2026-09-07', '2026-09-07'), null);
+  assert.match(schedulePage, /data-month-calendar/);
+  assert.match(schedulePage, /gridTemplateRows: `repeat/);
 });
 
-test('month navigation and view changes collapse expanded week state', () => {
+test('switching weeks keeps only the newly selected panel', () => {
+  let expandedWeek = toggleExpandedMonthWeek(null, '2026-09-07');
+  expandedWeek = toggleExpandedMonthWeek(expandedWeek, '2026-09-14');
+  assert.equal(expandedWeek, '2026-09-14');
+  assert.equal((schedulePage.match(/data-expanded-week-panel/g) || []).length, 1);
+});
+
+test('month navigation and view changes collapse the panel', () => {
   assert.match(schedulePage, /const visibleMonthKey = format\(currentDate, 'yyyy-MM'\)/);
   assert.match(schedulePage, /\[viewMode, visibleMonthKey\]/);
   assert.match(schedulePage, /setViewMode\('month'\);[\s\S]*?setExpandedMonthWeekStart\(null\)/);
   assert.equal(collapseExpandedMonthWeek(), null);
+});
+
+test('expanded panel reuses Monday-through-Saturday weekly rendering', () => {
+  assert.match(schedulePage, /Array\.from\(\{ length: 6 \}/);
+  assert.match(schedulePage, /renderWeeklySchedule\(expandedMonthWeekDays, false\)/);
+  assert.match(schedulePage, /renderWeeklySchedule\(weekDays, true\)/);
+});
+
+test('schedule creator UI remains connected and read-only', () => {
+  assert.match(schedulePage, /<ScheduleTaskForm/);
+  assert.match(scheduleForm, /<dl aria-label="建立資訊"/);
+  assert.match(scheduleForm, /<dt[^>]*>建立者：<\/dt>/);
+  assert.match(scheduleForm, /<dt[^>]*>來源：<\/dt>/);
 });
