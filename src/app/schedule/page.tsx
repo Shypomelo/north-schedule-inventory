@@ -17,6 +17,7 @@ import { getDatabaseErrorMessage, isMissingCoreTablesError } from '@/lib/db/supa
 import { supabase } from '@/lib/db/supabaseClient';
 import { parseTaiwanProjectLocation } from '@/lib/project-location';
 import {
+  buildMonthScheduleWeeks,
   collapseExpandedMonthWeek,
   toggleExpandedMonthWeek,
 } from '@/lib/schedule-month-expand';
@@ -318,32 +319,23 @@ export default function SchedulePage() {
     monthDays.push(d);
     d = addDays(d, 1);
   }
-  const monthWeekCount = monthDays.length / 7;
-  const monthWeekOptions = Array.from({ length: monthWeekCount }, (_, weekIndex) => {
-    const start = monthDays[weekIndex * 7];
-    const end = addDays(start, 5);
-    return {
-      key: format(start, 'yyyy-MM-dd'),
-      label: `${format(start, 'MM/dd')}–${format(end, 'MM/dd')} 週排程`,
-    };
-  });
-  const monthGridTemplateRows = monthWeekOptions.flatMap(week => [
+  const monthWeeks = buildMonthScheduleWeeks(monthDays).map(week => ({
+    ...week,
+    label: `${format(week.startDate, 'MM/dd')}–${format(week.endDate, 'MM/dd')} 週排程`,
+  }));
+  const expandedMonthWeek = monthWeeks.find(week => week.key === expandedMonthWeekStart) ?? null;
+  const monthGridTemplateRows = monthWeeks.flatMap(week => [
     'minmax(160px, 1fr)',
     'auto',
     ...(expandedMonthWeekStart === week.key ? ['auto'] : []),
   ]).join(' ');
-  const expandedMonthWeekDays = expandedMonthWeekStart
-    ? Array.from({ length: 6 }, (_, index) => (
-        addDays(new Date(`${expandedMonthWeekStart}T00:00:00`), index)
-      ))
-    : [];
   const fontSizeClasses = SCHEDULE_FONT_SIZE_CLASSES[scheduleFontSize];
 
   const visibleWeatherTasks = useMemo(() => {
     const visibleTasks = selectedDayTasks ? [...selectedDayTasks.tasks] : [];
-    if (viewMode === 'month' && expandedMonthWeekStart) {
-      for (let index = 0; index < 6; index += 1) {
-        const dateStr = format(addDays(new Date(`${expandedMonthWeekStart}T00:00:00`), index), 'yyyy-MM-dd');
+    if (viewMode === 'month' && expandedMonthWeek) {
+      for (const day of expandedMonthWeek.scheduleDays) {
+        const dateStr = format(day, 'yyyy-MM-dd');
         visibleTasks.push(...sortTasks(tasks.filter(task => task.task_date === dateStr)).slice(0, DAILY_TASK_DISPLAY_LIMIT));
       }
       return visibleTasks;
@@ -356,7 +348,7 @@ export default function SchedulePage() {
       visibleTasks.push(...sortTasks(tasks.filter(task => task.task_date === dateStr)).slice(0, DAILY_TASK_DISPLAY_LIMIT));
     }
     return visibleTasks;
-  }, [currentDate, expandedMonthWeekStart, selectedDayTasks, tasks, viewMode]);
+  }, [currentDate, expandedMonthWeek, selectedDayTasks, tasks, viewMode]);
 
   const weatherRequests = useMemo(
     () => collectUniqueWeatherRequests(visibleWeatherTasks, projects),
@@ -1021,7 +1013,7 @@ export default function SchedulePage() {
                   const dayTasks = sortTasks(tasks.filter(t => t.task_date === dateStr));
                   const isCurrentMonth = day.getMonth() === currentDate.getMonth();
                   const isWeekEnd = (index + 1) % 7 === 0;
-                  const week = monthWeekOptions[Math.floor(index / 7)];
+                  const week = monthWeeks[Math.floor(index / 7)];
                   const isExpanded = expandedMonthWeekStart === week.key;
 
                   return (
@@ -1122,7 +1114,7 @@ export default function SchedulePage() {
                             data-expanded-week-panel={week.key}
                             className="col-span-full border-b border-[var(--border)] bg-[var(--surface-secondary)] p-3"
                           >
-                            {renderWeeklySchedule(expandedMonthWeekDays, false)}
+                            {renderWeeklySchedule(week.scheduleDays, false)}
                           </section>
                         )}
                       </>
