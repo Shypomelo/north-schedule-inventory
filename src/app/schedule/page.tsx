@@ -327,6 +327,11 @@ export default function SchedulePage() {
       label: `${format(start, 'MM/dd')}–${format(end, 'MM/dd')} 週排程`,
     };
   });
+  const monthGridTemplateRows = monthWeekOptions.flatMap(week => [
+    'minmax(160px, 1fr)',
+    'auto',
+    ...(expandedMonthWeekStart === week.key ? ['auto'] : []),
+  ]).join(' ');
   const expandedMonthWeekDays = expandedMonthWeekStart
     ? Array.from({ length: 6 }, (_, index) => (
         addDays(new Date(`${expandedMonthWeekStart}T00:00:00`), index)
@@ -1000,28 +1005,6 @@ export default function SchedulePage() {
             renderWeeklySchedule(weekDays, true)
           ) : (
             <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3">
-              <div data-week-expand-controls className="shrink-0 flex flex-wrap gap-2">
-                {monthWeekOptions.map(week => {
-                  const isExpanded = expandedMonthWeekStart === week.key;
-                  return (
-                    <button
-                      key={week.key}
-                      type="button"
-                      aria-expanded={isExpanded}
-                      onClick={() => setExpandedMonthWeekStart(current => (
-                        toggleExpandedMonthWeek(current, week.key)
-                      ))}
-                      className={`rounded-md border px-3 py-1 text-xs font-semibold transition ${
-                        isExpanded
-                          ? 'border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-text)]'
-                          : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)]'
-                      }`}
-                    >
-                      {week.label} {isExpanded ? '▴' : '▾'}
-                    </button>
-                  );
-                })}
-              </div>
               <div className="min-h-full flex flex-col">
                 <div data-month-calendar className="flex-1 min-h-0 flex flex-col border border-[var(--border)] rounded-xl bg-[var(--surface)] overflow-hidden">
                 <div className="grid grid-cols-7 bg-[var(--surface-secondary)] border-b border-[var(--border)]">
@@ -1031,16 +1014,19 @@ export default function SchedulePage() {
                 </div>
                 <div
                   className="flex-1 min-h-0 grid grid-cols-7 overflow-y-auto"
-                  style={{ gridTemplateRows: `repeat(${monthWeekCount}, minmax(160px, 1fr))` }}
+                  style={{ gridTemplateRows: monthGridTemplateRows }}
                 >
                   {monthDays.map((day, index) => {
                   const dateStr = format(day, 'yyyy-MM-dd');
                   const dayTasks = sortTasks(tasks.filter(t => t.task_date === dateStr));
                   const isCurrentMonth = day.getMonth() === currentDate.getMonth();
-                  
+                  const isWeekEnd = (index + 1) % 7 === 0;
+                  const week = monthWeekOptions[Math.floor(index / 7)];
+                  const isExpanded = expandedMonthWeekStart === week.key;
+
                   return (
+                    <React.Fragment key={dateStr}>
                     <div 
-                      key={index}
                       className={`min-h-0 min-w-0 border-r border-b border-[var(--border)] last:border-r-0 flex flex-col p-1 ${!isCurrentMonth ? 'bg-[var(--surface-secondary)] opacity-50' : ''}`}
                       onDragOver={e => e.preventDefault()}
                       onDrop={e => handleDropToDate(e, dateStr)}
@@ -1117,16 +1103,36 @@ export default function SchedulePage() {
                         )}
                       </div>
                     </div>
+                    {isWeekEnd && (
+                      <>
+                        <button
+                          data-week-expand-control={week.key}
+                          type="button"
+                          aria-expanded={isExpanded}
+                          onClick={() => setExpandedMonthWeekStart(current => (
+                            toggleExpandedMonthWeek(current, week.key)
+                          ))}
+                          className="col-span-full flex w-full cursor-pointer items-center justify-between border-b border-[var(--border)] bg-[var(--surface-secondary)] px-3 py-1 text-xs font-semibold text-[var(--text-secondary)] transition hover:bg-[var(--surface)] hover:text-[var(--accent)]"
+                        >
+                          <span>{week.label}</span>
+                          <span aria-hidden="true">{isExpanded ? '▴' : '▾'}</span>
+                        </button>
+                        {isExpanded && (
+                          <section
+                            data-expanded-week-panel={week.key}
+                            className="col-span-full border-b border-[var(--border)] bg-[var(--surface-secondary)] p-3"
+                          >
+                            {renderWeeklySchedule(expandedMonthWeekDays, false)}
+                          </section>
+                        )}
+                      </>
+                    )}
+                    </React.Fragment>
                   );
                   })}
                 </div>
                 </div>
               </div>
-              {expandedMonthWeekStart && (
-                <section data-expanded-week-panel className="shrink-0 border border-[var(--border)] rounded-xl bg-[var(--surface-secondary)] p-3">
-                  {renderWeeklySchedule(expandedMonthWeekDays, false)}
-                </section>
-              )}
             </div>
           )}
         </div>
