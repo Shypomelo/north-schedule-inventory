@@ -16,7 +16,11 @@ import { useUser } from '@/components/UserContext';
 import { getDatabaseErrorMessage, isMissingCoreTablesError } from '@/lib/db/supabase-errors';
 import { supabase } from '@/lib/db/supabaseClient';
 import { parseTaiwanProjectLocation } from '@/lib/project-location';
-import { collapseExpandedMonthWeek, toggleExpandedMonthWeek } from '@/lib/schedule-month-expand';
+import {
+  collapseExpandedMonthWeek,
+  getMonthDaySummaryCounts,
+  toggleExpandedMonthWeek,
+} from '@/lib/schedule-month-expand';
 import {
   collectUniqueWeatherRequests,
   resolveTaskWeatherRequest,
@@ -1010,10 +1014,15 @@ export default function SchedulePage() {
                         {format(monthWeek[0], 'MM/dd')}–{format(monthWeek[5], 'MM/dd')} 週排程
                         {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                       </button>
-                      <div className="grid grid-cols-7 min-h-[160px]">
+                      <div className="grid h-80 grid-cols-7 overflow-hidden">
                 {monthWeek.map(day => {
                   const dateStr = format(day, 'yyyy-MM-dd');
                   const dayTasks = sortTasks(tasks.filter(t => t.task_date === dateStr));
+                  const { visibleCount, hiddenCount } = getMonthDaySummaryCounts(
+                    dayTasks.length,
+                    DAILY_TASK_DISPLAY_LIMIT,
+                  );
+                  const displayTasks = dayTasks.slice(0, visibleCount);
                   const isCurrentMonth = day.getMonth() === currentDate.getMonth();
                   
                   return (
@@ -1033,8 +1042,8 @@ export default function SchedulePage() {
                       <div className={`text-right text-xs p-1 font-semibold ${isSameDay(day, new Date()) ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'}`}>
                         {format(day, 'd')}
                       </div>
-                      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1">
-                        {dayTasks.slice(0, DAILY_TASK_DISPLAY_LIMIT).map(task => {
+                      <div className="flex-1 min-h-0 overflow-hidden flex flex-col gap-1">
+                        {displayTasks.map(task => {
                           const { projName, assigneeDisplay, coworkerDisplay, district, searchAddress } = getTaskDisplay(task);
                           const weatherDisplay = getTaskWeatherDisplay(task);
                           const isDone = task.status === '完成';
@@ -1053,7 +1062,7 @@ export default function SchedulePage() {
                                 setEditingTaskMembers(members.filter(m => m.task_id === task.id).map(m => m.user_id));
                                 setIsFormOpen(true);
                               }}
-                              className={`${fontSizeClasses.month} shrink-0 min-w-0 px-1 py-0.5 rounded cursor-pointer ${
+                              className={`${fontSizeClasses.month} h-7 shrink-0 min-w-0 overflow-hidden px-1 py-0.5 rounded cursor-pointer ${
                                 isDone ? 'bg-[var(--surface-secondary)] text-[var(--text-muted)] opacity-50' :
                                 isRescheduled ? 'bg-[var(--surface-secondary)] text-[var(--text-muted)] border border-dashed border-[var(--text-muted)] opacity-60' :
                                 task.is_tentative ? 'bg-[var(--surface-secondary)] text-[var(--warning)] border border-[var(--warning)]' :
@@ -1085,12 +1094,12 @@ export default function SchedulePage() {
                             </div>
                           );
                         })}
-                        {dayTasks.length > DAILY_TASK_DISPLAY_LIMIT && (
+                        {hiddenCount > 0 && (
                           <div 
                             className="shrink-0 text-[10px] text-center text-[var(--text-muted)] cursor-pointer hover:text-[var(--accent)]"
                             onClick={() => setSelectedDayTasks({ date: day, tasks: dayTasks })}
                           >
-                            +{dayTasks.length - DAILY_TASK_DISPLAY_LIMIT} 筆
+                            +{hiddenCount} 筆
                           </div>
                         )}
                       </div>

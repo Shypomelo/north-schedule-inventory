@@ -4,6 +4,7 @@ const path = require('node:path');
 const test = require('node:test');
 const {
   collapseExpandedMonthWeek,
+  getMonthDaySummaryCounts,
   toggleExpandedMonthWeek,
 } = require('./schedule-month-expand.ts');
 
@@ -66,6 +67,32 @@ test('expanded week retains the shared daily display limit and full day drawer',
   assert.match(schedulePage, /const DAILY_TASK_DISPLAY_LIMIT = 8/);
   assert.match(schedulePage, /const displayTasks = dayTasks\.slice\(0, DAILY_TASK_DISPLAY_LIMIT\)/);
   assert.match(schedulePage, /setSelectedDayTasks\(\{ date: day, tasks: dayTasks \}\)/);
+});
+
+test('a day with 3 tasks renders 3 cards without a remainder', () => {
+  assert.deepEqual(getMonthDaySummaryCounts(3), { visibleCount: 3, hiddenCount: 0 });
+});
+
+test('a day with 8 tasks renders 8 cards without a remainder', () => {
+  assert.deepEqual(getMonthDaySummaryCounts(8), { visibleCount: 8, hiddenCount: 0 });
+});
+
+test('a day with 10 tasks renders 8 cards and +2', () => {
+  assert.deepEqual(getMonthDaySummaryCounts(10), { visibleCount: 8, hiddenCount: 2 });
+});
+
+test('large task counts cannot grow the fixed month row', () => {
+  assert.deepEqual(getMonthDaySummaryCounts(20), { visibleCount: 8, hiddenCount: 12 });
+  assert.match(schedulePage, /className="grid h-80 grid-cols-7 overflow-hidden"/);
+  assert.match(schedulePage, /className="flex-1 min-h-0 overflow-hidden flex flex-col gap-1"/);
+  assert.doesNotMatch(schedulePage, /className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1"/);
+});
+
+test('weekly detail remains a separate conditional block below the compact month row', () => {
+  assert.match(
+    schedulePage,
+    /className="grid h-80 grid-cols-7 overflow-hidden"[\s\S]*?\{isExpanded && \([\s\S]*?renderWeeklySchedule\(monthWeek\.slice\(0, 6\), false\)/,
+  );
 });
 
 test('month navigation and view changes collapse expanded week state', () => {

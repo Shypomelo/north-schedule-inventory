@@ -6,3 +6,8 @@ export const toggleExpandedMonthWeek = (
 );
 
 export const collapseExpandedMonthWeek = (): null => null;
+
+export const getMonthDaySummaryCounts = (taskCount: number, limit = 8) => ({
+  visibleCount: Math.min(taskCount, limit),
+  hiddenCount: Math.max(taskCount - limit, 0),
+});
