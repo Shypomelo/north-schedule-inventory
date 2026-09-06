@@ -319,6 +319,14 @@ export default function SchedulePage() {
     d = addDays(d, 1);
   }
   const monthWeekCount = monthDays.length / 7;
+  const monthWeekOptions = Array.from({ length: monthWeekCount }, (_, weekIndex) => {
+    const start = monthDays[weekIndex * 7];
+    const end = addDays(start, 5);
+    return {
+      key: format(start, 'yyyy-MM-dd'),
+      label: `${format(start, 'MM/dd')}–${format(end, 'MM/dd')} 週排程`,
+    };
+  });
   const expandedMonthWeekDays = expandedMonthWeekStart
     ? Array.from({ length: 6 }, (_, index) => (
         addDays(new Date(`${expandedMonthWeekStart}T00:00:00`), index)
@@ -992,6 +1000,28 @@ export default function SchedulePage() {
             renderWeeklySchedule(weekDays, true)
           ) : (
             <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3">
+              <div data-week-expand-controls className="shrink-0 flex flex-wrap gap-2">
+                {monthWeekOptions.map(week => {
+                  const isExpanded = expandedMonthWeekStart === week.key;
+                  return (
+                    <button
+                      key={week.key}
+                      type="button"
+                      aria-expanded={isExpanded}
+                      onClick={() => setExpandedMonthWeekStart(current => (
+                        toggleExpandedMonthWeek(current, week.key)
+                      ))}
+                      className={`rounded-md border px-3 py-1 text-xs font-semibold transition ${
+                        isExpanded
+                          ? 'border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-text)]'
+                          : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)]'
+                      }`}
+                    >
+                      {week.label} {isExpanded ? '▴' : '▾'}
+                    </button>
+                  );
+                })}
+              </div>
               <div className="min-h-full flex flex-col">
                 <div data-month-calendar className="flex-1 min-h-0 flex flex-col border border-[var(--border)] rounded-xl bg-[var(--surface)] overflow-hidden">
                 <div className="grid grid-cols-7 bg-[var(--surface-secondary)] border-b border-[var(--border)]">
@@ -1006,8 +1036,6 @@ export default function SchedulePage() {
                   {monthDays.map((day, index) => {
                   const dateStr = format(day, 'yyyy-MM-dd');
                   const dayTasks = sortTasks(tasks.filter(t => t.task_date === dateStr));
-                  const monthWeekStart = format(startOfWeek(day, { weekStartsOn: 1 }), 'yyyy-MM-dd');
-                  const isWeekExpanded = expandedMonthWeekStart === monthWeekStart;
                   const isCurrentMonth = day.getMonth() === currentDate.getMonth();
                   
                   return (
@@ -1024,23 +1052,7 @@ export default function SchedulePage() {
                         setDayContextMenu({ dateStr, x: e.clientX, y: e.clientY });
                       }}
                     >
-                      <div
-                        role="button"
-                        tabIndex={0}
-                        aria-expanded={isWeekExpanded}
-                        aria-label={`${format(day, 'MM/dd')} 所在週排程`}
-                        className={`text-right text-xs p-1 font-semibold cursor-pointer ${isSameDay(day, new Date()) ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'}`}
-                        onClick={() => setExpandedMonthWeekStart(current => (
-                          toggleExpandedMonthWeek(current, monthWeekStart)
-                        ))}
-                        onKeyDown={event => {
-                          if (event.key !== 'Enter' && event.key !== ' ') return;
-                          event.preventDefault();
-                          setExpandedMonthWeekStart(current => (
-                            toggleExpandedMonthWeek(current, monthWeekStart)
-                          ));
-                        }}
-                      >
+                      <div className={`text-right text-xs p-1 font-semibold ${isSameDay(day, new Date()) ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'}`}>
                         {format(day, 'd')}
                       </div>
                       <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1">

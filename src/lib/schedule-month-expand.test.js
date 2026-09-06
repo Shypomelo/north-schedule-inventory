@@ -39,8 +39,20 @@ test('month day cards restore the pre-Phase-C nested scrollbar contract', () => 
 
 test('clicking a week preserves the month calendar and adds one external panel', () => {
   assert.equal(toggleExpandedMonthWeek(null, '2026-09-07'), '2026-09-07');
+  assert.match(schedulePage, /data-week-expand-controls/);
+  assert.match(schedulePage, /\$\{format\(start, 'MM\/dd'\)\}–\$\{format\(end, 'MM\/dd'\)\} 週排程/);
+  assert.match(schedulePage, /toggleExpandedMonthWeek\(current, week\.key\)/);
   assert.match(schedulePage, /<div data-month-calendar[\s\S]*?\{expandedMonthWeekStart && \(\s*<section data-expanded-week-panel/);
   assert.match(schedulePage, /renderWeeklySchedule\(expandedMonthWeekDays, false\)/);
+});
+
+test('schedule card click remains separate from week expansion', () => {
+  const cardRenderStart = schedulePage.indexOf('dayTasks.slice(0, DAILY_TASK_DISPLAY_LIMIT).map');
+  const remainderStart = schedulePage.indexOf('dayTasks.length > DAILY_TASK_DISPLAY_LIMIT', cardRenderStart);
+  const cardRender = schedulePage.slice(cardRenderStart, remainderStart);
+  assert.match(cardRender, /setEditingTask\(task\)/);
+  assert.match(cardRender, /setIsFormOpen\(true\)/);
+  assert.doesNotMatch(cardRender, /toggleExpandedMonthWeek/);
 });
 
 test('external panel cannot shrink the original month calendar', () => {
