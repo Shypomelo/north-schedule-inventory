@@ -16,6 +16,7 @@ import { useUser } from '@/components/UserContext';
 import { getDatabaseErrorMessage, isMissingCoreTablesError } from '@/lib/db/supabase-errors';
 import { supabase } from '@/lib/db/supabaseClient';
 import { parseTaiwanProjectLocation } from '@/lib/project-location';
+import { toggleExpandedMonthWeek } from '@/lib/schedule-month-expand';
 import {
   collectUniqueWeatherRequests,
   resolveTaskWeatherRequest,
@@ -996,7 +997,9 @@ export default function SchedulePage() {
                       <button
                         type="button"
                         aria-expanded={isExpanded}
-                        onClick={() => setExpandedMonthWeekStart(current => current === monthWeekStart ? null : monthWeekStart)}
+                        onClick={() => setExpandedMonthWeekStart(current => (
+                          toggleExpandedMonthWeek(current, monthWeekStart)
+                        ))}
                         className="sticky left-0 z-[1] w-full flex items-center justify-center gap-2 border-b border-[var(--border)] bg-[var(--surface-secondary)] px-3 py-1 text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--accent)]"
                       >
                         {format(monthWeek[0], 'MM/dd')}–{format(monthWeek[5], 'MM/dd')} 週排程

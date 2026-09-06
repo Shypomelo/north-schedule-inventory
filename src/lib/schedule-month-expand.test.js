@@ -2,18 +2,48 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const { toggleExpandedMonthWeek } = require('./schedule-month-expand.ts');
 
 const schedulePage = fs.readFileSync(
   path.join(__dirname, '..', 'app', 'schedule', 'page.tsx'),
   'utf8',
 );
 
-test('month view keeps exactly one expanded week and toggles the same week closed', () => {
+test('month view uses a stable week-start string with the shared toggle', () => {
   assert.match(schedulePage, /expandedMonthWeekStart/);
-  assert.match(
-    schedulePage,
-    /setExpandedMonthWeekStart\(current => current === monthWeekStart \? null : monthWeekStart\)/,
-  );
+  assert.match(schedulePage, /const monthWeekStart = format\(monthWeek\[0\], 'yyyy-MM-dd'\)/);
+  assert.match(schedulePage, /toggleExpandedMonthWeek\(current, monthWeekStart\)/);
+});
+
+test('expanded week is initially null', () => {
+  assert.match(schedulePage, /useState<string \| null>\(null\)/);
+});
+
+test('clicking week A expands A', () => {
+  assert.equal(toggleExpandedMonthWeek(null, '2026-09-07'), '2026-09-07');
+});
+
+test('clicking expanded week A collapses it', () => {
+  assert.equal(toggleExpandedMonthWeek('2026-09-07', '2026-09-07'), null);
+});
+
+test('clicking week B while A is expanded replaces A with B', () => {
+  assert.equal(toggleExpandedMonthWeek('2026-09-07', '2026-09-14'), '2026-09-14');
+});
+
+test('the state can identify at most one expanded week', () => {
+  let expandedWeek = null;
+  expandedWeek = toggleExpandedMonthWeek(expandedWeek, '2026-09-07');
+  expandedWeek = toggleExpandedMonthWeek(expandedWeek, '2026-09-14');
+  assert.equal(expandedWeek, '2026-09-14');
+  assert.equal(typeof expandedWeek, 'string');
+});
+
+test('week A can be expanded again after it is collapsed', () => {
+  let expandedWeek = toggleExpandedMonthWeek(null, '2026-09-07');
+  expandedWeek = toggleExpandedMonthWeek(expandedWeek, '2026-09-07');
+  expandedWeek = toggleExpandedMonthWeek(expandedWeek, '2026-09-07');
+  assert.equal(expandedWeek, '2026-09-07');
 });
 
 test('expanded month week renders Monday through Saturday with the shared weekly renderer', () => {
