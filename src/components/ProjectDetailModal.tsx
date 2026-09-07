@@ -10,6 +10,7 @@ import { ConstructionProgressSection, ConstructionWorkTypeControls } from './Con
 import { useConstructionProgress, type ConstructionMutationResult } from './useConstructionProgress';
 import type { ProjectMilestone } from '@/lib/db/types';
 import { ProjectDifficultyAssessments } from './ProjectDifficultyAssessments';
+import { ProjectPositionAssignments } from './ProjectPositionAssignments';
 
 interface Props {
   project: Project;
@@ -137,6 +138,10 @@ export function ProjectDetailModal({ project, onClose, onUpdate, onConstructionU
           </select>
         </div>
       </div>
+      <ProjectPositionAssignments
+        projectId={project.id}
+        canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')}
+      />
       <div className="border-t border-theme-border pt-4">
         <p className="mb-3 text-sm text-secondary">參與工種（其他工項請至施工區逐筆新增）</p>
         <ConstructionWorkTypeControls model={construction} />

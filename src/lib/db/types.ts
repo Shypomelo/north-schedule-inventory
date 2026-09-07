@@ -479,6 +479,7 @@ export interface WorkflowTemplateStep {
   type_id: string;
   sort_order: number;
   default_is_applicable: boolean;
+  responsible_position_id: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -516,6 +517,7 @@ export interface ProjectMilestone {
   planned_date: string | null;
   actual_date: string | null;
   notes: string | null;
+  responsible_position_id: string | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -569,6 +571,40 @@ export interface ProjectDifficultyAssessment {
   notes: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface Position {
+  id: string;
+  name: string;
+  is_active: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MemberPosition {
+  member_id: string;
+  position_id: string;
+  created_at: string;
+}
+
+export interface ProjectPositionAssignment {
+  id: string;
+  project_id: string;
+  position_id: string;
+  member_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MemberProjectResponsibility {
+  assignment: ProjectPositionAssignment;
+  project: Project;
+  position: Position;
+  milestones: ProjectMilestone[];
+  current_milestone: ProjectMilestone | null;
+  previous_milestone: ProjectMilestone | null;
+  current_planned_date: string | null;
 }
 
 export type ProjectDifficultyAssessmentScores = Pick<

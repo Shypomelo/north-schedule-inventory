@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/components/UserContext';
-import { User, UserRole } from '@/lib/db/types';
+import { MemberPosition, Position, User, UserRole } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { Plus, Edit2, ShieldAlert } from 'lucide-react';
 
@@ -15,6 +15,11 @@ export default function AdminUsersPage() {
   const { currentUser, isLoading: contextLoading } = useUser();
   const isAdmin = currentUser?.role?.toLowerCase() === 'admin';
   const [users, setUsers] = useState<User[]>([]);
+  const [positions, setPositions] = useState<Position[]>([]);
+  const [memberPositions, setMemberPositions] = useState<MemberPosition[]>([]);
+  const [selectedPositionIds, setSelectedPositionIds] = useState<string[]>([]);
+  const [newPositionName, setNewPositionName] = useState('');
+  const [positionSavingId, setPositionSavingId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -51,12 +56,18 @@ export default function AdminUsersPage() {
         setTimeout(() => reject(new Error('讀取超時，請重試')), 10000)
       );
       
-      const data = await Promise.race([
-        dbAdapter.getUsers(),
+      const [data, positionRows, memberPositionRows] = await Promise.race([
+        Promise.all([
+          dbAdapter.getUsers(),
+          dbAdapter.getPositions(true),
+          dbAdapter.getMemberPositions(),
+        ]),
         timeoutPromise
-      ]) as User[];
+      ]) as [User[], Position[], MemberPosition[]];
       
       setUsers(data);
+      setPositions(positionRows);
+      setMemberPositions(memberPositionRows);
     } catch (err: any) {
       console.error('Fetch users failed:', err);
       setError(err.message || '無法載入人員資料');
@@ -86,6 +97,9 @@ export default function AdminUsersPage() {
         notes: user.notes || '',
         google_calendar_email: user.google_calendar_email || ''
       });
+      setSelectedPositionIds(memberPositions
+        .filter(link => link.member_id === user.id)
+        .map(link => link.position_id));
     } else {
       setEditingUser(null);
       setFormData({
@@ -98,6 +112,7 @@ export default function AdminUsersPage() {
         notes: '',
         google_calendar_email: ''
       });
+      setSelectedPositionIds([]);
     }
     setIsModalOpen(true);
   };
@@ -114,11 +129,10 @@ export default function AdminUsersPage() {
         ? { ...formData, role: 'ADMIN' as UserRole, is_active: true }
         : formData;
 
-      if (editingUser) {
-        await dbAdapter.updateUser(editingUser.id, payload);
-      } else {
-        await dbAdapter.createUser(payload as any);
-      }
+      const savedUser = editingUser
+        ? await dbAdapter.updateUser(editingUser.id, payload)
+        : await dbAdapter.createUser(payload as any);
+      await dbAdapter.setMemberPositions(savedUser.id, selectedPositionIds);
       setIsModalOpen(false);
       loadUsers();
       // Force reload layout or context if user edits themselves, but for now just load users table
@@ -129,6 +143,49 @@ export default function AdminUsersPage() {
   };
 
   const editingOwner = isOwnerUser(editingUser);
+  const getUserPositionNames = (userId: string) => {
+    const positionIds = new Set(memberPositions
+      .filter(link => link.member_id === userId)
+      .map(link => link.position_id));
+    return positions.filter(position => positionIds.has(position.id)).map(position => position.name);
+  };
+
+  const createPosition = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const name = newPositionName.trim();
+    if (!name) return;
+    setPositionSavingId('new');
+    try {
+      const sortOrder = positions.reduce((max, position) => Math.max(max, position.sort_order), 0) + 10;
+      await dbAdapter.createPosition({ name, sort_order: sortOrder });
+      setNewPositionName('');
+      await loadUsers();
+    } catch (err: any) {
+      alert(`新增職位失敗：${err.message || '未知錯誤'}`);
+    } finally {
+      setPositionSavingId(null);
+    }
+  };
+
+  const updatePositionLocal = (id: string, updates: Partial<Position>) => {
+    setPositions(current => current.map(position => position.id === id ? { ...position, ...updates } : position));
+  };
+
+  const savePosition = async (position: Position) => {
+    setPositionSavingId(position.id);
+    try {
+      await dbAdapter.updatePosition(position.id, {
+        name: position.name,
+        sort_order: position.sort_order,
+        is_active: position.is_active,
+      });
+      await loadUsers();
+    } catch (err: any) {
+      alert(`儲存職位失敗：${err.message || '未知錯誤'}`);
+    } finally {
+      setPositionSavingId(null);
+    }
+  };
 
   return (
     <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 flex flex-col gap-6">
@@ -166,6 +223,7 @@ export default function AdminUsersPage() {
                 <th className="p-4 font-semibold">簡稱</th>
                 <th className="p-4 font-semibold">分類</th>
                 <th className="p-4 font-semibold">角色</th>
+                <th className="p-4 font-semibold">職位</th>
                 <th className="p-4 font-semibold">狀態</th>
                 <th className="p-4 font-semibold">登入 Email</th>
                 <th className="p-4 font-semibold">Google Calendar Email</th>
@@ -202,6 +260,9 @@ export default function AdminUsersPage() {
                       {user.role}
                     </span>
                   </td>
+                  <td className="p-4 text-secondary">
+                    {getUserPositionNames(user.id).join('、') || '未設定'}
+                  </td>
                   <td className="p-4">
                     {user.is_active ? (
                       <span className="text-success flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-success"></span> 啟用</span>
@@ -228,6 +289,42 @@ export default function AdminUsersPage() {
           </table>
         )}
       </div>
+
+      <section className="rounded-xl border border-theme-border bg-card p-6 shadow-sm">
+        <div className="mb-4">
+          <h2 className="text-lg font-bold text-primary">職位管理</h2>
+          <p className="mt-1 text-sm text-secondary">職位獨立於系統權限與人員分類，可新增、改名、排序或停用。</p>
+        </div>
+        <form onSubmit={createPosition} className="mb-4 flex gap-3">
+          <input
+            value={newPositionName}
+            onChange={event => setNewPositionName(event.target.value)}
+            placeholder="新增職位名稱"
+            className="min-w-0 flex-1 rounded-lg border border-theme-border bg-page px-3 py-2 text-primary outline-none focus:border-accent"
+          />
+          <button type="submit" disabled={!newPositionName.trim() || positionSavingId !== null} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+            新增職位
+          </button>
+        </form>
+        <div className="space-y-2">
+          {[...positions].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)).map(position => (
+            <div key={position.id} className={`grid grid-cols-[minmax(12rem,1fr)_7rem_6rem_auto] items-end gap-3 rounded-lg border border-theme-border p-3 ${position.is_active ? '' : 'opacity-60'}`}>
+              <label className="text-xs text-secondary">名稱
+                <input value={position.name} onChange={event => updatePositionLocal(position.id, { name: event.target.value })} className="mt-1 w-full rounded-lg border border-theme-border bg-page px-3 py-2 text-sm text-primary outline-none focus:border-accent" />
+              </label>
+              <label className="text-xs text-secondary">排序
+                <input type="number" min={0} value={position.sort_order} onChange={event => updatePositionLocal(position.id, { sort_order: Number(event.target.value) })} className="mt-1 w-full rounded-lg border border-theme-border bg-page px-3 py-2 text-sm text-primary outline-none focus:border-accent" />
+              </label>
+              <label className="flex h-10 items-center gap-2 text-sm text-secondary">
+                <input type="checkbox" checked={position.is_active} onChange={event => updatePositionLocal(position.id, { is_active: event.target.checked })} className="h-4 w-4 accent-accent" />啟用
+              </label>
+              <button type="button" disabled={!position.name.trim() || positionSavingId !== null} onClick={() => void savePosition(position)} className="h-10 rounded-lg border border-theme-border px-4 text-sm text-primary disabled:opacity-50">
+                {positionSavingId === position.id ? '儲存中...' : '儲存'}
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-page/80 backdrop-blur-sm">
@@ -315,6 +412,28 @@ export default function AdminUsersPage() {
                   </select>
                 </div>
               </div>
+
+              <fieldset className="rounded-lg border border-theme-border p-3">
+                <legend className="px-1 text-sm font-medium text-secondary">職位（可複選）</legend>
+                <div className="grid grid-cols-2 gap-2">
+                  {positions.filter(position => position.is_active).map(position => (
+                    <label key={position.id} className="flex items-center gap-2 rounded-lg bg-page px-3 py-2 text-sm text-primary">
+                      <input
+                        type="checkbox"
+                        checked={selectedPositionIds.includes(position.id)}
+                        onChange={event => setSelectedPositionIds(current => event.target.checked
+                          ? Array.from(new Set([...current, position.id]))
+                          : current.filter(id => id !== position.id))}
+                        className="h-4 w-4 accent-accent"
+                      />
+                      {position.name}
+                    </label>
+                  ))}
+                  {positions.every(position => !position.is_active) && (
+                    <span className="col-span-2 text-sm text-secondary">目前沒有啟用中的職位。</span>
+                  )}
+                </div>
+              </fieldset>
 
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm font-medium text-secondary">登入 Email (Supabase Auth) <span className="text-danger">*</span></label>

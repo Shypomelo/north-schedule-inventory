@@ -29,6 +29,10 @@ import {
   ProjectDifficultyAssessment,
   ProjectDifficultyAssessmentInput,
   ProjectDifficultyAssessmentScores,
+  Position,
+  MemberPosition,
+  ProjectPositionAssignment,
+  MemberProjectResponsibility,
   isActiveFormalTransaction,
 } from './types';
 import { throwMissingCoreTablesErrorIfNeeded } from './supabase-errors';
@@ -36,6 +40,7 @@ import { getInventoryTransactionQuantityDelta } from './inventory-stock';
 import { getConstructionEndDate, getConstructionToday, validateActualCompletionDate } from '../construction-progress';
 import { getProjectOuterWorkflowFields } from '../project-workflow';
 import { isContractorType, validateContractorCapabilities, validateContractorCapabilityValues } from '../contractors';
+import { buildMemberProjectResponsibilities, getPositionCandidates } from '../engineering-responsibilities';
 
 const mapUser = (row: any): User => ({
   id: row.id,
@@ -1433,6 +1438,183 @@ export const pocSupabaseAdapter = {
     return mapUser(data);
   },
 
+  // --- Positions and responsibility assignments ---
+  getPositions: async (includeInactive = false): Promise<Position[]> => {
+    let query = supabase
+      .from('positions')
+      .select('*')
+      .order('sort_order', { ascending: true })
+      .order('name', { ascending: true })
+      .order('id', { ascending: true });
+    if (!includeInactive) query = query.eq('is_active', true);
+    const { data, error } = await query;
+    if (error) throw error;
+    return (data ?? []) as Position[];
+  },
+
+  createPosition: async (input: { name: string; sort_order: number }): Promise<Position> => {
+    const { data, error } = await supabase
+      .from('positions')
+      .insert({ name: input.name.trim(), sort_order: input.sort_order })
+      .select()
+      .single();
+    if (error) throw error;
+    return data as Position;
+  },
+
+  updatePosition: async (
+    id: string,
+    updates: Pick<Partial<Position>, 'name' | 'sort_order' | 'is_active'>,
+  ): Promise<Position> => {
+    const payload = {
+      ...updates,
+      ...(updates.name === undefined ? {} : { name: updates.name.trim() }),
+    };
+    const { data, error } = await supabase
+      .from('positions')
+      .update(payload)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as Position;
+  },
+
+  getMemberPositions: async (memberId?: string): Promise<MemberPosition[]> => {
+    let query = supabase.from('member_positions').select('*');
+    if (memberId) query = query.eq('member_id', memberId);
+    const { data, error } = await query;
+    if (error) throw error;
+    return (data ?? []) as MemberPosition[];
+  },
+
+  setMemberPositions: async (memberId: string, positionIds: string[]): Promise<void> => {
+    const uniqueIds = Array.from(new Set(positionIds));
+    const { data: existing, error: readError } = await supabase
+      .from('member_positions')
+      .select('position_id')
+      .eq('member_id', memberId);
+    if (readError) throw readError;
+    const existingIds = new Set((existing ?? []).map(row => row.position_id as string));
+    const desiredIds = new Set(uniqueIds);
+    const additions = uniqueIds.filter(positionId => !existingIds.has(positionId));
+    const removals = Array.from(existingIds).filter(positionId => !desiredIds.has(positionId));
+
+    if (additions.length > 0) {
+      const { error } = await supabase
+        .from('member_positions')
+        .insert(additions.map(positionId => ({ member_id: memberId, position_id: positionId })));
+      if (error) throw error;
+    }
+    if (removals.length > 0) {
+      const { error } = await supabase
+        .from('member_positions')
+        .delete()
+        .eq('member_id', memberId)
+        .in('position_id', removals);
+      if (error) throw error;
+    }
+  },
+
+  getPositionCandidates: async (positionId: string): Promise<User[]> => {
+    const [{ data: users, error: usersError }, { data: links, error: linksError }] = await Promise.all([
+      supabase.from('team_members').select('*').is('deleted_at', null).eq('is_active', true),
+      supabase.from('member_positions').select('*').eq('position_id', positionId),
+    ]);
+    if (usersError) throw usersError;
+    if (linksError) throw linksError;
+    return getPositionCandidates((users ?? []).map(mapUser), (links ?? []) as MemberPosition[], positionId);
+  },
+
+  getProjectResponsiblePositions: async (projectId: string): Promise<Position[]> => {
+    const { data: milestones, error: milestoneError } = await supabase
+      .from('project_milestones')
+      .select('responsible_position_id')
+      .eq('project_id', projectId)
+      .eq('is_applicable', true)
+      .is('deleted_at', null)
+      .not('responsible_position_id', 'is', null);
+    if (milestoneError) throw milestoneError;
+    const positionIds = Array.from(new Set((milestones ?? [])
+      .map(row => row.responsible_position_id as string | null)
+      .filter((id): id is string => Boolean(id))));
+    if (positionIds.length === 0) return [];
+    const { data, error } = await supabase
+      .from('positions')
+      .select('*')
+      .in('id', positionIds)
+      .order('sort_order', { ascending: true })
+      .order('name', { ascending: true });
+    if (error) throw error;
+    return (data ?? []) as Position[];
+  },
+
+  getProjectPositionAssignments: async (projectId: string): Promise<ProjectPositionAssignment[]> => {
+    const { data, error } = await supabase
+      .from('project_position_assignments')
+      .select('*')
+      .eq('project_id', projectId);
+    if (error) throw error;
+    return (data ?? []) as ProjectPositionAssignment[];
+  },
+
+  upsertProjectPositionAssignment: async (
+    projectId: string,
+    positionId: string,
+    memberId: string,
+  ): Promise<ProjectPositionAssignment> => {
+    const { data, error } = await supabase
+      .from('project_position_assignments')
+      .upsert(
+        { project_id: projectId, position_id: positionId, member_id: memberId },
+        { onConflict: 'project_id,position_id' },
+      )
+      .select()
+      .single();
+    if (error) throw error;
+    return data as ProjectPositionAssignment;
+  },
+
+  clearProjectPositionAssignment: async (projectId: string, positionId: string): Promise<void> => {
+    const { error } = await supabase
+      .from('project_position_assignments')
+      .delete()
+      .eq('project_id', projectId)
+      .eq('position_id', positionId);
+    if (error) throw error;
+  },
+
+  getMemberProjectResponsibilities: async (memberId: string): Promise<MemberProjectResponsibility[]> => {
+    const { data: assignments, error: assignmentError } = await supabase
+      .from('project_position_assignments')
+      .select('*')
+      .eq('member_id', memberId);
+    if (assignmentError) throw assignmentError;
+    const rows = (assignments ?? []) as ProjectPositionAssignment[];
+    if (rows.length === 0) return [];
+    const projectIds = Array.from(new Set(rows.map(row => row.project_id)));
+    const positionIds = Array.from(new Set(rows.map(row => row.position_id)));
+    const [{ data: projects, error: projectError }, { data: positions, error: positionError }, { data: milestones, error: milestoneError }] = await Promise.all([
+      supabase.from('projects').select('*').in('id', projectIds).eq('is_active', true).is('deleted_at', null),
+      supabase.from('positions').select('*').in('id', positionIds),
+      supabase.from('project_milestones').select('*').in('project_id', projectIds).eq('is_applicable', true).is('deleted_at', null),
+    ]);
+    if (projectError) throw projectError;
+    if (positionError) throw positionError;
+    if (milestoneError) throw milestoneError;
+    return buildMemberProjectResponsibilities({
+      memberId,
+      assignments: rows,
+      projects: (projects ?? []).map(row => ({
+        id: row.id,
+        name: row.project_name || '',
+        is_active: row.deleted_at === null,
+      } as Project)),
+      positions: (positions ?? []) as Position[],
+      milestones: (milestones ?? []) as ProjectMilestone[],
+    });
+  },
+
   // --- Schedule Task Types ---
   listScheduleTaskTypes: async (): Promise<ScheduleTaskType[]> => {
     const { data, error } = await supabase
@@ -2320,6 +2502,7 @@ export const pocSupabaseAdapter = {
     type_id: string;
     sort_order: number;
     default_is_applicable: boolean;
+    responsible_position_id?: string | null;
   }): Promise<WorkflowTemplateStep> => {
     const { data, error } = await supabase
       .from('project_workflow_template_steps')
@@ -2336,7 +2519,7 @@ export const pocSupabaseAdapter = {
 
   updateWorkflowTemplateStep: async (
     id: string,
-    updates: Pick<Partial<WorkflowTemplateStep>, 'label' | 'phase_id' | 'type_id' | 'sort_order' | 'default_is_applicable' | 'is_active'>,
+    updates: Pick<Partial<WorkflowTemplateStep>, 'label' | 'phase_id' | 'type_id' | 'sort_order' | 'default_is_applicable' | 'responsible_position_id' | 'is_active'>,
   ): Promise<WorkflowTemplateStep> => {
     const { data, error } = await supabase
       .from('project_workflow_template_steps')
