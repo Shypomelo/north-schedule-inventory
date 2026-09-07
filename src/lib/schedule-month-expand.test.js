@@ -4,7 +4,7 @@ const path = require('node:path');
 const test = require('node:test');
 const {
   buildMonthScheduleWeeks,
-  collapseExpandedMonthWeek,
+  collapseExpandedMonthWeeks,
   toggleExpandedMonthWeek,
 } = require('./schedule-month-expand.ts');
 
@@ -15,85 +15,74 @@ const localDateKey = date => (
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 );
 
-test('month view starts with no expanded week panel', () => {
-  assert.equal(collapseExpandedMonthWeek(), null);
-  assert.match(schedulePage, /useState<string \| null>\(collapseExpandedMonthWeek\)/);
+test('month view starts with every week compact', () => {
+  const expandedWeeks = collapseExpandedMonthWeeks();
+  assert.equal(expandedWeeks.size, 0);
+  assert.match(schedulePage, /useState<Set<string>>\(collapseExpandedMonthWeeks\)/);
   assert.match(schedulePage, /\{isExpanded \? \(\s*<section/);
 });
 
-test('single month grid keeps its seven-column day layout', () => {
-  assert.equal(september2026Weeks[0].calendarDays.length, 7);
-  assert.match(schedulePage, /className="flex-1 min-h-0 grid grid-cols-7 overflow-y-auto"/);
-  assert.match(schedulePage, /\{monthWeeks\.map\(week => \{/);
-  assert.doesNotMatch(schedulePage, /WeekWrapper/);
+test('week A and week B can remain expanded together', () => {
+  let expandedWeeks = collapseExpandedMonthWeeks();
+  expandedWeeks = toggleExpandedMonthWeek(expandedWeeks, '2026-08-31');
+  expandedWeeks = toggleExpandedMonthWeek(expandedWeeks, '2026-09-07');
+  assert.deepEqual([...expandedWeeks], ['2026-08-31', '2026-09-07']);
 });
 
-test('each authoritative week renders one control after its current mode', () => {
-  assert.match(schedulePage, /\{monthWeeks\.map\(week => \{[\s\S]*?<button\s*data-week-expand-control=\{week\.key\}/);
-  assert.match(schedulePage, /\{week\.label\}/);
+test('collapsing A leaves B expanded', () => {
+  let expandedWeeks = new Set(['2026-08-31', '2026-09-07']);
+  expandedWeeks = toggleExpandedMonthWeek(expandedWeeks, '2026-08-31');
+  assert.deepEqual([...expandedWeeks], ['2026-09-07']);
+});
+
+test('toggling C preserves B and expands C', () => {
+  const currentWeeks = new Set(['2026-09-07']);
+  const expandedWeeks = toggleExpandedMonthWeek(currentWeeks, '2026-09-14');
+  assert.deepEqual([...expandedWeeks], ['2026-09-07', '2026-09-14']);
+  assert.deepEqual([...currentWeeks], ['2026-09-07']);
+});
+
+test('month and view changes clear every expanded week', () => {
+  assert.match(schedulePage, /setExpandedMonthWeeks\(collapseExpandedMonthWeeks\(\)\)/);
+  assert.match(schedulePage, /\[viewMode, visibleMonthKey\]/);
+  assert.equal(collapseExpandedMonthWeeks().size, 0);
+});
+
+test('week controls render only arrows without date-range text', () => {
+  assert.match(schedulePage, /data-week-expand-control=\{week\.key\}/);
+  assert.match(schedulePage, /\{isExpanded \? '↑' : '↓'\}/);
+  assert.match(schedulePage, /\{isExpanded \? '收合本週排程' : '展開本週排程'\}/);
+  assert.doesNotMatch(schedulePage, /week\.label|MM\/dd.*週排程/);
+});
+
+test('each week reads its independent state from the expanded set', () => {
+  assert.match(schedulePage, /const isExpanded = expandedMonthWeeks\.has\(week\.key\)/);
+  assert.match(schedulePage, /setExpandedMonthWeeks\(current => \(\s*toggleExpandedMonthWeek\(current, week\.key\)/);
   assert.equal((schedulePage.match(/data-week-expand-control=/g) || []).length, 1);
-  assert.doesNotMatch(schedulePage, /data-week-expand-controls/);
 });
 
-test('September 2026 first week uses its cross-month Monday as the authoritative key', () => {
+test('September cross-month first and last weeks remain authoritative', () => {
   const firstWeek = september2026Weeks[0];
-  assert.equal(firstWeek.key, '2026-08-31');
-  assert.equal(localDateKey(firstWeek.startDate), '2026-08-31');
-  assert.equal(localDateKey(firstWeek.scheduleDays[0]), '2026-08-31');
-  assert.equal(localDateKey(firstWeek.scheduleDays[1]), '2026-09-01');
-});
-
-test('clicking the first week expands and collapses the same cross-month key', () => {
-  assert.equal(toggleExpandedMonthWeek(null, september2026Weeks[0].key), '2026-08-31');
-  assert.equal(toggleExpandedMonthWeek('2026-08-31', september2026Weeks[0].key), null);
-  assert.match(schedulePage, /toggleExpandedMonthWeek\(current, week\.key\)/);
-});
-
-test('expanded panel receives the selected authoritative week days', () => {
-  assert.match(schedulePage, /const expandedMonthWeek = monthWeeks\.find\(week => week\.key === expandedMonthWeekStart\) \?\? null/);
-  assert.match(schedulePage, /renderWeeklySchedule\(week\.scheduleDays, false\)/);
-  assert.match(schedulePage, /data-expanded-week=\{week\.key\}/);
-  assert.doesNotMatch(schedulePage, /new Date\(`\$\{expandedMonthWeekStart\}T00:00:00`\)/);
-});
-
-test('switching from A to B keeps only B expanded', () => {
-  let expandedWeek = toggleExpandedMonthWeek(null, '2026-08-31');
-  expandedWeek = toggleExpandedMonthWeek(expandedWeek, '2026-09-14');
-  assert.equal(expandedWeek, '2026-09-14');
-  assert.match(schedulePage, /const isExpanded = expandedMonthWeekStart === week\.key/);
-  assert.equal((schedulePage.match(/data-expanded-week=/g) || []).length, 1);
-});
-
-test('panel columns and schedule filtering use the exact same day key', () => {
-  const firstWeek = september2026Weeks[0];
-  const tasks = [
-    { id: 'sep-01', task_date: '2026-09-01' },
-    { id: 'sep-02', task_date: '2026-09-02' },
-    { id: 'sep-03', task_date: '2026-09-03' },
-  ];
-  const septemberSecond = firstWeek.scheduleDays[2];
-  const dateStr = localDateKey(septemberSecond);
-
-  assert.equal(dateStr, '2026-09-02');
-  assert.deepEqual(tasks.filter(task => task.task_date === dateStr).map(task => task.id), ['sep-02']);
-  assert.match(schedulePage, /const dateStr = format\(day, 'yyyy-MM-dd'\);\s*const dayTasks = sortTasks\(tasks\.filter\(task => task\.task_date === dateStr\)\)/);
-});
-
-test('September 2026 last week keeps its October crossover dates', () => {
   const lastWeek = september2026Weeks.at(-1);
+  assert.equal(firstWeek.key, '2026-08-31');
+  assert.equal(localDateKey(firstWeek.scheduleDays[1]), '2026-09-01');
   assert.equal(lastWeek.key, '2026-09-28');
-  assert.equal(localDateKey(lastWeek.startDate), '2026-09-28');
   assert.equal(localDateKey(lastWeek.endDate), '2026-10-03');
   assert.equal(localDateKey(lastWeek.calendarDays[6]), '2026-10-04');
 });
 
-test('compact and expanded representations are mutually exclusive for each week', () => {
+test('expanded weeks keep the authoritative day and schedule filter', () => {
+  assert.match(schedulePage, /renderWeeklySchedule\(week\.scheduleDays, false\)/);
+  assert.match(schedulePage, /const dateStr = format\(day, 'yyyy-MM-dd'\);\s*const dayTasks = sortTasks\(tasks\.filter\(task => task\.task_date === dateStr\)\)/);
+  assert.doesNotMatch(schedulePage, /new Date\(`\$\{expandedMonthWeek/);
+});
+
+test('compact and expanded representations stay mutually exclusive', () => {
   assert.match(
     schedulePage,
-    /\{isExpanded \? \(\s*<section\s*data-expanded-week=\{week\.key\}[\s\S]*?renderWeeklySchedule\(week\.scheduleDays, false\)[\s\S]*?\) : \(\s*week\.calendarDays\.map/,
+    /\{isExpanded \? \(\s*<section\s*data-expanded-week=\{week\.key\}[\s\S]*?\) : \(\s*week\.calendarDays\.map/,
   );
   assert.match(schedulePage, /data-compact-week=\{dayIndex === 0 \? week\.key : undefined\}/);
-  assert.doesNotMatch(schedulePage, /data-expanded-week-panel/);
 });
 
 test('schedule card click remains separate from week expansion', () => {
@@ -105,28 +94,23 @@ test('schedule card click remains separate from week expansion', () => {
   assert.doesNotMatch(cardRender, /toggleExpandedMonthWeek/);
 });
 
-test('month day cards keep the nested scrollbar contract', () => {
+test('compact cards keep the nested scrollbar contract', () => {
   assert.match(schedulePage, /className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1"/);
   assert.doesNotMatch(schedulePage, /className="flex-1 min-h-0 overflow-hidden flex flex-col gap-1"/);
 });
 
-test('month days still render eight cards and the original +N summary', () => {
+test('compact days keep eight cards and the original +N summary', () => {
   assert.match(schedulePage, /const DAILY_TASK_DISPLAY_LIMIT = 8/);
   assert.match(schedulePage, /dayTasks\.slice\(0, DAILY_TASK_DISPLAY_LIMIT\)\.map/);
   assert.match(schedulePage, /dayTasks\.length > DAILY_TASK_DISPLAY_LIMIT/);
   assert.match(schedulePage, /\+\{dayTasks\.length - DAILY_TASK_DISPLAY_LIMIT\} 筆/);
 });
 
-test('original month day cell class remains unchanged', () => {
+test('month grid and compact day cell classes remain unchanged', () => {
+  assert.match(schedulePage, /className="flex-1 min-h-0 grid grid-cols-7 overflow-y-auto"/);
   assert.match(
     schedulePage,
     /className=\{`min-h-0 min-w-0 border-r border-b border-\[var\(--border\)\] last:border-r-0 flex flex-col p-1/,
   );
   assert.doesNotMatch(schedulePage, /\bh-80\b|\bbasis-0\b/);
-});
-
-test('month navigation and view changes collapse the panel', () => {
-  assert.match(schedulePage, /const visibleMonthKey = format\(currentDate, 'yyyy-MM'\)/);
-  assert.match(schedulePage, /\[viewMode, visibleMonthKey\]/);
-  assert.match(schedulePage, /setViewMode\('month'\);[\s\S]*?setExpandedMonthWeekStart\(null\)/);
 });

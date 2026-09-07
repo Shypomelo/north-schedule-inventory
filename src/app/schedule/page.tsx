@@ -18,7 +18,7 @@ import { supabase } from '@/lib/db/supabaseClient';
 import { parseTaiwanProjectLocation } from '@/lib/project-location';
 import {
   buildMonthScheduleWeeks,
-  collapseExpandedMonthWeek,
+  collapseExpandedMonthWeeks,
   toggleExpandedMonthWeek,
 } from '@/lib/schedule-month-expand';
 import {
@@ -130,11 +130,11 @@ export default function SchedulePage() {
   const [viewMode, setViewMode] = useState<ViewMode>('week');
   const [scheduleFontSize, setScheduleFontSize] = useState<ScheduleFontSize>('medium');
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [expandedMonthWeekStart, setExpandedMonthWeekStart] = useState<string | null>(collapseExpandedMonthWeek);
+  const [expandedMonthWeeks, setExpandedMonthWeeks] = useState<Set<string>>(collapseExpandedMonthWeeks);
   const visibleMonthKey = format(currentDate, 'yyyy-MM');
 
   useEffect(() => {
-    setExpandedMonthWeekStart(collapseExpandedMonthWeek());
+    setExpandedMonthWeeks(collapseExpandedMonthWeeks());
   }, [viewMode, visibleMonthKey]);
   
   const [tasks, setTasks] = useState<ScheduleTask[]>([]);
@@ -319,23 +319,22 @@ export default function SchedulePage() {
     monthDays.push(d);
     d = addDays(d, 1);
   }
-  const monthWeeks = buildMonthScheduleWeeks(monthDays).map(week => ({
-    ...week,
-    label: `${format(week.startDate, 'MM/dd')}–${format(week.endDate, 'MM/dd')} 週排程`,
-  }));
-  const expandedMonthWeek = monthWeeks.find(week => week.key === expandedMonthWeekStart) ?? null;
+  const monthWeeks = buildMonthScheduleWeeks(monthDays);
+  const expandedMonthWeekDetails = monthWeeks.filter(week => expandedMonthWeeks.has(week.key));
   const monthGridTemplateRows = monthWeeks.flatMap(week => [
-    expandedMonthWeekStart === week.key ? 'auto' : 'minmax(160px, 1fr)',
+    expandedMonthWeeks.has(week.key) ? 'auto' : 'minmax(160px, 1fr)',
     'auto',
   ]).join(' ');
   const fontSizeClasses = SCHEDULE_FONT_SIZE_CLASSES[scheduleFontSize];
 
   const visibleWeatherTasks = useMemo(() => {
     const visibleTasks = selectedDayTasks ? [...selectedDayTasks.tasks] : [];
-    if (viewMode === 'month' && expandedMonthWeek) {
-      for (const day of expandedMonthWeek.scheduleDays) {
-        const dateStr = format(day, 'yyyy-MM-dd');
-        visibleTasks.push(...sortTasks(tasks.filter(task => task.task_date === dateStr)).slice(0, DAILY_TASK_DISPLAY_LIMIT));
+    if (viewMode === 'month' && expandedMonthWeekDetails.length > 0) {
+      for (const week of expandedMonthWeekDetails) {
+        for (const day of week.scheduleDays) {
+          const dateStr = format(day, 'yyyy-MM-dd');
+          visibleTasks.push(...sortTasks(tasks.filter(task => task.task_date === dateStr)).slice(0, DAILY_TASK_DISPLAY_LIMIT));
+        }
       }
       return visibleTasks;
     }
@@ -347,7 +346,7 @@ export default function SchedulePage() {
       visibleTasks.push(...sortTasks(tasks.filter(task => task.task_date === dateStr)).slice(0, DAILY_TASK_DISPLAY_LIMIT));
     }
     return visibleTasks;
-  }, [currentDate, expandedMonthWeek, selectedDayTasks, tasks, viewMode]);
+  }, [currentDate, expandedMonthWeekDetails, selectedDayTasks, tasks, viewMode]);
 
   const weatherRequests = useMemo(
     () => collectUniqueWeatherRequests(visibleWeatherTasks, projects),
@@ -897,7 +896,7 @@ export default function SchedulePage() {
             <button 
               onClick={() => {
                 setViewMode('week');
-                setExpandedMonthWeekStart(null);
+                setExpandedMonthWeeks(collapseExpandedMonthWeeks());
               }}
               className={`px-4 py-1.5 text-sm font-semibold rounded-md transition ${viewMode === 'week' ? 'bg-[var(--accent)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
             >
@@ -906,7 +905,7 @@ export default function SchedulePage() {
             <button 
               onClick={() => {
                 setViewMode('month');
-                setExpandedMonthWeekStart(null);
+                setExpandedMonthWeeks(collapseExpandedMonthWeeks());
               }}
               className={`px-4 py-1.5 text-sm font-semibold rounded-md transition ${viewMode === 'month' ? 'bg-[var(--accent)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
             >
@@ -937,7 +936,7 @@ export default function SchedulePage() {
             <button 
               onClick={() => {
                 setCurrentDate(viewMode === 'week' ? subDays(currentDate, 7) : addDays(currentDate, -30));
-                if (viewMode === 'month') setExpandedMonthWeekStart(null);
+                if (viewMode === 'month') setExpandedMonthWeeks(collapseExpandedMonthWeeks());
               }}
               className="p-1 hover:bg-[var(--surface-secondary)] rounded text-[var(--text-primary)]"
             >
@@ -951,7 +950,7 @@ export default function SchedulePage() {
             <button 
               onClick={() => {
                 setCurrentDate(viewMode === 'week' ? addDays(currentDate, 7) : addDays(currentDate, 30));
-                if (viewMode === 'month') setExpandedMonthWeekStart(null);
+                if (viewMode === 'month') setExpandedMonthWeeks(collapseExpandedMonthWeeks());
               }}
               className="p-1 hover:bg-[var(--surface-secondary)] rounded text-[var(--text-primary)]"
             >
@@ -1008,7 +1007,7 @@ export default function SchedulePage() {
                   style={{ gridTemplateRows: monthGridTemplateRows }}
                 >
                   {monthWeeks.map(week => {
-                    const isExpanded = expandedMonthWeekStart === week.key;
+                    const isExpanded = expandedMonthWeeks.has(week.key);
 
                     return (
                       <React.Fragment key={week.key}>
@@ -1112,13 +1111,13 @@ export default function SchedulePage() {
                           data-week-expand-control={week.key}
                           type="button"
                           aria-expanded={isExpanded}
-                          onClick={() => setExpandedMonthWeekStart(current => (
+                          onClick={() => setExpandedMonthWeeks(current => (
                             toggleExpandedMonthWeek(current, week.key)
                           ))}
                           className="col-span-full flex w-full cursor-pointer items-center justify-between border-b border-[var(--border)] bg-[var(--surface-secondary)] px-3 py-1 text-xs font-semibold text-[var(--text-secondary)] transition hover:bg-[var(--surface)] hover:text-[var(--accent)]"
                         >
-                          <span>{week.label}</span>
-                          <span aria-hidden="true">{isExpanded ? '▴' : '▾'}</span>
+                          <span className="sr-only">{isExpanded ? '收合本週排程' : '展開本週排程'}</span>
+                          <span aria-hidden="true" className="text-base leading-none">{isExpanded ? '↑' : '↓'}</span>
                         </button>
                       </React.Fragment>
                     );

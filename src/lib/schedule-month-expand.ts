@@ -1,11 +1,17 @@
 export const toggleExpandedMonthWeek = (
-  currentWeekStart: string | null,
+  currentWeekStarts: ReadonlySet<string>,
   selectedWeekStart: string,
-): string | null => (
-  currentWeekStart === selectedWeekStart ? null : selectedWeekStart
-);
+): Set<string> => {
+  const nextWeekStarts = new Set(currentWeekStarts);
+  if (nextWeekStarts.has(selectedWeekStart)) {
+    nextWeekStarts.delete(selectedWeekStart);
+  } else {
+    nextWeekStarts.add(selectedWeekStart);
+  }
+  return nextWeekStarts;
+};
 
-export const collapseExpandedMonthWeek = (): null => null;
+export const collapseExpandedMonthWeeks = (): Set<string> => new Set();
 
 export type MonthScheduleWeek = {
   key: string;
