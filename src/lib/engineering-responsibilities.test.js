@@ -87,6 +87,13 @@ test('workflow responsible position columns are nullable foreign keys', () => {
   assert.match(workflowPage, /<option value="">未設定<\/option>/);
 });
 
+test('workflow responsible position uses the existing row save interaction', () => {
+  const stepManager = workflowPage.match(/function TemplateStepManager[\s\S]*?function Select</)[0];
+  assert.equal((stepManager.match(/dbAdapter\.updateWorkflowTemplateStep/g) || []).length, 1);
+  assert.match(stepManager, /<PositionSelect label="負責職位"[\s\S]*?onSave\(step\.id,[\s\S]*?responsible_position_id: step\.responsible_position_id/);
+  assert.match(stepManager, /label: step\.label\.trim\(\), phase_id: step\.phase_id, type_id: step\.type_id, sort_order: step\.sort_order, default_is_applicable: step\.default_is_applicable, responsible_position_id: step\.responsible_position_id, is_active: step\.is_active/);
+});
+
 test('new workflow snapshots copy the template responsible position', () => {
   assert.match(migration, /status,\s*responsible_position_id\s*\)[\s\S]*step\.responsible_position_id/);
 });

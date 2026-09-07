@@ -209,7 +209,7 @@ function TemplateStepManager({ template, phases, types, positions, steps, saving
       <div className="space-y-2">
         {ordered.map(step => (
           <div key={step.id} className={`rounded-xl border border-theme-border p-3 ${step.is_active ? 'bg-page/35' : 'bg-page/20 opacity-60'}`}>
-            <div className="grid grid-cols-[minmax(12rem,1fr)_10rem_10rem_10rem_6rem_7rem_5rem_auto] items-end gap-3">
+            <div className="grid grid-cols-[minmax(10rem,1fr)_repeat(3,minmax(7rem,9rem))_5rem_6rem_4rem_auto] items-end gap-2">
               <label className="text-xs text-secondary">名稱<input value={step.label} onChange={event => updateLocal(step.id, { label: event.target.value })} className={`${inputClass} mt-1`} /></label>
               <Select label="Phase" value={step.phase_id} onChange={value => updateLocal(step.id, { phase_id: value })} items={phases} />
               <Select label="Type" value={step.type_id} onChange={value => updateLocal(step.id, { type_id: value })} items={types} />
