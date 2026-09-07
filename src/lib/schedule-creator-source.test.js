@@ -15,20 +15,28 @@ test('migration preserves legacy rows without guessing an app creator', () => {
 });
 
 test('app creation captures the authenticated member and immutable name snapshot', () => {
-  assert.match(form, /created_by_user_id: initialData\?\.created_by_user_id \|\| currentUser\?\.id \|\| null/);
-  assert.match(form, /created_by_name: initialData\?\.created_by_name \|\| currentUser\?\.name \|\| null/);
-  assert.match(form, /creation_source: initialData\?\.creation_source \|\| \(initialData\?\.id \? 'LEGACY' : 'APP'\)/);
+  assert.match(form, /const isCreateMode = !initialData\?\.id/);
+  assert.match(form, /created_by_user_id: isCreateMode \? currentUser\?\.id \?\? null : initialData\?\.created_by_user_id \?\? null/);
+  assert.match(form, /created_by_name: isCreateMode \? currentUser\?\.name \?\? null : initialData\?\.created_by_name \?\? null/);
+  assert.match(form, /creation_source: isCreateMode \? 'APP' : initialData\?\.creation_source \?\? 'LEGACY'/);
 });
 
-test('schedule form renders creator and source as read-only secondary information', () => {
+test('existing schedule creator display never falls back to the current user', () => {
   assert.match(form, /<dl aria-label="建立資訊"/);
   assert.match(form, /<dt[^>]*>建立者：<\/dt>/);
   assert.match(form, /<dt[^>]*>來源：<\/dt>/);
-  assert.match(form, /formData\.created_by_name\?\.trim\(\)/);
-  assert.match(form, /!isEditingExistingTask \? currentUser\?\.name\?\.trim\(\) : ''/);
-  assert.match(form, /\|\| '未知'/);
+  assert.match(form, /const creatorName = formData\.created_by_name\?\.trim\(\) \|\| '未知'/);
+  assert.doesNotMatch(form, /initialData\?\.created_by_(?:user_id|name) \|\| currentUser/);
+  assert.doesNotMatch(form, /creatorName[\s\S]{0,160}currentUser/);
   assert.doesNotMatch(form, /<input[^>]+(?:created_by_name|creation_source)/);
   assert.doesNotMatch(form, /<select[^>]+(?:created_by_name|creation_source)/);
+});
+
+test('legacy and unmatched Google imports remain unknown while app snapshots remain unchanged', () => {
+  const editCreatorExpression = /created_by_name: isCreateMode \? currentUser\?\.name \?\? null : initialData\?\.created_by_name \?\? null/;
+  assert.match(form, editCreatorExpression);
+  assert.match(form, /const creatorName = formData\.created_by_name\?\.trim\(\) \|\| '未知'/);
+  assert.match(form, /creation_source: isCreateMode \? 'APP' : initialData\?\.creation_source \?\? 'LEGACY'/);
 });
 
 test('all schedule creation sources have user-facing labels', () => {

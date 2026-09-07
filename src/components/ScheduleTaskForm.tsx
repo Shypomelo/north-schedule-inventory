@@ -35,6 +35,7 @@ interface ScheduleTaskFormProps {
 export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCancel, isSubmitting }: ScheduleTaskFormProps) {
   const { currentUser } = useUser();
   const isViewer = currentUser?.role === 'VIEWER';
+  const isCreateMode = !initialData?.id;
   const [projects, setProjects] = useState<Project[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   
@@ -61,10 +62,10 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
     google_sync_status: initialData?.google_sync_status || 'pending',
     google_sync_error: initialData?.google_sync_error || null,
     last_synced_at: initialData?.last_synced_at || null,
-    created_by: initialData?.created_by || currentUser?.id || null,
-    created_by_user_id: initialData?.created_by_user_id || currentUser?.id || null,
-    created_by_name: initialData?.created_by_name || currentUser?.name || null,
-    creation_source: initialData?.creation_source || (initialData?.id ? 'LEGACY' : 'APP'),
+    created_by: isCreateMode ? currentUser?.id ?? null : initialData?.created_by ?? null,
+    created_by_user_id: isCreateMode ? currentUser?.id ?? null : initialData?.created_by_user_id ?? null,
+    created_by_name: isCreateMode ? currentUser?.name ?? null : initialData?.created_by_name ?? null,
+    creation_source: isCreateMode ? 'APP' : initialData?.creation_source ?? 'LEGACY',
     source_todo_id: initialData?.source_todo_id || null,
   });
 
@@ -271,9 +272,7 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
   const coworkerUsers = users;
   const startTimeParts = splitTime(formData.start_time);
   const endTimeParts = splitTime(formData.end_time);
-  const creatorName = formData.created_by_name?.trim()
-    || (!isEditingExistingTask ? currentUser?.name?.trim() : '')
-    || '未知';
+  const creatorName = formData.created_by_name?.trim() || '未知';
   const creationSourceLabel = CREATION_SOURCE_LABELS[formData.creation_source || 'LEGACY'];
   const timeSelectClassName = "bg-[var(--input-bg)] text-[var(--input-text)] border border-[var(--input-border)] rounded p-1.5 focus:border-[var(--accent)] outline-none font-mono text-center";
 
