@@ -52,6 +52,30 @@ test('role and category remain independent from positions', () => {
   assert.match(usersPage, /selectedPositionIds/);
 });
 
+test('people list presents positions without a duplicate category column', () => {
+  const tableHead = usersPage.match(/<thead[\s\S]*?<\/thead>/)[0];
+  assert.doesNotMatch(tableHead, />分類</);
+  assert.match(tableHead, />姓名<[\s\S]*>簡稱<[\s\S]*>職位<[\s\S]*>角色<[\s\S]*>狀態<[\s\S]*>登入 Email<[\s\S]*>Google Calendar Email<[\s\S]*>備註<[\s\S]*>操作</);
+  assert.match(usersPage, /userPositionNames\.map\(positionName/);
+  assert.match(usersPage, /<span>未設定<\/span>/);
+});
+
+test('legacy category remains editable as a compatibility setting', () => {
+  assert.match(usersPage, /既有分類／相容設定/);
+  assert.match(usersPage, /value=\{formData\.category\}/);
+  assert.match(usersPage, /category: user\.category \|\| 'OTHER'/);
+  assert.match(usersPage, /category: 'OTHER'/);
+  assert.match(usersPage, /dbAdapter\.(?:createUser|updateUser)/);
+});
+
+test('roles and multi-position editing keep their existing contracts', () => {
+  assert.match(usersPage, /<option value="ADMIN">Admin<\/option>/);
+  assert.match(usersPage, /<option value="ENGINEER">Engineer<\/option>/);
+  assert.match(usersPage, /<option value="VIEWER">Viewer<\/option>/);
+  assert.match(usersPage, /職位（可複選）/);
+  assert.match(usersPage, /dbAdapter\.setMemberPositions\(savedUser\.id, selectedPositionIds\)/);
+});
+
 test('workflow responsible position columns are nullable foreign keys', () => {
   assert.match(migration, /project_workflow_template_steps[\s\S]*ADD COLUMN responsible_position_id uuid[\s\S]*REFERENCES public\.positions/);
   assert.doesNotMatch(migration, /responsible_position_id uuid NOT NULL/);

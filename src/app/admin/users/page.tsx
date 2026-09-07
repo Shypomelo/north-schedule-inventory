@@ -221,9 +221,8 @@ export default function AdminUsersPage() {
               <tr>
                 <th className="p-4 font-semibold">姓名</th>
                 <th className="p-4 font-semibold">簡稱</th>
-                <th className="p-4 font-semibold">分類</th>
-                <th className="p-4 font-semibold">角色</th>
                 <th className="p-4 font-semibold">職位</th>
+                <th className="p-4 font-semibold">角色</th>
                 <th className="p-4 font-semibold">狀態</th>
                 <th className="p-4 font-semibold">登入 Email</th>
                 <th className="p-4 font-semibold">Google Calendar Email</th>
@@ -234,6 +233,7 @@ export default function AdminUsersPage() {
             <tbody className="divide-y divide-theme-border/50 text-sm">
               {users.map(user => {
                 const isOwner = isOwnerUser(user);
+                const userPositionNames = getUserPositionNames(user.id);
 
                 return (
                 <tr key={user.id} className="hover:bg-card/60 transition-colors">
@@ -249,7 +249,17 @@ export default function AdminUsersPage() {
                   </td>
                   <td className="p-4 text-secondary">{user.short_name}</td>
                   <td className="p-4 text-secondary">
-                    {user.category === 'ENGINEERING' ? '工程' : user.category === 'MANAGEMENT' ? '管理' : user.category === 'OTHER' ? '其他' : '-'}
+                    {userPositionNames.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {userPositionNames.map(positionName => (
+                          <span key={positionName} className="rounded-full border border-theme-border bg-page px-2 py-0.5 text-xs text-primary">
+                            {positionName}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span>未設定</span>
+                    )}
                   </td>
                   <td className="p-4">
                     <span className={`px-2 py-1 rounded text-xs font-medium ${
@@ -259,9 +269,6 @@ export default function AdminUsersPage() {
                     }`}>
                       {user.role}
                     </span>
-                  </td>
-                  <td className="p-4 text-secondary">
-                    {getUserPositionNames(user.id).join('、') || '未設定'}
                   </td>
                   <td className="p-4">
                     {user.is_active ? (
@@ -375,7 +382,7 @@ export default function AdminUsersPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium text-secondary">人員分類 <span className="text-danger">*</span></label>
+                  <label className="text-sm font-medium text-secondary">既有分類／相容設定 <span className="text-danger">*</span></label>
                   <select 
                     value={formData.category} 
                     onChange={e => setFormData({...formData, category: e.target.value as 'ENGINEERING' | 'MANAGEMENT' | 'OTHER'})}
@@ -385,6 +392,7 @@ export default function AdminUsersPage() {
                     <option value="MANAGEMENT">管理</option>
                     <option value="OTHER">其他</option>
                   </select>
+                  <p className="text-xs text-secondary">供既有工程人員篩選功能使用；工作職位請在下方職位欄設定。</p>
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <label className="text-sm font-medium text-secondary">角色 <span className="text-danger">*</span></label>
