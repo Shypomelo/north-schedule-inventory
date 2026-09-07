@@ -14,7 +14,12 @@ helperModule.filename = helperPath;
 helperModule.paths = module.paths;
 helperModule._compile(transpiled, helperPath);
 
-const { buildMemberProjectResponsibilities, getPositionCandidates, getPositionMilestoneProgress } = helperModule.exports;
+const {
+  buildMemberProjectResponsibilities,
+  getPositionCandidates,
+  getPositionMilestoneProgress,
+  resolveProjectPositionMemberId,
+} = helperModule.exports;
 const migration = fs.readFileSync(path.join(__dirname, '..', '..', 'supabase', 'migrations', '20260907131749_add_project_position_responsibilities.sql'), 'utf8');
 const usersPage = fs.readFileSync(path.join(__dirname, '..', 'app', 'admin', 'users', 'page.tsx'), 'utf8');
 const workflowPage = fs.readFileSync(path.join(__dirname, '..', 'app', 'admin', 'workflow-settings', 'page.tsx'), 'utf8');
@@ -115,6 +120,35 @@ test('candidate members must be active and hold the selected position', () => {
   ], 'engineering');
   assert.deepEqual(candidates.map(member => member.id), ['active-matching']);
   assert.match(migration, /Project assignee must be an active member with the selected position/);
+});
+
+test('an unassigned position stays on the legal unassigned option with or without candidates', () => {
+  assert.equal(resolveProjectPositionMemberId(undefined, [{ id: 'member-1' }]), '');
+  assert.equal(resolveProjectPositionMemberId(undefined, []), '');
+  assert.match(projectAssignments, /<option value="">未指派<\/option>/);
+});
+
+test('an existing assignment displays its member when that member remains a candidate', () => {
+  assert.equal(
+    resolveProjectPositionMemberId({ member_id: 'member-1' }, [{ id: 'member-1' }, { id: 'member-2' }]),
+    'member-1',
+  );
+});
+
+test('an assignment without a matching candidate renders unassigned instead of an invalid blank value', () => {
+  assert.equal(resolveProjectPositionMemberId({ member_id: 'inactive-member' }, []), '');
+  assert.equal(resolveProjectPositionMemberId({ member_id: 'other-position-member' }, [{ id: 'member-1' }]), '');
+  const select = projectAssignments.match(/<select[\s\S]*?<\/select>/)[0];
+  assert.doesNotMatch(select, /required|border-danger/);
+  assert.match(select, /value=\{selectedMemberId\}/);
+});
+
+test('assignment writes only occur after a user selection change', () => {
+  assert.match(projectAssignments, /onChange=\{event => void assign\(position\.id, event\.target\.value\)\}/);
+  assert.match(projectAssignments, /if \(memberId\)[\s\S]*upsertProjectPositionAssignment/);
+  assert.match(projectAssignments, /else \{[\s\S]*clearProjectPositionAssignment/);
+  const loadFunction = projectAssignments.match(/const load = useCallback\([\s\S]*?\}, \[projectId\]\);/)[0];
+  assert.doesNotMatch(loadFunction, /upsertProjectPositionAssignment|clearProjectPositionAssignment/);
 });
 
 test('member datasource resolves active project, position, and applicable milestones', () => {

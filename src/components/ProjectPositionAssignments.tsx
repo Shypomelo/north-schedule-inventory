@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { dbAdapter } from '@/lib/db';
 import type { Position, ProjectPositionAssignment, User } from '@/lib/db/types';
+import { resolveProjectPositionMemberId } from '@/lib/engineering-responsibilities';
 
 export function ProjectPositionAssignments({ projectId, canEdit }: { projectId: string; canEdit: boolean }) {
   const [positions, setPositions] = useState<Position[]>([]);
@@ -62,17 +63,19 @@ export function ProjectPositionAssignments({ projectId, canEdit }: { projectId: 
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
         {positions.map(position => {
           const assignment = assignments.find(row => row.position_id === position.id);
+          const candidateMembers = candidates[position.id] ?? [];
+          const selectedMemberId = resolveProjectPositionMemberId(assignment, candidateMembers);
           return (
             <label key={position.id} className="text-sm text-secondary">
               {position.name}
               <select
-                value={assignment?.member_id || ''}
+                value={selectedMemberId}
                 onChange={event => void assign(position.id, event.target.value)}
                 disabled={!canEdit || savingPositionId === position.id}
                 className="mt-1 w-full rounded-lg border border-theme-border bg-page px-3 py-2 text-primary outline-none focus:border-accent disabled:opacity-60"
               >
                 <option value="">未指派</option>
-                {(candidates[position.id] ?? []).map(member => (
+                {candidateMembers.map(member => (
                   <option key={member.id} value={member.id}>{member.name}</option>
                 ))}
               </select>

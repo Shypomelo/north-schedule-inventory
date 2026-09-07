@@ -44,6 +44,16 @@ export function getPositionCandidates(
   return users.filter(user => user.is_active && eligibleIds.has(user.id));
 }
 
+export function resolveProjectPositionMemberId(
+  assignment: Pick<ProjectPositionAssignment, 'member_id'> | undefined,
+  candidates: Pick<User, 'id'>[],
+) {
+  if (!assignment) return '';
+  return candidates.some(candidate => candidate.id === assignment.member_id)
+    ? assignment.member_id
+    : '';
+}
+
 export function buildMemberProjectResponsibilities({
   memberId,
   assignments,
