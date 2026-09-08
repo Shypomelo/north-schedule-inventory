@@ -30,6 +30,7 @@ const {
   reorderWorkflowMilestones,
 } = sourceModule.exports;
 const refreshMigration = fs.readFileSync(path.join(__dirname, '..', '..', 'supabase', 'migrations', '20260907155524_unify_project_engineering_responsibility.sql'), 'utf8');
+const refreshRlsMigration = fs.readFileSync(path.join(__dirname, '..', '..', 'supabase', 'migrations', '20260908140629_fix_admin_workflow_refresh_rls.sql'), 'utf8');
 const workflowComponent = fs.readFileSync(path.join(__dirname, '..', 'components', 'ProjectWorkflow.tsx'), 'utf8');
 
 const milestone = (id, sortOrder, status = 'NOT_STARTED', overrides = {}) => ({
@@ -264,6 +265,21 @@ test('newly refreshed milestones snapshot current responsible positions without 
 test('only admins receive the workflow refresh control and RPC authorization', () => {
   assert.match(workflowComponent, /canRefresh \? \([\s\S]*>重製流程</);
   assert.match(refreshMigration, /IF NOT app_private\.is_admin_member\(\)/);
+});
+
+test('ADMIN refresh RLS fix grants only TEMPLATE insert policy access', () => {
+  assert.match(refreshRlsMigration, /CREATE POLICY "Admin members can insert project template milestones"[\s\S]*FOR INSERT TO authenticated[\s\S]*app_private\.is_admin_member\(\)[\s\S]*origin = 'TEMPLATE'[\s\S]*deleted_at IS NULL/);
+  assert.equal((refreshRlsMigration.match(/CREATE POLICY/g) || []).length, 1);
+  assert.doesNotMatch(refreshRlsMigration, /DROP POLICY|ALTER POLICY/);
+  assert.doesNotMatch(refreshRlsMigration, /^\s*GRANT\b[^;]*\bON\b[^;]*project_workflow_instances/im);
+});
+
+test('ADMIN refresh stays SECURITY INVOKER without broadening row-lock privileges', () => {
+  const refreshFunction = refreshRlsMigration.match(/CREATE OR REPLACE FUNCTION public\.refresh_project_workflow[\s\S]*?\$\$;/)[0];
+  assert.match(refreshFunction, /SECURITY INVOKER/);
+  assert.match(refreshFunction, /pg_advisory_xact_lock/);
+  assert.doesNotMatch(refreshFunction, /FOR UPDATE/);
+  assert.match(refreshFunction, /IF NOT app_private\.is_admin_member\(\)/);
 });
 
 test('workflow refresh uses an in-app missing-step confirmation dialog', () => {
