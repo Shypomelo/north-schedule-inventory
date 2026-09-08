@@ -34,3 +34,13 @@ test('private todos never enter shared activity logs and cannot be rejected', ()
   assert.match(migration, /WHERE todo\.id = p_todo_id\s+AND todo\.scope = 'TEAM'/);
   assert.match(migration, /WHERE id = p_todo_id\s+AND scope = 'TEAM'/);
 });
+
+test('todo scope transitions are rejected by the update trigger', () => {
+  const transitionMigration = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'supabase', 'migrations', '20260908160036_lock_todo_scope_transitions.sql'),
+    'utf8',
+  );
+  assert.match(transitionMigration, /OLD\.scope IS DISTINCT FROM NEW\.scope/);
+  assert.match(transitionMigration, /RAISE EXCEPTION 'Todo scope cannot be changed'/);
+  assert.match(transitionMigration, /CREATE OR REPLACE FUNCTION app_private\.set_todo_updated_at\(\)/);
+});
