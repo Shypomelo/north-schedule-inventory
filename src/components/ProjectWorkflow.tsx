@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, CircleAlert, GripVertical, ListChecks, MoreHorizontal, Play, Plus, X } from 'lucide-react';
+import { Check, CircleAlert, GripVertical, ListChecks, MoreHorizontal, Play, Plus, RefreshCw, X } from 'lucide-react';
 import { dbAdapter } from '@/lib/db';
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
 import type {
@@ -10,6 +10,7 @@ import type {
   ProjectMilestoneStatus,
   ProjectMilestoneUpdate,
   ProjectWorkflow as ProjectWorkflowData,
+  WorkflowRefreshPreview,
   WorkflowPhase,
   WorkflowType,
 } from '@/lib/db/types';
@@ -42,6 +43,7 @@ interface ProjectWorkflowProps {
   projectId: string;
   projectName: string;
   canEdit: boolean;
+  canRefresh: boolean;
   actor: { id: string; name: string } | null;
   construction?: ReactNode;
   onUpdate?: () => Promise<void>;
@@ -50,7 +52,7 @@ interface ProjectWorkflowProps {
 
 type WorkflowMutationAction = Extract<ActivityActionType, `WORKFLOW_${string}`>;
 
-export function ProjectWorkflow({ projectId, projectName, canEdit, actor, construction, onUpdate, onMilestoneUpdated }: ProjectWorkflowProps) {
+export function ProjectWorkflow({ projectId, projectName, canEdit, canRefresh, actor, construction, onUpdate, onMilestoneUpdated }: ProjectWorkflowProps) {
   const [workflow, setWorkflow] = useState<ProjectWorkflowData>({ instance: null, milestones: [] });
   const [phases, setPhases] = useState<WorkflowPhase[]>([]);
   const [types, setTypes] = useState<WorkflowType[]>([]);
@@ -66,6 +68,8 @@ export function ProjectWorkflow({ projectId, projectName, canEdit, actor, constr
   const [editingCustom, setEditingCustom] = useState<ProjectMilestone | null>(null);
   const [hideCompleted, setHideCompleted] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [refreshPreview, setRefreshPreview] = useState<WorkflowRefreshPreview | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -166,6 +170,43 @@ export function ProjectWorkflow({ projectId, projectName, canEdit, actor, constr
       setError(getDatabaseErrorMessage(initializeError, '建立專案流程失敗'));
     } finally {
       setIsInitializing(false);
+    }
+  };
+
+  const previewRefresh = async () => {
+    setIsRefreshing(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const preview = await dbAdapter.getProjectWorkflowRefreshPreview(projectId);
+      if (preview.missing_steps.length === 0) {
+        setNotice('目前已是最新流程');
+        return;
+      }
+      setRefreshPreview(preview);
+    } catch (previewError) {
+      setError(getDatabaseErrorMessage(previewError, '無法預覽重製流程'));
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const refreshFromTemplate = async () => {
+    setIsRefreshing(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await dbAdapter.refreshProjectWorkflow(projectId);
+      setRefreshPreview(null);
+      setNotice(result.milestones_created === 0
+        ? '目前已是最新流程'
+        : `流程已更新，新增 ${result.milestones_created} 個工項。`);
+      await loadWorkflow();
+      await onUpdate?.();
+    } catch (refreshError) {
+      setError(getDatabaseErrorMessage(refreshError, '重製流程失敗'));
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
@@ -371,6 +412,11 @@ export function ProjectWorkflow({ projectId, projectName, canEdit, actor, constr
               <Plus size={16} />新增臨時項目
             </button>
           ) : null}
+          {canRefresh ? (
+            <button type="button" onClick={() => void previewRefresh()} disabled={isRefreshing} className="flex items-center gap-1.5 rounded-lg border border-theme-border px-3 py-2 text-sm font-semibold text-primary hover:bg-card disabled:opacity-50">
+              <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />重製流程
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -476,6 +522,35 @@ export function ProjectWorkflow({ projectId, projectName, canEdit, actor, constr
       ) : null}
 
       {editingCustom ? <EditCustomMilestoneDialog milestone={editingCustom} phases={phases} types={types} isSaving={savingId === editingCustom.id} onClose={() => setEditingCustom(null)} onSave={values => saveCustomIdentity(editingCustom, values)} /> : null}
+      {refreshPreview ? <RefreshWorkflowDialog preview={refreshPreview} isSaving={isRefreshing} onClose={() => setRefreshPreview(null)} onConfirm={refreshFromTemplate} /> : null}
+    </div>
+  );
+}
+
+function RefreshWorkflowDialog({ preview, isSaving, onClose, onConfirm }: {
+  preview: WorkflowRefreshPreview;
+  isSaving: boolean;
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
+}) {
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-page/80 p-4 backdrop-blur-sm">
+      <div role="dialog" aria-modal="true" aria-labelledby="refresh-workflow-title" className="w-full max-w-lg rounded-2xl border border-theme-border bg-card p-6 shadow-2xl">
+        <div className="mb-5 flex items-center justify-between">
+          <h3 id="refresh-workflow-title" className="text-lg font-bold text-primary">重製流程</h3>
+          <button type="button" onClick={onClose} disabled={isSaving} aria-label="關閉" className="rounded-full p-2 text-secondary hover:bg-page disabled:opacity-50"><X size={20} /></button>
+        </div>
+        <p className="text-sm leading-6 text-secondary">將依目前最新流程模板更新此案件流程。</p>
+        <p className="mt-4 text-sm font-semibold text-primary">將新增：</p>
+        <ul className="mt-2 max-h-60 space-y-1 overflow-y-auto rounded-lg border border-theme-border bg-page/40 p-3 text-sm text-primary">
+          {preview.missing_steps.map(step => <li key={step.id}>・{step.label}</li>)}
+        </ul>
+        <p className="mt-4 text-sm leading-6 text-secondary">既有流程狀態、日期、備註、自訂項目及歷史工項不會被刪除。</p>
+        <div className="mt-5 flex justify-end gap-3 border-t border-theme-border pt-4">
+          <button type="button" onClick={onClose} disabled={isSaving} className="rounded-lg border border-theme-border px-4 py-2 text-sm text-secondary hover:bg-page disabled:opacity-50">取消</button>
+          <button type="button" onClick={() => void onConfirm()} disabled={isSaving} className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-hover disabled:opacity-50">{isSaving ? '重製中...' : '重製流程'}</button>
+        </div>
+      </div>
     </div>
   );
 }

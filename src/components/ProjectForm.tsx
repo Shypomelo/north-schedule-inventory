@@ -1,8 +1,7 @@
 "use client";
 
 import React, { useState } from 'react';
-import { Project, User } from '@/lib/db/types';
-import { dbAdapter } from '@/lib/db';
+import { Project } from '@/lib/db/types';
 import { useUser } from './UserContext';
 
 interface ProjectFormProps {
@@ -14,15 +13,8 @@ interface ProjectFormProps {
 
 export function ProjectForm({ initialData, onSubmit, onCancel, isSubmitting }: ProjectFormProps) {
   const [activeTab, setActiveTab] = useState(1);
-  const [users, setUsers] = useState<User[]>([]);
   const { currentUser } = useUser();
   const isViewer = currentUser?.role === 'VIEWER';
-
-  React.useEffect(() => {
-    dbAdapter.getUsers().then(uData => {
-      setUsers(uData.filter(u => u.is_active && u.category === 'ENGINEERING'));
-    });
-  }, []);
 
   const [formData, setFormData] = useState({
     name: initialData?.name || '',
@@ -161,17 +153,6 @@ export function ProjectForm({ initialData, onSubmit, onCancel, isSubmitting }: P
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 animate-in fade-in duration-300">
             <InputField label="聯絡人" field="contact_name" />
             <InputField label="聯絡方式" field="contact_phone" />
-            <label className="flex flex-col gap-1">
-              <span className="text-sm font-semibold text-secondary">負責人 (Manager)</span>
-              <select 
-                className="bg-page border border-theme-border rounded p-2.5 focus:border-accent outline-none text-primary transition-colors cursor-pointer appearance-none w-full"
-                value={formData.manager} 
-                onChange={e => setFormData({...formData, manager: e.target.value})}
-              >
-                <option value="">(無)</option>
-                {users.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
-              </select>
-            </label>
             <InputField label="屋主 / 場地所有人" field="owner_name" />
             <InputField label="屋主電話" field="owner_phone" />
             <InputField label="資料來源" field="data_source" />

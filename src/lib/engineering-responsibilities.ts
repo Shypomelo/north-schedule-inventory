@@ -12,6 +12,23 @@ const byWorkflowOrder = (a: ProjectMilestone, b: ProjectMilestone) =>
   || a.created_at.localeCompare(b.created_at)
   || a.id.localeCompare(b.id);
 
+export const ENGINEERING_POSITION_NAME = '工程';
+
+export function isEngineeringPosition(position: Pick<Position, 'name'>) {
+  return position.name.trim() === ENGINEERING_POSITION_NAME;
+}
+
+export function mergeResponsiblePositionIds(
+  templateSteps: { responsible_position_id: string | null }[],
+  snapshotMilestones: { responsible_position_id: string | null }[],
+) {
+  return Array.from(new Set(
+    [...templateSteps, ...snapshotMilestones]
+      .map(row => row.responsible_position_id)
+      .filter((id): id is string => Boolean(id)),
+  ));
+}
+
 export function getPositionMilestoneProgress(
   milestones: ProjectMilestone[],
   positionId: string,
@@ -52,6 +69,16 @@ export function resolveProjectPositionMemberId(
   return candidates.some(candidate => candidate.id === assignment.member_id)
     ? assignment.member_id
     : '';
+}
+
+export function resolveEngineeringProjectMemberId(
+  responsibleMemberName: string | null,
+  candidates: Pick<User, 'id' | 'name'>[],
+) {
+  const expectedName = responsibleMemberName?.trim();
+  if (!expectedName) return '';
+  const exactMatches = candidates.filter(candidate => candidate.name === expectedName);
+  return exactMatches.length === 1 ? exactMatches[0].id : '';
 }
 
 export function buildMemberProjectResponsibilities({

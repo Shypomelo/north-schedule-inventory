@@ -551,18 +551,8 @@ export default function ProjectsPage() {
                   <td className="p-3 text-accent font-medium select-all truncate max-w-[250px]" title={project.name}>{project.name}</td>
                   <td className="p-3 text-secondary">{project.capacity || '-'}</td>
                   
-                  {/* Editable Fields */}
-                  <td className="p-1">
-                    <select
-                      disabled={currentUser?.role === 'VIEWER'}
-                      value={project.manager || ''} 
-                      onChange={(e) => handleProjectInlineChange(project.id, 'manager', e.target.value)}
-                      className={`w-full bg-page/50 px-2 py-1.5 rounded border border-theme-border/50 transition-colors outline-none text-primary appearance-none ${currentUser?.role === 'VIEWER' ? 'opacity-50 cursor-not-allowed' : 'hover:bg-page focus:bg-page focus:border-accent cursor-pointer'}`}
-                    >
-                      <option value="">未指定</option>
-                      {users.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
-                    </select>
-                  </td>
+                  {/* 工程負責人統一由 Project Detail 的「專案分工」維護。 */}
+                  <td className="p-3 text-secondary">{project.manager || '未指派'}</td>
                   {showBracket && <td className="p-1">
                     <DateDualInput 
                       baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
@@ -900,13 +890,6 @@ export default function ProjectsPage() {
                 <label className="flex flex-col gap-1">
                   <span className="text-sm text-secondary">容量 KW</span>
                   <input name="capacity" type="text" className="p-2 bg-page border border-theme-border rounded text-primary outline-none focus:border-accent" />
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-sm text-secondary">人員</span>
-                  <select name="manager" className="p-2 bg-page border border-theme-border rounded text-primary outline-none focus:border-accent cursor-pointer">
-                    <option value="">未指定</option>
-                    {users.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
-                  </select>
                 </label>
                 <label className="flex flex-col gap-1">
                   <span className="text-sm text-secondary">支架</span>

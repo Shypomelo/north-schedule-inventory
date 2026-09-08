@@ -12,6 +12,17 @@ const transpiled = ts.transpileModule(fs.readFileSync(sourcePath, 'utf8'), {
 const sourceModule = new Module(sourcePath);
 sourceModule.filename = sourcePath;
 sourceModule.paths = module.paths;
+sourceModule.require = id => {
+  if (id !== '@/lib/utils/date-utils') return require(id);
+  const dependencyPath = path.join(__dirname, 'utils', 'date-utils.ts');
+  const dependencyModule = new Module(dependencyPath);
+  dependencyModule.filename = dependencyPath;
+  dependencyModule.paths = module.paths;
+  dependencyModule._compile(ts.transpileModule(fs.readFileSync(dependencyPath, 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+  }).outputText, dependencyPath);
+  return dependencyModule.exports;
+};
 sourceModule._compile(transpiled, sourcePath);
 
 const { classifyConstructionItem, getProjectEntryDate } = sourceModule.exports;

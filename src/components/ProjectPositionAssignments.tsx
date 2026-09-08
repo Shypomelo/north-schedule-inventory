@@ -3,9 +3,18 @@
 import { useCallback, useEffect, useState } from 'react';
 import { dbAdapter } from '@/lib/db';
 import type { Position, ProjectPositionAssignment, User } from '@/lib/db/types';
-import { resolveProjectPositionMemberId } from '@/lib/engineering-responsibilities';
+import {
+  isEngineeringPosition,
+  resolveEngineeringProjectMemberId,
+  resolveProjectPositionMemberId,
+} from '@/lib/engineering-responsibilities';
 
-export function ProjectPositionAssignments({ projectId, canEdit }: { projectId: string; canEdit: boolean }) {
+export function ProjectPositionAssignments({ projectId, responsibleMemberName, canEdit, onEngineeringManagerChange }: {
+  projectId: string;
+  responsibleMemberName: string | null;
+  canEdit: boolean;
+  onEngineeringManagerChange: (memberName: string | null) => Promise<void>;
+}) {
   const [positions, setPositions] = useState<Position[]>([]);
   const [assignments, setAssignments] = useState<ProjectPositionAssignment[]>([]);
   const [candidates, setCandidates] = useState<Record<string, User[]>>({});
@@ -38,15 +47,19 @@ export function ProjectPositionAssignments({ projectId, canEdit }: { projectId: 
     setSavingPositionId(positionId);
     setError(null);
     try {
-      if (memberId) {
-        const saved = await dbAdapter.upsertProjectPositionAssignment(projectId, positionId, memberId);
+      const saved = await dbAdapter.setProjectPositionAssignment(projectId, positionId, memberId || null);
+      if (saved) {
         setAssignments(current => [
           ...current.filter(row => row.position_id !== positionId),
           saved,
         ]);
       } else {
-        await dbAdapter.clearProjectPositionAssignment(projectId, positionId);
         setAssignments(current => current.filter(row => row.position_id !== positionId));
+      }
+      const position = positions.find(row => row.id === positionId);
+      if (position && isEngineeringPosition(position)) {
+        const memberName = candidates[positionId]?.find(member => member.id === memberId)?.name ?? null;
+        await onEngineeringManagerChange(memberName);
       }
     } catch (saveError: any) {
       setError(saveError.message || '專案分工儲存失敗');
@@ -64,7 +77,9 @@ export function ProjectPositionAssignments({ projectId, canEdit }: { projectId: 
         {positions.map(position => {
           const assignment = assignments.find(row => row.position_id === position.id);
           const candidateMembers = candidates[position.id] ?? [];
-          const selectedMemberId = resolveProjectPositionMemberId(assignment, candidateMembers);
+          const selectedMemberId = isEngineeringPosition(position)
+            ? resolveEngineeringProjectMemberId(responsibleMemberName, candidateMembers)
+            : resolveProjectPositionMemberId(assignment, candidateMembers);
           return (
             <label key={position.id} className="text-sm text-secondary">
               {position.name}

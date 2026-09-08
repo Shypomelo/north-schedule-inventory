@@ -19,6 +19,7 @@ const {
   getCurrentAndNextMilestones,
   getCustomInsertSortOrder,
   getMilestoneCapabilities,
+  getMissingWorkflowTemplateSteps,
   getVisibleWorkflowMilestones,
   getWorkflowActivityMessage,
   getWorkflowOuterDisplay,
@@ -28,6 +29,8 @@ const {
   normalizeWorkflowSortOrders,
   reorderWorkflowMilestones,
 } = sourceModule.exports;
+const refreshMigration = fs.readFileSync(path.join(__dirname, '..', '..', 'supabase', 'migrations', '20260907155524_unify_project_engineering_responsibility.sql'), 'utf8');
+const workflowComponent = fs.readFileSync(path.join(__dirname, '..', 'components', 'ProjectWorkflow.tsx'), 'utf8');
 
 const milestone = (id, sortOrder, status = 'NOT_STARTED', overrides = {}) => ({
   id,
@@ -221,4 +224,49 @@ test('custom insertion retains deterministic gap behavior for creation', () => {
   const rows = [milestone('a', 10), milestone('b', 20)];
   assert.equal(getCustomInsertSortOrder(rows, 'a'), 15);
   assert.equal(getCustomInsertSortOrder(rows, 'b'), 30);
+});
+
+test('workflow refresh preview lists only missing active template steps', () => {
+  const templateSteps = [
+    { id: 'existing', label: '既有', is_active: true },
+    { id: 'missing-admin', label: '同意備案取得', is_active: true },
+    { id: 'disabled', label: '舊停用項目', is_active: false },
+  ];
+  const existing = [
+    { origin: 'TEMPLATE', source_template_step_id: 'existing' },
+    { origin: 'PROJECT_CUSTOM', source_template_step_id: null },
+  ];
+  assert.deepEqual(getMissingWorkflowTemplateSteps(templateSteps, existing).map(step => step.id), ['missing-admin']);
+});
+
+test('workflow refresh is idempotent by exact template step identity', () => {
+  assert.match(refreshMigration, /UNIQUE INDEX project_milestones_active_template_step_idx[\s\S]*workflow_instance_id, source_template_step_id/);
+  assert.match(refreshMigration, /ON CONFLICT \(workflow_instance_id, source_template_step_id\)[\s\S]*DO NOTHING/);
+  assert.match(refreshMigration, /CASE WHEN v_inserted_count = 0 THEN 'already_current'/);
+});
+
+test('workflow refresh preserves existing business state and custom or disabled history', () => {
+  const refreshFunction = refreshMigration.match(/CREATE OR REPLACE FUNCTION public\.refresh_project_workflow[\s\S]*?REVOKE EXECUTE/)[0];
+  const existingUpdate = refreshFunction.match(/UPDATE public\.project_milestones[\s\S]*?milestone\.sort_order IS DISTINCT FROM step\.sort_order;/)[0];
+  assert.match(existingUpdate, /SET sort_order = step\.sort_order/);
+  assert.doesNotMatch(existingUpdate, /status\s*=|planned_date\s*=|actual_date\s*=|notes\s*=|is_applicable\s*=|responsible_position_id\s*=/);
+  assert.doesNotMatch(refreshFunction, /DELETE FROM public\.project_milestones/);
+  assert.match(refreshFunction, /milestone\.origin = 'TEMPLATE'/);
+  assert.doesNotMatch(refreshFunction, /PROJECT_CUSTOM/);
+});
+
+test('newly refreshed milestones snapshot current responsible positions without assigning people', () => {
+  const refreshFunction = refreshMigration.match(/CREATE OR REPLACE FUNCTION public\.refresh_project_workflow[\s\S]*?REVOKE EXECUTE/)[0];
+  assert.match(refreshFunction, /status,\s*responsible_position_id[\s\S]*'NOT_STARTED',\s*step\.responsible_position_id/);
+  assert.doesNotMatch(refreshFunction, /project_position_assignments|member_positions|responsible_member_name/);
+});
+
+test('only admins receive the workflow refresh control and RPC authorization', () => {
+  assert.match(workflowComponent, /canRefresh \? \([\s\S]*>重製流程</);
+  assert.match(refreshMigration, /IF NOT app_private\.is_admin_member\(\)/);
+});
+
+test('workflow refresh uses an in-app missing-step confirmation dialog', () => {
+  assert.match(workflowComponent, /role="dialog"[\s\S]*將新增：[\s\S]*preview\.missing_steps\.map/);
+  assert.doesNotMatch(workflowComponent, /confirm\([^)]*重製流程/);
 });

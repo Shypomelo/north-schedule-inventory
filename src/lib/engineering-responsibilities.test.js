@@ -18,12 +18,19 @@ const {
   buildMemberProjectResponsibilities,
   getPositionCandidates,
   getPositionMilestoneProgress,
+  mergeResponsiblePositionIds,
+  resolveEngineeringProjectMemberId,
   resolveProjectPositionMemberId,
 } = helperModule.exports;
 const migration = fs.readFileSync(path.join(__dirname, '..', '..', 'supabase', 'migrations', '20260907131749_add_project_position_responsibilities.sql'), 'utf8');
+const compatibilityMigration = fs.readFileSync(path.join(__dirname, '..', '..', 'supabase', 'migrations', '20260907155524_unify_project_engineering_responsibility.sql'), 'utf8');
 const usersPage = fs.readFileSync(path.join(__dirname, '..', 'app', 'admin', 'users', 'page.tsx'), 'utf8');
 const workflowPage = fs.readFileSync(path.join(__dirname, '..', 'app', 'admin', 'workflow-settings', 'page.tsx'), 'utf8');
 const projectAssignments = fs.readFileSync(path.join(__dirname, '..', 'components', 'ProjectPositionAssignments.tsx'), 'utf8');
+const projectDetail = fs.readFileSync(path.join(__dirname, '..', 'components', 'ProjectDetailModal.tsx'), 'utf8');
+const projectForm = fs.readFileSync(path.join(__dirname, '..', 'components', 'ProjectForm.tsx'), 'utf8');
+const projectsPage = fs.readFileSync(path.join(__dirname, '..', 'app', 'projects', '[[...filter]]', 'page.tsx'), 'utf8');
+const adapter = fs.readFileSync(path.join(__dirname, 'db', 'poc-supabase.ts'), 'utf8');
 
 const milestone = (id, sortOrder, positionId, status = 'NOT_STARTED', overrides = {}) => ({
   id,
@@ -111,8 +118,65 @@ test('one project has at most one primary member per position', () => {
 
 test('project positions may remain unassigned and can be cleared', () => {
   assert.match(projectAssignments, /<option value="">未指派<\/option>/);
-  assert.match(projectAssignments, /clearProjectPositionAssignment/);
+  assert.match(projectAssignments, /setProjectPositionAssignment\(projectId, positionId, memberId \|\| null\)/);
   assert.doesNotMatch(migration, /INSERT INTO public\.project_position_assignments/);
+});
+
+test('template and snapshot responsible positions are merged without hardcoded role lists', () => {
+  assert.deepEqual(mergeResponsiblePositionIds([
+    { responsible_position_id: 'engineering' },
+    { responsible_position_id: 'admin' },
+  ], [
+    { responsible_position_id: 'engineering' },
+    { responsible_position_id: 'legacy-design' },
+    { responsible_position_id: null },
+  ]), ['engineering', 'admin', 'legacy-design']);
+  const responsiblePositionsQuery = adapter.match(/getProjectResponsiblePositions:[\s\S]*?getProjectPositionAssignments:/)[0];
+  assert.match(responsiblePositionsQuery, /project_workflow_instances/);
+  assert.match(responsiblePositionsQuery, /source_template_id/);
+  assert.match(responsiblePositionsQuery, /project_workflow_template_steps/);
+  assert.match(responsiblePositionsQuery, /project_milestones/);
+  assert.match(responsiblePositionsQuery, /mergeResponsiblePositionIds/);
+  assert.doesNotMatch(projectAssignments, /電力設計|結構設計|行政/);
+});
+
+test('legacy engineer name wins only on one exact active candidate match', () => {
+  const candidates = [
+    { id: 'wei-yang', name: '維揚' },
+    { id: 'yu-cheng', name: '育丞' },
+  ];
+  assert.equal(resolveEngineeringProjectMemberId('維揚', candidates), 'wei-yang');
+  assert.equal(resolveEngineeringProjectMemberId(' 維揚 ', candidates), 'wei-yang');
+  assert.equal(resolveEngineeringProjectMemberId('維', candidates), '');
+  assert.equal(resolveEngineeringProjectMemberId('維揚', [...candidates, { id: 'duplicate', name: '維揚' }]), '');
+});
+
+test('Project detail exposes only the position-based engineering selector', () => {
+  assert.doesNotMatch(projectDetail, />負責工程師<|handleSave\(\{ manager:/);
+  assert.match(projectDetail, /<ProjectPositionAssignments[\s\S]*responsibleMemberName=\{editedProject\.manager\}/);
+  assert.doesNotMatch(projectForm, /formData\.manager|name="manager"/);
+  assert.doesNotMatch(projectsPage, /handleProjectInlineChange\(project\.id, 'manager'|name="manager"/);
+  assert.match(projectsPage, /專案分工/);
+});
+
+test('engineering assignment and legacy responsible name update atomically', () => {
+  const assignmentFunction = compatibilityMigration.match(/CREATE OR REPLACE FUNCTION public\.set_project_position_assignment[\s\S]*?REVOKE EXECUTE/)[0];
+  assert.match(assignmentFunction, /INSERT INTO public\.project_position_assignments[\s\S]*ON CONFLICT \(project_id, position_id\)/);
+  assert.match(assignmentFunction, /IF btrim\(v_position_name\) = '工程'[\s\S]*UPDATE public\.projects[\s\S]*SET responsible_member_name = v_member_name/);
+  assert.match(assignmentFunction, /p_member_id IS NULL[\s\S]*SET responsible_member_name = NULL/);
+  assert.match(compatibilityMigration, /SECURITY INVOKER/);
+});
+
+test('legacy engineering alignment uses one exact active name and preserves role/category', () => {
+  assert.match(compatibilityMigration, /GROUP BY member\.name[\s\S]*HAVING count\(\*\) = 1/);
+  assert.match(compatibilityMigration, /unique_active_member\.name = project\.responsible_member_name/);
+  assert.match(compatibilityMigration, /ON CONFLICT \(project_id, position_id\)[\s\S]*DO UPDATE SET member_id/);
+  assert.doesNotMatch(compatibilityMigration, /UPDATE public\.team_members|SET role|SET category/);
+});
+
+test('legacy consumers continue to read responsible_member_name through Project.manager', () => {
+  assert.match(adapter, /manager: row\.responsible_member_name \|\| null/);
+  assert.match(adapter, /responsible_member_name: p\.manager \|\| null/);
 });
 
 test('candidate members must be active and hold the selected position', () => {
@@ -152,10 +216,9 @@ test('an assignment without a matching candidate renders unassigned instead of a
 
 test('assignment writes only occur after a user selection change', () => {
   assert.match(projectAssignments, /onChange=\{event => void assign\(position\.id, event\.target\.value\)\}/);
-  assert.match(projectAssignments, /if \(memberId\)[\s\S]*upsertProjectPositionAssignment/);
-  assert.match(projectAssignments, /else \{[\s\S]*clearProjectPositionAssignment/);
+  assert.match(projectAssignments, /setProjectPositionAssignment\(projectId, positionId, memberId \|\| null\)/);
   const loadFunction = projectAssignments.match(/const load = useCallback\([\s\S]*?\}, \[projectId\]\);/)[0];
-  assert.doesNotMatch(loadFunction, /upsertProjectPositionAssignment|clearProjectPositionAssignment/);
+  assert.doesNotMatch(loadFunction, /setProjectPositionAssignment/);
 });
 
 test('member datasource resolves active project, position, and applicable milestones', () => {
@@ -204,14 +267,7 @@ test('non-applicable and deleted milestones are excluded from progress', () => {
 
 test('PROJECT_CUSTOM milestones keep a null responsible position by default', () => {
   assert.doesNotMatch(migration, /PROJECT_CUSTOM[^;]*responsible_position_id\s*=\s*/i);
-  const adapter = fs.readFileSync(path.join(__dirname, 'db', 'poc-supabase.ts'), 'utf8');
   assert.doesNotMatch(adapter, /createProjectCustomMilestone[\s\S]*responsible_position_id:/);
-});
-
-test('legacy projects and responsible_member_name are not used to guess assignments', () => {
-  assert.doesNotMatch(migration, /responsible_member_name/);
-  assert.doesNotMatch(migration, /INSERT INTO public\.project_position_assignments/);
-  assert.doesNotMatch(projectAssignments, /responsible_member_name|manager/);
 });
 
 test('NORTH_DEFAULT maps exactly 18 stable step keys without adding or reordering steps', () => {

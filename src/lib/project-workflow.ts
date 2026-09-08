@@ -6,6 +6,19 @@ import type {
   ProjectMilestoneStatus,
 } from './db/types';
 
+export function getMissingWorkflowTemplateSteps<
+  T extends { id: string; is_active: boolean },
+  M extends { origin: string; source_template_step_id: string | null },
+>(templateSteps: T[], milestones: M[]) {
+  const existingTemplateStepIds = new Set(
+    milestones
+      .filter(milestone => milestone.origin === 'TEMPLATE')
+      .map(milestone => milestone.source_template_step_id)
+      .filter((id): id is string => Boolean(id)),
+  );
+  return templateSteps.filter(step => step.is_active && !existingTemplateStepIds.has(step.id));
+}
+
 type MilestoneOrderFields = Pick<ProjectMilestone, 'id' | 'sort_order' | 'created_at'>;
 type SummaryFields = Pick<
   ProjectMilestone,

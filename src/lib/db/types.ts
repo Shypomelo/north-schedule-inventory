@@ -556,6 +556,16 @@ export interface ProjectCustomMilestoneInput {
   notes?: string | null;
 }
 
+export interface WorkflowRefreshPreview {
+  missing_steps: Pick<WorkflowTemplateStep, 'id' | 'label' | 'sort_order' | 'responsible_position_id'>[];
+}
+
+export interface WorkflowRefreshResult {
+  result: 'updated' | 'already_current';
+  workflow_instance_id: string;
+  milestones_created: number;
+}
+
 export type ProjectDifficultyAssessmentType = 'PRE_ESTIMATE' | 'POST_EXECUTION';
 
 export interface ProjectDifficultyAssessment {

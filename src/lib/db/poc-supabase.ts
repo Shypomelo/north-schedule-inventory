@@ -26,6 +26,8 @@ import {
   ProjectMilestoneUpdate,
   ProjectCustomMilestoneInput,
   WorkflowSnapshotResult,
+  WorkflowRefreshPreview,
+  WorkflowRefreshResult,
   ProjectDifficultyAssessment,
   ProjectDifficultyAssessmentInput,
   ProjectDifficultyAssessmentScores,
@@ -38,9 +40,13 @@ import {
 import { throwMissingCoreTablesErrorIfNeeded } from './supabase-errors';
 import { getInventoryTransactionQuantityDelta } from './inventory-stock';
 import { getConstructionEndDate, getConstructionToday, validateActualCompletionDate } from '../construction-progress';
-import { getProjectOuterWorkflowFields } from '../project-workflow';
+import { getMissingWorkflowTemplateSteps, getProjectOuterWorkflowFields } from '../project-workflow';
 import { isContractorType, validateContractorCapabilities, validateContractorCapabilityValues } from '../contractors';
-import { buildMemberProjectResponsibilities, getPositionCandidates } from '../engineering-responsibilities';
+import {
+  buildMemberProjectResponsibilities,
+  getPositionCandidates,
+  mergeResponsiblePositionIds,
+} from '../engineering-responsibilities';
 
 const mapUser = (row: any): User => ({
   id: row.id,
@@ -1527,17 +1533,37 @@ export const pocSupabaseAdapter = {
   },
 
   getProjectResponsiblePositions: async (projectId: string): Promise<Position[]> => {
-    const { data: milestones, error: milestoneError } = await supabase
-      .from('project_milestones')
-      .select('responsible_position_id')
-      .eq('project_id', projectId)
-      .eq('is_applicable', true)
-      .is('deleted_at', null)
-      .not('responsible_position_id', 'is', null);
+    const [{ data: instances, error: instanceError }, { data: milestones, error: milestoneError }] = await Promise.all([
+      supabase
+        .from('project_workflow_instances')
+        .select('source_template_id')
+        .eq('project_id', projectId)
+        .is('deleted_at', null),
+      supabase
+        .from('project_milestones')
+        .select('responsible_position_id')
+        .eq('project_id', projectId)
+        .is('deleted_at', null)
+        .not('responsible_position_id', 'is', null),
+    ]);
+    if (instanceError) throw instanceError;
     if (milestoneError) throw milestoneError;
-    const positionIds = Array.from(new Set((milestones ?? [])
-      .map(row => row.responsible_position_id as string | null)
+    const templateIds = Array.from(new Set((instances ?? [])
+      .map(row => row.source_template_id as string | null)
       .filter((id): id is string => Boolean(id))));
+    const { data: templateSteps, error: templateStepError } = templateIds.length === 0
+      ? { data: [], error: null }
+      : await supabase
+        .from('project_workflow_template_steps')
+        .select('responsible_position_id')
+        .in('template_id', templateIds)
+        .eq('is_active', true)
+        .not('responsible_position_id', 'is', null);
+    if (templateStepError) throw templateStepError;
+    const positionIds = mergeResponsiblePositionIds(
+      (templateSteps ?? []) as { responsible_position_id: string | null }[],
+      (milestones ?? []) as { responsible_position_id: string | null }[],
+    );
     if (positionIds.length === 0) return [];
     const { data, error } = await supabase
       .from('positions')
@@ -1582,6 +1608,29 @@ export const pocSupabaseAdapter = {
       .eq('project_id', projectId)
       .eq('position_id', positionId);
     if (error) throw error;
+  },
+
+  setProjectPositionAssignment: async (
+    projectId: string,
+    positionId: string,
+    memberId: string | null,
+  ): Promise<ProjectPositionAssignment | null> => {
+    const { data, error } = await supabase.rpc('set_project_position_assignment', {
+      p_project_id: projectId,
+      p_position_id: positionId,
+      p_member_id: memberId,
+    });
+    if (error) throw error;
+    const result = Array.isArray(data) ? data[0] : data;
+    if (!result?.assignment_id || !result.assigned_member_id) return null;
+    return {
+      id: result.assignment_id,
+      project_id: projectId,
+      position_id: positionId,
+      member_id: result.assigned_member_id,
+      created_at: result.assignment_created_at,
+      updated_at: result.assignment_updated_at,
+    } as ProjectPositionAssignment;
   },
 
   getMemberProjectResponsibilities: async (memberId: string): Promise<MemberProjectResponsibility[]> => {
@@ -2529,6 +2578,47 @@ export const pocSupabaseAdapter = {
       .single();
     if (error) throw error;
     return data as WorkflowTemplateStep;
+  },
+
+  getProjectWorkflowRefreshPreview: async (projectId: string): Promise<WorkflowRefreshPreview> => {
+    const { data: instance, error: instanceError } = await supabase
+      .from('project_workflow_instances')
+      .select('id, source_template_id')
+      .eq('project_id', projectId)
+      .is('deleted_at', null)
+      .single();
+    if (instanceError) throw instanceError;
+    const [{ data: templateSteps, error: templateError }, { data: milestones, error: milestoneError }] = await Promise.all([
+      supabase
+        .from('project_workflow_template_steps')
+        .select('id, label, sort_order, responsible_position_id, is_active')
+        .eq('template_id', instance.source_template_id)
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true })
+        .order('id', { ascending: true }),
+      supabase
+        .from('project_milestones')
+        .select('origin, source_template_step_id')
+        .eq('workflow_instance_id', instance.id),
+    ]);
+    if (templateError) throw templateError;
+    if (milestoneError) throw milestoneError;
+    return {
+      missing_steps: getMissingWorkflowTemplateSteps(templateSteps ?? [], milestones ?? []),
+    };
+  },
+
+  refreshProjectWorkflow: async (projectId: string): Promise<WorkflowRefreshResult> => {
+    const { data, error } = await supabase.rpc('refresh_project_workflow', {
+      p_project_id: projectId,
+    });
+    if (error) throw error;
+    const result = Array.isArray(data) ? data[0] : data;
+    return {
+      result: result.result,
+      workflow_instance_id: result.refreshed_workflow_instance_id,
+      milestones_created: result.milestones_created,
+    } as WorkflowRefreshResult;
   },
 
   getProjectDifficultyAssessments: async (

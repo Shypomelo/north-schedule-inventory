@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
-import { Project, User } from '@/lib/db/types';
+import React, { useState } from 'react';
+import { Project } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { X, Building2, FileText, ListChecks } from 'lucide-react';
 import { useUser } from './UserContext';
@@ -27,18 +27,8 @@ export function ProjectDetailModal({ project, onClose, onUpdate, onConstructionU
   const [activeTab, setActiveTab] = useState<TabType>('workflow');
   const [editedProject, setEditedProject] = useState<Project>(project);
   
-  const [users, setUsers] = useState<User[]>([]);
   const construction = useConstructionProgress(project.id, Boolean(currentUser && currentUser.role !== 'VIEWER'), onConstructionUpdated);
   const [saveStatus, setSaveStatus] = useState<'已儲存' | '儲存中' | '儲存失敗' | ''>('');
-
-  useEffect(() => {
-    const fetchData = async () => {
-      const allUsers = await dbAdapter.getUsers();
-      const engineeringUsers = allUsers.filter(u => u.category === 'ENGINEERING' && u.is_active);
-      setUsers(engineeringUsers);
-    };
-    fetchData();
-  }, [project.id]);
 
   const handleSave = async (updates: Partial<Project>) => {
     if (!currentUser || currentUser.role === 'VIEWER') return;
@@ -110,18 +100,6 @@ export function ProjectDetailModal({ project, onClose, onUpdate, onConstructionU
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-secondary mb-1">負責工程師</label>
-          <select
-            className="w-full bg-page px-3 py-2 rounded-lg border border-theme-border text-primary outline-none focus:border-accent cursor-pointer"
-            value={editedProject.manager || ''}
-            onChange={e => handleSave({ manager: e.target.value })}
-            disabled={currentUser?.role === 'VIEWER'}
-          >
-            <option value="">未指定</option>
-            {users.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
-          </select>
-        </div>
-        <div>
           <label className="block text-sm font-medium text-secondary mb-1">案場狀態</label>
           <select
             className="w-full bg-page px-3 py-2 rounded-lg border border-theme-border text-primary outline-none focus:border-accent cursor-pointer"
@@ -140,7 +118,12 @@ export function ProjectDetailModal({ project, onClose, onUpdate, onConstructionU
       </div>
       <ProjectPositionAssignments
         projectId={project.id}
+        responsibleMemberName={editedProject.manager}
         canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')}
+        onEngineeringManagerChange={async manager => {
+          setEditedProject(current => ({ ...current, manager }));
+          await onUpdate();
+        }}
       />
       <div className="border-t border-theme-border pt-4">
         <p className="mb-3 text-sm text-secondary">參與工種（其他工項請至施工區逐筆新增）</p>
@@ -216,7 +199,7 @@ export function ProjectDetailModal({ project, onClose, onUpdate, onConstructionU
 
           <div className="min-w-0 flex-1 overflow-y-auto p-6 bg-page/30">
             {activeTab === 'basic' && renderBasicInfo()}
-            {activeTab === 'workflow' && <ProjectWorkflow projectId={project.id} projectName={editedProject.name} actor={currentUser ? { id: currentUser.id, name: currentUser.name } : null} canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')} construction={<ConstructionProgressSection model={construction} />} onUpdate={onUpdate} onMilestoneUpdated={onMilestoneUpdated} />}
+            {activeTab === 'workflow' && <ProjectWorkflow projectId={project.id} projectName={editedProject.name} actor={currentUser ? { id: currentUser.id, name: currentUser.name } : null} canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')} canRefresh={currentUser?.role === 'ADMIN'} construction={<ConstructionProgressSection model={construction} />} onUpdate={onUpdate} onMilestoneUpdated={onMilestoneUpdated} />}
             {activeTab === 'notes' && renderNotes()}
           </div>
         </div>
