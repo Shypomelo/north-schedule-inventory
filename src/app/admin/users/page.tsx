@@ -189,7 +189,7 @@ export default function AdminUsersPage() {
 
   return (
     <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 flex flex-col gap-6">
-      <div className="flex justify-between items-center bg-card p-6 rounded-xl border border-theme-border shadow-sm">
+      <div className="flex flex-col items-stretch justify-between gap-3 rounded-xl border border-theme-border bg-card p-4 shadow-sm sm:p-6 lg:flex-row lg:items-center">
         <div>
           <h1 className="text-2xl font-bold text-primary flex items-center gap-2">
             <ShieldAlert className="text-accent" />
@@ -206,7 +206,7 @@ export default function AdminUsersPage() {
         </button>
       </div>
 
-      <div className="bg-card border border-theme-border rounded-xl overflow-hidden shadow-sm">
+      <div className="overflow-auto rounded-xl border border-theme-border bg-card shadow-sm">
         {error ? (
           <div className="p-12 text-center text-danger">
             <p className="font-bold mb-2">載入失敗</p>
@@ -216,7 +216,7 @@ export default function AdminUsersPage() {
         ) : isLoading ? (
           <div className="p-12 text-center text-secondary">載入中...</div>
         ) : (
-          <table className="w-full text-left border-collapse whitespace-nowrap">
+          <table className="min-w-[72rem] w-full text-left border-collapse whitespace-nowrap">
             <thead className="bg-page text-secondary text-sm border-b border-theme-border">
               <tr>
                 <th className="p-4 font-semibold">姓名</th>
@@ -334,8 +334,8 @@ export default function AdminUsersPage() {
       </section>
 
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-page/80 backdrop-blur-sm">
-          <div className="bg-card rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-theme-border">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-page/80 p-2 backdrop-blur-sm sm:p-4">
+          <div className="max-h-[calc(100dvh-1rem)] w-full max-w-lg overflow-y-auto rounded-2xl border border-theme-border bg-card shadow-xl">
             <div className="flex justify-between items-center p-6 border-b border-theme-border bg-card/50">
               <h2 className="text-xl font-bold text-primary">
                 {editingUser ? '編輯人員' : '新增人員'}
@@ -355,7 +355,7 @@ export default function AdminUsersPage() {
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="flex flex-col gap-1.5">
                   <label className="text-sm font-medium text-secondary">姓名 <span className="text-danger">*</span></label>
                   <input 
@@ -380,7 +380,7 @@ export default function AdminUsersPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="flex flex-col gap-1.5">
                   <label className="text-sm font-medium text-secondary">既有分類／相容設定 <span className="text-danger">*</span></label>
                   <select 
@@ -423,7 +423,7 @@ export default function AdminUsersPage() {
 
               <fieldset className="rounded-lg border border-theme-border p-3">
                 <legend className="px-1 text-sm font-medium text-secondary">職位（可複選）</legend>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {positions.filter(position => position.is_active).map(position => (
                     <label key={position.id} className="flex items-center gap-2 rounded-lg bg-page px-3 py-2 text-sm text-primary">
                       <input

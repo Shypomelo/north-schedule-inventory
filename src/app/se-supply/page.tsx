@@ -207,15 +207,15 @@ export default function SESupplyPage() {
   }
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden p-4 md:p-6 pb-20">
-      <div className="flex justify-between items-center mb-6 shrink-0">
+    <div className="flex h-full min-w-0 flex-col overflow-hidden p-3 pb-20 sm:p-4 md:p-6">
+      <div className="mb-4 flex shrink-0 flex-col items-stretch justify-between gap-3 sm:mb-6 sm:flex-row sm:items-center">
         <div>
           <h1 className="text-2xl font-bold text-primary">SE 供貨追蹤</h1>
           <p className="text-secondary text-sm mt-1">獨立追蹤 SE 物料更換與流向，可直接點擊表格進行編輯。</p>
         </div>
         <button 
           onClick={exportExcel}
-          className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded shadow transition font-semibold"
+          className="flex min-h-11 items-center justify-center gap-2 rounded bg-accent px-4 py-2 font-semibold text-white shadow transition hover:bg-accent-hover"
         >
           <Download size={18} />
           匯出 Excel

@@ -78,12 +78,12 @@ export default function AdminWorkflowSettingsPage() {
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-5 p-4 sm:p-6 lg:p-8">
-      <header className="rounded-xl border border-theme-border bg-card p-6 shadow-sm">
+      <header className="rounded-xl border border-theme-border bg-card p-4 shadow-sm sm:p-6">
         <h1 className="flex items-center gap-2 text-2xl font-bold text-primary"><ListChecks className="text-accent" />專案流程設定</h1>
         <p className="mt-2 text-sm text-secondary">管理未來案場使用的 NORTH_DEFAULT 範本。修改不會回寫既有案場快照。</p>
       </header>
 
-      <nav className="flex gap-1 rounded-xl border border-theme-border bg-card/60 p-1">
+      <nav className="flex gap-1 overflow-x-auto rounded-xl border border-theme-border bg-card/60 p-1">
         {([
           ['steps', '流程項目', ListChecks],
           ['phases', 'Phase', Layers3],
@@ -133,11 +133,11 @@ function ClassificationManager({ kind, items, savingId, onItemsChange, onSave }:
   };
 
   return (
-    <section className="rounded-xl border border-theme-border bg-card/40 p-5">
-      <form onSubmit={create} className="mb-5 flex gap-3"><input value={newName} onChange={event => setNewName(event.target.value)} placeholder={`新增 ${title} 名稱`} className={inputClass} /><button type="submit" disabled={!newName.trim() || savingId !== null} className="flex shrink-0 items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-hover disabled:opacity-50"><Plus size={16} />新增</button></form>
+    <section className="overflow-x-auto rounded-xl border border-theme-border bg-card/40 p-3 sm:p-5">
+      <form onSubmit={create} className="mb-5 flex min-w-[30rem] gap-3"><input value={newName} onChange={event => setNewName(event.target.value)} placeholder={`新增 ${title} 名稱`} className={inputClass} /><button type="submit" disabled={!newName.trim() || savingId !== null} className="flex shrink-0 items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-hover disabled:opacity-50"><Plus size={16} />新增</button></form>
       <div className="space-y-2">
         {ordered.map(item => (
-          <div key={item.id} className={`grid grid-cols-[minmax(12rem,1fr)_7rem_6rem_auto] items-end gap-3 rounded-xl border border-theme-border p-3 ${item.is_active ? 'bg-page/35' : 'bg-page/20 opacity-60'}`}>
+          <div key={item.id} className={`grid min-w-[38rem] grid-cols-[minmax(12rem,1fr)_7rem_6rem_auto] items-end gap-3 rounded-xl border border-theme-border p-3 ${item.is_active ? 'bg-page/35' : 'bg-page/20 opacity-60'}`}>
             <label className="text-xs text-secondary">名稱<input value={item.name} onChange={event => updateLocal(item.id, { name: event.target.value })} className={`${inputClass} mt-1`} /></label>
             <label className="text-xs text-secondary">排序<input type="number" min={0} value={item.sort_order} onChange={event => updateLocal(item.id, { sort_order: Number(event.target.value) })} className={`${inputClass} mt-1`} /></label>
             <label className="flex h-10 items-center gap-2 text-sm text-secondary"><input type="checkbox" checked={item.is_active} onChange={event => updateLocal(item.id, { is_active: event.target.checked })} className="h-4 w-4 accent-accent" />啟用</label>
@@ -195,9 +195,9 @@ function TemplateStepManager({ template, phases, types, positions, steps, saving
   const updateLocal = (id: string, updates: Partial<WorkflowTemplateStep>) => onStepsChange(steps.map(step => step.id === id ? { ...step, ...updates } : step));
 
   return (
-    <section className="rounded-xl border border-theme-border bg-card/40 p-5">
+    <section className="overflow-x-auto rounded-xl border border-theme-border bg-card/40 p-3 sm:p-5">
       <div className="mb-4 text-sm text-secondary">目前範本：<strong className="text-primary">{template.name}</strong>（{template.template_key}）</div>
-      <form onSubmit={create} className="mb-5 grid grid-cols-[minmax(12rem,1fr)_10rem_10rem_10rem_7rem_auto] items-end gap-3 rounded-xl border border-theme-border bg-page/30 p-4">
+      <form onSubmit={create} className="mb-5 grid min-w-[62rem] grid-cols-[minmax(12rem,1fr)_10rem_10rem_10rem_7rem_auto] items-end gap-3 rounded-xl border border-theme-border bg-page/30 p-4">
         <label className="text-xs text-secondary">項目名稱<input value={newStep.label} onChange={event => setNewStep({ ...newStep, label: event.target.value })} className={`${inputClass} mt-1`} /></label>
         <Select label="Phase" value={newStep.phase_id} onChange={value => setNewStep({ ...newStep, phase_id: value })} items={activePhases} />
         <Select label="Type" value={newStep.type_id} onChange={value => setNewStep({ ...newStep, type_id: value })} items={activeTypes} />
@@ -209,7 +209,7 @@ function TemplateStepManager({ template, phases, types, positions, steps, saving
       <div className="space-y-2">
         {ordered.map(step => (
           <div key={step.id} className={`rounded-xl border border-theme-border p-3 ${step.is_active ? 'bg-page/35' : 'bg-page/20 opacity-60'}`}>
-            <div className="grid grid-cols-[minmax(10rem,1fr)_repeat(3,minmax(7rem,9rem))_5rem_6rem_4rem_auto] items-end gap-2">
+            <div className="grid min-w-[68rem] grid-cols-[minmax(10rem,1fr)_repeat(3,minmax(7rem,9rem))_5rem_6rem_4rem_auto] items-end gap-2">
               <label className="text-xs text-secondary">名稱<input value={step.label} onChange={event => updateLocal(step.id, { label: event.target.value })} className={`${inputClass} mt-1`} /></label>
               <Select label="Phase" value={step.phase_id} onChange={value => updateLocal(step.id, { phase_id: value })} items={phases} />
               <Select label="Type" value={step.type_id} onChange={value => updateLocal(step.id, { type_id: value })} items={types} />

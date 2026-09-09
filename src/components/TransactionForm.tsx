@@ -540,7 +540,7 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
                       + 新增格子
                     </button>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     {inSerialInputs.map((val, idx) => (
                       <input 
                         key={idx}

@@ -280,7 +280,7 @@ export default function InventoryBalancePage() {
 
   return (
     <div className="max-w-7xl mx-auto flex flex-col h-full relative">
-      <div className="flex justify-between items-center mb-8">
+      <div className="mb-5 flex flex-col items-stretch justify-between gap-3 sm:mb-8 lg:flex-row lg:items-center">
         <div>
           <h2 className="text-2xl font-bold text-primary">庫存總覽</h2>
           <p className="text-secondary text-sm mt-1">
@@ -288,7 +288,7 @@ export default function InventoryBalancePage() {
             <span className="text-warning ml-2">提示：對品項按右鍵可以快速異動庫存！</span>
           </p>
         </div>
-        <div className="flex gap-3 items-center">
+        <div className="flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-secondary text-sm cursor-pointer mr-2 hover:text-accent transition-colors">
             <input 
 
@@ -326,7 +326,7 @@ export default function InventoryBalancePage() {
         </div>
       </div>
 
-      <div className="flex gap-2 mb-6 border-b border-theme-border/50 pb-px">
+      <div className="mb-6 flex gap-2 overflow-x-auto border-b border-theme-border/50 pb-px">
         {MAIN_CATEGORIES.map(cat => (
           <button
             key={cat}
@@ -354,7 +354,7 @@ export default function InventoryBalancePage() {
              </button>
            </div>
         ) : (
-          <table className="w-full text-left border-collapse">
+          <table className="min-w-[64rem] w-full text-left border-collapse">
             <thead className="bg-[var(--surface-secondary)] backdrop-blur-sm text-secondary text-sm sticky top-0 z-10 border-b border-theme-border">
               <tr>
                 <th className="p-4 font-semibold">來源</th>
@@ -449,9 +449,9 @@ export default function InventoryBalancePage() {
       
       {/* Transaction Modal Wrapper */}
       {txModal.visible && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-2 sm:p-4">
           <div className="absolute inset-0 bg-page/80 backdrop-blur-sm" onClick={() => setTxModal({ visible: false, type: 'IN', itemId: null })} />
-          <div className="bg-card border border-theme-border rounded-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto relative shadow-2xl">
+          <div className="relative max-h-[calc(100dvh-1rem)] w-full max-w-2xl overflow-y-auto rounded-xl border border-theme-border bg-card p-4 shadow-2xl sm:max-h-[90vh] sm:p-6">
             <button 
               className="absolute top-4 right-4 text-secondary hover:text-primary"
               onClick={() => setTxModal({ visible: false, type: 'IN', itemId: null })}

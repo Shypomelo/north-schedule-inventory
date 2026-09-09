@@ -205,7 +205,7 @@ export default function SerialsPage() {
         <h2 className="text-2xl font-bold text-primary">所有序號總覽</h2>
         
         <div className="flex-1 overflow-auto bg-card/30 border border-theme-border rounded-xl max-h-[500px]">
-          <table className="w-full text-left border-collapse">
+          <table className="min-w-[52rem] w-full text-left border-collapse">
             <thead className="bg-card text-secondary text-sm sticky top-0 z-10 border-b border-theme-border">
               <tr>
                 <th className="p-4 font-semibold">序號</th>

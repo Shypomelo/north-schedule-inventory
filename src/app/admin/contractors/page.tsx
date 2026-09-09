@@ -180,7 +180,7 @@ export default function AdminContractorsPage() {
 
   return (
     <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 flex flex-col gap-6">
-      <div className="flex justify-between items-center bg-card p-6 rounded-xl border border-theme-border shadow-sm">
+      <div className="flex flex-col items-stretch justify-between gap-3 rounded-xl border border-theme-border bg-card p-4 shadow-sm sm:p-6 lg:flex-row lg:items-center">
         <div>
           <h1 className="text-2xl font-bold text-primary flex items-center gap-2">
             <Wrench className="text-accent" />
@@ -199,7 +199,7 @@ export default function AdminContractorsPage() {
         </button>
       </div>
 
-      <div className="bg-card/40 border border-theme-border rounded-xl overflow-hidden shadow-xl backdrop-blur-sm">
+      <div className="overflow-auto rounded-xl border border-theme-border bg-card/40 shadow-xl backdrop-blur-sm">
         {error ? (
           <div className="p-8 text-center text-danger">
             <p className="font-bold mb-2">載入失敗</p>
@@ -209,7 +209,7 @@ export default function AdminContractorsPage() {
         ) : isLoading ? (
           <div className="p-8 text-center text-secondary">載入中...</div>
         ) : (
-          <table className="w-full text-left border-collapse">
+          <table className="min-w-[64rem] w-full text-left border-collapse">
             <thead className="bg-page text-secondary text-sm border-b border-theme-border">
               <tr>
                 <th className="p-4 font-semibold w-[120px]">狀態</th>
@@ -275,8 +275,8 @@ export default function AdminContractorsPage() {
       </div>
 
       {isModalOpen && (
-        <div className="fixed inset-0 bg-page/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-card border border-theme-border p-6 rounded-2xl w-full max-w-md shadow-2xl relative animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-page/80 p-2 backdrop-blur-sm sm:p-4">
+          <div className="relative max-h-[calc(100dvh-1rem)] w-full max-w-md overflow-y-auto rounded-2xl border border-theme-border bg-card p-4 shadow-2xl sm:p-6">
             <h2 className="text-xl font-bold text-primary mb-6">
               {editingContractor ? '編輯包商' : '新增包商'}
             </h2>
@@ -296,7 +296,7 @@ export default function AdminContractorsPage() {
 
               <fieldset>
                 <legend className="block text-sm font-medium text-secondary mb-2">可施作工項 *</legend>
-                <div className="grid grid-cols-2 gap-2 rounded-lg border border-theme-border bg-page/40 p-3">
+                <div className="grid grid-cols-1 gap-2 rounded-lg border border-theme-border bg-page/40 p-3 sm:grid-cols-2">
                   {CONTRACTOR_CAPABILITIES.map(type => {
                     const checked = (formData.work_capabilities || []).includes(type.key);
                     const isPrimary = formData.contractor_type === type.key;
@@ -343,7 +343,7 @@ export default function AdminContractorsPage() {
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label className="block text-sm font-medium text-secondary mb-1">聯絡人</label>
                   <input 

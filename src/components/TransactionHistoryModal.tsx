@@ -31,8 +31,8 @@ export function TransactionHistoryModal({ transactionId, onClose }: TransactionH
   }, [transactionId]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="bg-card rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden border border-theme-border flex flex-col max-h-[85vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2 sm:p-4">
+      <div className="flex max-h-[calc(100dvh-1rem)] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-theme-border bg-card shadow-2xl sm:max-h-[85vh]">
         <div className="p-4 border-b border-theme-border/50 flex justify-between items-center bg-card/50">
           <h2 className="text-lg font-bold text-primary flex items-center gap-2">
             異動紀錄歷史
@@ -40,7 +40,7 @@ export function TransactionHistoryModal({ transactionId, onClose }: TransactionH
           <button onClick={onClose} className="text-secondary hover:text-primary transition">✕</button>
         </div>
         
-        <div className="p-6 flex-1 overflow-auto bg-page/50">
+        <div className="flex-1 overflow-auto bg-page/50 p-3 sm:p-6">
           {isLoading ? (
             <div className="text-secondary text-center py-8">載入中...</div>
           ) : logs.length === 0 ? (
@@ -69,7 +69,7 @@ export function TransactionHistoryModal({ transactionId, onClose }: TransactionH
                   )}
 
                   {log.action_type === 'UPDATE_TRANSACTION' && log.before_value && log.after_value && (
-                    <div className="grid grid-cols-2 gap-4 text-xs mt-3">
+                    <div className="mt-3 grid grid-cols-1 gap-4 text-xs sm:grid-cols-2">
                       <div className="bg-danger/10 border border-danger/20 p-2 rounded">
                         <div className="text-danger font-bold mb-1 border-b border-danger/20 pb-1">修改前</div>
                         <pre className="text-secondary/80 whitespace-pre-wrap font-mono overflow-auto max-h-40">

@@ -291,8 +291,8 @@ export default function MonthlyReportPage() {
 
   return (
     <div className="max-w-7xl mx-auto flex flex-col h-full gap-4">
-      <div className="flex justify-between items-center bg-card p-4 rounded-xl shadow border border-theme-border">
-        <div className="flex gap-4">
+      <div className="flex flex-col items-stretch justify-between gap-3 rounded-xl border border-theme-border bg-card p-4 shadow sm:flex-row sm:items-center">
+        <div className="flex flex-wrap gap-4">
           <button 
             className={`px-4 py-2 rounded-lg font-medium transition ${viewMode === 'MONTHLY' ? 'bg-accent text-white' : 'bg-card/80 text-secondary hover:bg-card hover:text-primary border border-transparent'}`}
             onClick={() => setViewMode('MONTHLY')}
@@ -310,8 +310,8 @@ export default function MonthlyReportPage() {
 
       {viewMode === 'MONTHLY' && (
         <div className="flex-1 flex flex-col gap-4 overflow-hidden">
-          <div className="flex justify-between items-center bg-card p-4 rounded-xl border border-theme-border">
-             <div className="flex items-center gap-4">
+          <div className="flex flex-col items-stretch justify-between gap-3 rounded-xl border border-theme-border bg-card p-4 sm:flex-row sm:items-center">
+             <div className="flex flex-wrap items-center gap-4">
                <select 
                  value={selectedYear}
                  onChange={e => setSelectedYear(e.target.value)}
@@ -393,7 +393,7 @@ export default function MonthlyReportPage() {
                  這個月份沒有任何庫存記錄與異動
                </div>
             ) : (
-              <table className="w-full text-left border-collapse whitespace-nowrap">
+              <table className="min-w-[58rem] w-full text-left border-collapse whitespace-nowrap">
                 <thead className="bg-card text-secondary text-sm sticky top-0 z-10 border-b border-theme-border shadow-sm">
                   <tr>
                     <th className="p-3 font-semibold">分類</th>
@@ -434,8 +434,8 @@ export default function MonthlyReportPage() {
 
       {viewMode === 'ANNUAL' && (
          <div className="flex-1 flex flex-col gap-4 overflow-hidden">
-           <div className="flex justify-between items-center bg-card p-4 rounded-xl border border-theme-border">
-             <div className="flex items-center gap-4">
+           <div className="flex flex-col items-stretch justify-between gap-3 rounded-xl border border-theme-border bg-card p-4 sm:flex-row sm:items-center">
+             <div className="flex flex-wrap items-center gap-4">
                <select 
                  value={selectedYear}
                  onChange={e => setSelectedYear(e.target.value)}
@@ -453,7 +453,7 @@ export default function MonthlyReportPage() {
            </div>
 
            <div className="flex-1 overflow-auto bg-card/50 border border-theme-border rounded-xl relative">
-             <table className="w-full text-left border-collapse whitespace-nowrap">
+             <table className="min-w-[58rem] w-full text-left border-collapse whitespace-nowrap">
                 <thead className="bg-card text-secondary text-xs sticky top-0 z-10 border-b border-theme-border shadow-sm">
                   <tr>
                     <th className="p-3 font-semibold w-[200px] sticky left-0 bg-card z-20">品名</th>

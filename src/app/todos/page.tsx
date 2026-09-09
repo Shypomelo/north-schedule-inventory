@@ -74,9 +74,9 @@ export default function TodosPage() {
   };
 
   return (
-    <div className="p-8 max-w-4xl mx-auto flex flex-col h-full">
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold text-primary">待辦事項</h1>
+    <div className="mx-auto flex h-full max-w-4xl flex-col p-3 sm:p-5 lg:p-8">
+      <div className="mb-5 flex flex-col items-stretch justify-between gap-3 sm:mb-8 sm:flex-row sm:items-center">
+        <h1 className="text-2xl font-bold text-primary sm:text-3xl">待辦事項</h1>
         <button 
           onClick={() => { setEditingTodo(null); setIsModalOpen(true); }}
           disabled={currentUser?.role === 'VIEWER'}
@@ -133,8 +133,8 @@ export default function TodosPage() {
       </div>
 
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-card border border-theme-border p-6 rounded-2xl w-full max-w-md shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2 backdrop-blur-sm sm:p-4">
+          <div className="max-h-[calc(100dvh-1rem)] w-full max-w-md overflow-y-auto rounded-2xl border border-theme-border bg-card p-4 shadow-2xl sm:p-6">
             <h2 className="text-2xl font-bold text-primary mb-6">{editingTodo ? '編輯待辦' : '新增待辦'}</h2>
             <TodoForm 
               initialData={editingTodo || undefined}
@@ -147,8 +147,8 @@ export default function TodosPage() {
       )}
 
       {isTaskModalOpen && editingTodo && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-card border border-theme-border p-6 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-auto shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2 backdrop-blur-sm sm:p-4">
+          <div className="max-h-[calc(100dvh-1rem)] w-full max-w-2xl overflow-auto rounded-2xl border border-theme-border bg-card p-4 shadow-2xl sm:max-h-[90vh] sm:p-6">
             <h2 className="text-2xl font-bold text-primary mb-6">待辦轉為排程任務</h2>
             <ScheduleTaskForm 
               initialData={{

@@ -308,7 +308,7 @@ export default function TransactionsPage() {
 
   return (
     <div className="max-w-7xl mx-auto flex flex-col h-full">
-      <div className="flex justify-between items-center mb-8">
+      <div className="mb-5 flex flex-col items-stretch justify-between gap-3 sm:mb-8 lg:flex-row lg:items-center">
         <h2 className="text-2xl font-bold text-primary">庫存流水帳 (異動紀錄)</h2>
         <button 
           onClick={() => {
@@ -355,7 +355,7 @@ export default function TransactionsPage() {
              目前無異動紀錄
            </div>
         ) : (
-          <table className="w-full text-left border-collapse">
+          <table className="min-w-[64rem] w-full text-left border-collapse">
             <thead className="bg-card text-secondary text-sm sticky top-0 z-10 border-b border-theme-border">
               <tr>
                 <th className="p-4 font-semibold">日期</th>
@@ -428,8 +428,8 @@ export default function TransactionsPage() {
       </div>
 
       {isModalOpen && (
-        <div className="fixed inset-0 bg-page/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-card border border-theme-border p-6 rounded-2xl w-full max-w-3xl shadow-2xl overflow-auto max-h-[90vh]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-page/80 p-2 backdrop-blur-sm sm:p-4">
+          <div className="max-h-[calc(100dvh-1rem)] w-full max-w-3xl overflow-auto rounded-2xl border border-theme-border bg-card p-4 shadow-2xl sm:max-h-[90vh] sm:p-6">
             <h2 className="text-2xl font-bold text-primary mb-6">{editingTx ? '修改異動紀錄' : '新增庫存異動'}</h2>
             <TransactionForm 
               items={items.filter(i => i.is_active)}

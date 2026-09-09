@@ -178,7 +178,7 @@ export default function AdminTaskTypesPage() {
 
   return (
     <div className="max-w-4xl mx-auto p-4 sm:p-6 lg:p-8 flex flex-col gap-6">
-      <div className="bg-card p-6 rounded-xl border border-theme-border shadow-sm">
+      <div className="rounded-xl border border-theme-border bg-card p-4 shadow-sm sm:p-6">
         <h1 className="text-2xl font-bold text-primary flex items-center gap-2">
           <ListChecks className="text-accent" />
           系統管理 - 任務類型
@@ -186,7 +186,7 @@ export default function AdminTaskTypesPage() {
         <p className="text-sm text-secondary mt-1">名稱修改只套用於未來選擇；既有任務會保留原始類型文字。</p>
       </div>
 
-      <form onSubmit={handleCreate} className="bg-card/40 border border-theme-border rounded-xl p-4 flex gap-3">
+      <form onSubmit={handleCreate} className="flex flex-col gap-3 rounded-xl border border-theme-border bg-card/40 p-4 sm:flex-row">
         <input
           value={newName}
           onChange={event => setNewName(event.target.value)}

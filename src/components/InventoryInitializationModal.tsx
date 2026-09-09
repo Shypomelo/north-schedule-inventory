@@ -175,11 +175,11 @@ export const InventoryInitializationModal: React.FC<InventoryInitializationModal
   const canConfirm = previewResults && previewResults.every(r => r.can_initialize) && initStatus?.canExecuteNow;
 
   return (
-    <div className="fixed inset-0 bg-page/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-card border border-theme-border rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col">
-        <div className="p-6 border-b border-theme-border/50 flex justify-between items-center bg-card/50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-page/80 p-2 backdrop-blur-sm sm:p-4">
+      <div className="flex max-h-[calc(100dvh-1rem)] w-full max-w-5xl flex-col rounded-xl border border-theme-border bg-card shadow-2xl sm:max-h-[90vh]">
+        <div className="flex items-center justify-between gap-3 border-b border-theme-border/50 bg-card/50 p-4 sm:p-6">
           <div>
-            <h2 className="text-2xl font-bold text-primary flex items-center gap-3">
+            <h2 className="flex items-center gap-3 text-xl font-bold text-primary sm:text-2xl">
               {initStatus?.isInitialized ? <CheckCircle className="w-6 h-6 text-success" /> : <AlertTriangle className="w-6 h-6 text-warning" />}
               {initStatus?.isInitialized ? '庫存已完成初始化' : '正式庫存初始化 / 切帳 (Phase 2B)'}
             </h2>
@@ -192,7 +192,7 @@ export const InventoryInitializationModal: React.FC<InventoryInitializationModal
           </button>
         </div>
 
-        <div className="p-6 overflow-y-auto flex-1">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-6">
           {error && (
             <div className="mb-6 p-4 bg-danger/10 border border-danger/20 rounded-lg flex items-start gap-3">
               <AlertTriangle className="w-5 h-5 text-danger mt-0.5 flex-shrink-0" />
@@ -235,7 +235,7 @@ export const InventoryInitializationModal: React.FC<InventoryInitializationModal
             </div>
           ) : (
             <div className="overflow-x-auto border border-theme-border rounded-lg">
-              <table className="w-full text-left border-collapse text-sm">
+              <table className="min-w-[48rem] w-full text-left border-collapse text-sm">
                 <thead className="bg-card text-secondary sticky top-0">
                   <tr>
                     <th className="p-3 font-semibold">品項名稱</th>

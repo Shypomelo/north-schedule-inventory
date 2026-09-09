@@ -232,19 +232,19 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-6">
       <div className="absolute inset-0 bg-page/80 backdrop-blur-sm" onClick={onClose} />
       
-      <div className="relative bg-card border border-theme-border w-full max-w-5xl h-[90vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+      <div className="relative flex h-[100dvh] w-full max-w-5xl flex-col overflow-hidden border border-theme-border bg-card shadow-2xl animate-in fade-in zoom-in-95 duration-200 sm:h-[90vh] sm:rounded-2xl">
         
         {/* Header */}
-        <div className="flex justify-between items-center p-6 border-b border-theme-border/50 bg-card/50">
-          <div className="flex items-center gap-4">
+        <div className="flex items-center justify-between gap-3 border-b border-theme-border/50 bg-card/50 p-4 sm:p-6">
+          <div className="flex min-w-0 items-center gap-3 sm:gap-4">
             <div className="w-12 h-12 rounded-xl bg-accent/20 text-accent flex items-center justify-center border border-accent/30">
               <Box size={24} />
             </div>
-            <div>
-              <h2 className="text-xl font-bold text-primary">{item?.name}</h2>
+            <div className="min-w-0">
+              <h2 className="break-words text-xl font-bold text-primary">{item?.name}</h2>
               <p className="text-sm text-secondary">品項詳細資料與狀態</p>
             </div>
           </div>
@@ -258,13 +258,13 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
         ) : (
           <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
             {/* Sidebar Navigation */}
-            <div className="w-full md:w-64 bg-card/20 border-r border-theme-border/50 p-4 overflow-y-auto">
-              <div className="flex flex-col gap-2">
+            <div className="w-full shrink-0 overflow-x-auto border-b border-theme-border/50 bg-card/20 p-2 md:w-64 md:overflow-y-auto md:border-b-0 md:border-r md:p-4">
+              <div className="flex gap-2 md:flex-col">
                 {tabs.map(t => (
                   <button
                     key={t.key}
                     onClick={() => setActiveTab(t.key as TabKey)}
-                    className={`flex items-center gap-3 w-full p-3 rounded-lg text-sm font-medium transition-all ${
+                    className={`flex min-w-max items-center gap-3 rounded-lg p-3 text-sm font-medium transition-all md:w-full ${
                       activeTab === t.key 
                         ? 'bg-accent text-white shadow-md'
                         : 'text-secondary hover:bg-card hover:text-primary'
@@ -278,12 +278,12 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
             </div>
 
             {/* Main Content Area */}
-            <div className="flex-1 p-6 overflow-y-auto bg-card/50">
+            <div className="min-w-0 flex-1 overflow-y-auto bg-card/50 p-3 sm:p-6">
               
               {activeTab === 'SUMMARY' && (
                 <div className="flex flex-col gap-5 max-w-2xl">
                   <h3 className="text-lg font-bold text-primary border-b border-theme-border/50 pb-2">庫存摘要</h3>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="bg-card p-4 rounded-xl border border-theme-border/50">
                       <div className="text-sm text-secondary mb-1">品名</div>
                       <div className="text-lg text-primary">{item?.name}</div>
@@ -321,7 +321,7 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
                   </div>
 
                   <h3 className="text-md font-bold text-primary mt-4 border-b border-theme-border/50 pb-2">本月動態</h3>
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                     <div className="bg-accent/10 p-4 rounded-xl border border-accent/20 flex flex-col items-center">
                       <span className="text-sm text-accent mb-1">目前庫存</span>
                       <span className="text-3xl font-bold text-accent">{currentBalance}</span>
@@ -339,7 +339,7 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
                   {item?.requires_serial && (
                     <>
                       <h3 className="text-md font-bold text-primary mt-4 border-b border-theme-border/50 pb-2">序號狀態</h3>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                         <div className="bg-success/10 p-4 rounded-xl border border-success/20 flex flex-col items-center">
                           <span className="text-sm text-success mb-1">已登序號 (庫存中)</span>
                           <span className="text-2xl font-bold text-success">{registered_serials}</span>
