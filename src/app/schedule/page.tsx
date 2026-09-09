@@ -717,7 +717,7 @@ export default function SchedulePage() {
   };
 
   const renderWeeklySchedule = (days: Date[], includeTodoColumn: boolean) => (
-    <div className={`grid ${includeTodoColumn ? 'grid-cols-7 flex-1' : 'grid-cols-6'} border border-[var(--border)] rounded-xl bg-[var(--surface)] overflow-hidden`}>
+    <div className={`grid min-w-[72rem] ${includeTodoColumn ? 'grid-cols-7 flex-1' : 'grid-cols-6'} border border-[var(--border)] rounded-xl bg-[var(--surface)] overflow-hidden`}>
       {days.map(day => {
         const dateStr = format(day, 'yyyy-MM-dd');
         const dayTasks = sortTasks(tasks.filter(task => task.task_date === dateStr));
@@ -877,10 +877,10 @@ export default function SchedulePage() {
   );
 
   return (
-    <div className="p-8 h-full flex flex-col min-w-[1500px] mx-auto">
-      <div className="flex justify-between items-center mb-6">
-        <div className="flex items-center gap-6">
-          <h1 className="text-3xl font-bold text-[var(--text-primary)]">排程管理</h1>
+    <div className="mx-auto flex h-full min-w-0 flex-col p-3 sm:p-5 lg:p-8 xl:min-w-[1500px]">
+      <div className="mb-4 flex flex-col items-stretch justify-between gap-3 lg:mb-6 lg:flex-row lg:items-center">
+        <div className="flex flex-wrap items-center gap-3 lg:gap-6">
+          <h1 className="w-full text-2xl font-bold text-[var(--text-primary)] sm:w-auto sm:text-3xl">排程管理</h1>
           
           <div className="flex bg-[var(--surface)] rounded-lg p-1 border border-[var(--border)]">
             <button 
@@ -932,7 +932,7 @@ export default function SchedulePage() {
             >
               <ChevronLeft size={20}/>
             </button>
-            <span className="text-sm font-semibold text-[var(--text-primary)] px-2 min-w-[160px] text-center">
+            <span className="min-w-[130px] px-1 text-center text-xs font-semibold text-[var(--text-primary)] sm:min-w-[160px] sm:px-2 sm:text-sm">
               {viewMode === 'week' ? 
                 `${format(weekStart, 'yyyy/MM/dd')} - ${format(addDays(weekStart, 5), 'yyyy/MM/dd')}` : 
                 format(currentDate, 'yyyy 年 MM 月')}
@@ -949,11 +949,11 @@ export default function SchedulePage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={handleManualSync}
             disabled={currentUser?.role === 'VIEWER' || isLoading}
-            className="flex items-center gap-2 bg-[var(--surface)] hover:bg-[var(--surface-secondary)] text-[var(--text-primary)] border border-[var(--accent)] px-4 py-2 rounded shadow transition disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded border border-[var(--accent)] bg-[var(--surface)] px-4 py-2 text-[var(--text-primary)] shadow transition hover:bg-[var(--surface-secondary)] disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
           >
             <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
             重新同步 Google 日曆
@@ -961,7 +961,7 @@ export default function SchedulePage() {
           <button
             onClick={() => { setEditingTask(null); setConvertingTodoId(null); setEditingTaskMembers([]); setIsFormOpen(true); }}
             disabled={currentUser?.role === 'VIEWER'}
-            className="flex items-center gap-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-[var(--accent-text)] px-4 py-2 rounded shadow transition disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded bg-[var(--accent)] px-4 py-2 text-[var(--accent-text)] shadow transition hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
           >
             <Plus size={20} />
             新增任務
@@ -980,13 +980,13 @@ export default function SchedulePage() {
       ) : tasks.length === 0 && viewMode === 'week' ? (
         <div className="flex-1 flex items-center justify-center text-[var(--text-secondary)]">目前沒有排程，點擊右上角「新增任務」開始排程。</div>
       ) : (
-        <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+        <div className="flex min-h-0 flex-1 flex-col overflow-auto">
           {viewMode === 'week' ? (
-            renderWeeklySchedule(weekDays, true)
+            <div className="min-h-0 flex-1 overflow-auto">{renderWeeklySchedule(weekDays, true)}</div>
           ) : (
-            <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3">
-              <div className="min-h-full flex flex-col">
-                <div data-month-calendar className="flex-1 min-h-0 flex flex-col border border-[var(--border)] rounded-xl bg-[var(--surface)] overflow-hidden">
+            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto">
+              <div className="flex min-h-full min-w-[56rem] flex-col">
+                <div data-month-calendar className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
                 <div className="grid grid-cols-7 bg-[var(--surface-secondary)] border-b border-[var(--border)]">
                   {['一','二','三','四','五','六','日'].map(d => (
                     <div key={d} className="text-center py-2 text-sm font-bold text-[var(--text-secondary)]">週{d}</div>
@@ -1121,7 +1121,7 @@ export default function SchedulePage() {
       )}
 
       {selectedDayTasks && (
-        <div className="absolute top-0 right-0 h-full w-96 bg-[var(--surface)] border-l border-[var(--border)] shadow-2xl flex flex-col transform transition-transform z-10">
+        <div className="absolute right-0 top-0 z-10 flex h-full w-full flex-col border-l border-[var(--border)] bg-[var(--surface)] shadow-2xl transition-transform sm:w-96">
           <div className="flex justify-between items-center p-4 border-b border-[var(--border)]">
             <h2 className="text-xl font-bold text-[var(--accent)]">
               {format(selectedDayTasks.date, 'yyyy/MM/dd')} 任務清單
