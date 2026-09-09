@@ -1,6 +1,7 @@
 export type UserRole = 'ADMIN' | 'ENGINEER' | 'VIEWER';
 export type TaskStatus = '未開始' | '進行中' | '已完成' | '取消' | '' | '改期' | '完成';
-export type TodoStatus = '待安排' | '已排程' | '已完成' | '取消';
+export type TodoStatus = '待安排' | '已排程' | '已完成' | '取消' | '已退件';
+export type TodoScope = 'TEAM' | 'PRIVATE';
 export type ScheduleCreationSource = 'APP' | 'GOOGLE_IMPORT' | 'SYSTEM' | 'LEGACY';
 export type TransactionType = 'IN' | 'OUT' | 'RETURN' | 'ADJUST';
 export type StockCategory = 'CONSTRUCTION' | 'MAINTENANCE' | 'VENDOR_SPARE';
@@ -13,6 +14,12 @@ export type ActivityActionType =
   | 'RESCHEDULE_TASK'
   | 'DELETE_TASK'
   | 'CREATE_TODO'
+  | 'ASSIGN_TODO'
+  | 'UPDATE_TODO'
+  | 'REJECT_TODO'
+  | 'REASSIGN_TODO'
+  | 'COMPLETE_TODO'
+  | 'VOID_TODO'
   | 'TODO_TO_TASK'
   | 'TASK_TO_TODO'
   | 'UPDATE_PROJECT'
@@ -295,10 +302,26 @@ export interface Todo {
   project_id: string | null;
   task_type: string | null;
   status: TodoStatus;
+  scope: TodoScope;
   created_by: string | null;
+  assigned_to: string | null;
+  assigned_by: string | null;
   converted_task_id: string | null;
+  rejected_by: string | null;
+  rejected_at: string | null;
+  rejection_reason: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface PrivateTodoInput {
+  title: string;
+  created_by: string;
+}
+
+export interface PrivateTodoUpdate {
+  title?: string;
+  status?: Extract<TodoStatus, '待安排' | '已完成'>;
 }
 
 export interface InventoryItem {

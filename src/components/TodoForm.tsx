@@ -14,7 +14,7 @@ interface TodoFormProps {
 }
 
 export function TodoForm({ initialData, onSubmit, onCancel, isSubmitting }: TodoFormProps) {
-  const { currentUser } = useUser();
+  const { currentUser, allUsers } = useUser();
   const isViewer = currentUser?.role === 'VIEWER';
   const [projects, setProjects] = useState<Project[]>([]);
   
@@ -24,8 +24,14 @@ export function TodoForm({ initialData, onSubmit, onCancel, isSubmitting }: Todo
     project_id: initialData?.project_id || null,
     task_type: initialData?.task_type || null,
     status: initialData?.status || '待安排',
+    scope: 'TEAM',
     created_by: initialData?.created_by || currentUser?.id || null,
+    assigned_to: initialData?.assigned_to || null,
+    assigned_by: initialData?.assigned_by || null,
     converted_task_id: initialData?.converted_task_id || null,
+    rejected_by: initialData?.rejected_by || null,
+    rejected_at: initialData?.rejected_at || null,
+    rejection_reason: initialData?.rejection_reason || null,
   });
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -63,6 +69,27 @@ export function TodoForm({ initialData, onSubmit, onCancel, isSubmitting }: Todo
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4 text-primary">
       <div className="grid grid-cols-1 gap-4">
+        <label className="flex flex-col gap-1">
+          <span className="text-sm font-semibold text-primary">指派給</span>
+          <select
+            className="bg-[var(--input-bg)] border border-[var(--input-border)] rounded p-2 focus:border-accent outline-none"
+            value={formData.assigned_to || ''}
+            onChange={event => {
+              const assignedTo = event.target.value || null;
+              setFormData({
+                ...formData,
+                assigned_to: assignedTo,
+                assigned_by: assignedTo ? (formData.assigned_by || currentUser?.id || null) : null,
+              });
+            }}
+          >
+            <option value="">(未指派)</option>
+            {allUsers
+              .filter(user => user.is_active && user.role !== 'VIEWER')
+              .map(user => <option key={user.id} value={user.id}>{user.name}</option>)}
+          </select>
+        </label>
+
         <label className="flex flex-col gap-1">
           <span className="text-sm font-semibold text-primary">待辦標題 *</span>
           <input 

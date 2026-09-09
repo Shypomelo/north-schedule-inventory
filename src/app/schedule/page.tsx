@@ -16,6 +16,7 @@ import { useUser } from '@/components/UserContext';
 import { getDatabaseErrorMessage, isMissingCoreTablesError } from '@/lib/db/supabase-errors';
 import { supabase } from '@/lib/db/supabaseClient';
 import { parseTaiwanProjectLocation } from '@/lib/project-location';
+import { formatScheduleTaskTime, sortScheduleTasks } from '@/lib/schedule-selectors';
 import {
   buildMonthScheduleWeeks,
   collapseExpandedMonthWeeks,
@@ -90,25 +91,8 @@ const isAbortError = (error: unknown) => (
   error instanceof Error && error.name === 'AbortError'
 );
 
-const sortTasks = (taskList: ScheduleTask[]) => {
-  return [...taskList].filter(t => t.status !== '取消').sort((a, b) => {
-    if (a.is_tentative && !b.is_tentative) return 1;
-    if (!a.is_tentative && b.is_tentative) return -1;
-
-    const timeWeight = (t: ScheduleTask) => {
-      if (t.start_time) return t.start_time;
-      if (t.is_all_day) return '25:00';
-      return '26:00';
-    };
-    return timeWeight(a).localeCompare(timeWeight(b));
-  });
-};
-
-const formatTaskTime = (task: ScheduleTask): string => {
-  if (task.is_all_day) return '全天';
-  if (task.start_time && task.end_time) return `${task.start_time}–${task.end_time}`;
-  return task.start_time || '未指定時間';
-};
+const sortTasks = sortScheduleTasks;
+const formatTaskTime = formatScheduleTaskTime;
 
 const getScheduleDistrictLabel = (
   task: ScheduleTask,
@@ -512,8 +496,14 @@ export default function SchedulePage() {
            project_id: task.project_id,
            task_type: task.task_type,
            status: '待安排',
+           scope: 'TEAM',
            converted_task_id: null,
-           created_by: 'mock-user-engineer'
+           created_by: currentUser?.id || null,
+           assigned_to: null,
+           assigned_by: null,
+           rejected_by: null,
+           rejected_at: null,
+           rejection_reason: null,
         });
         setTodos(prev => [newTodo, ...prev]);
         await dbAdapter.deleteScheduleTask(task.id);

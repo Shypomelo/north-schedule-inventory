@@ -150,6 +150,34 @@ const requireWorkflowSupabase = (methodName: string) => async (..._args: any[]) 
   throw new Error(`Supabase is required for Project Workflow. Cannot run ${methodName} without it.`);
 };
 
+const requireTodoSupabase = (methodName: string) => async (..._args: any[]) => {
+  throw new Error(`Supabase is required for Todos. Cannot run ${methodName} without it.`);
+};
+
+const todoAdapter = hasSupabase
+  ? {
+      getTodos: pocSupabaseAdapter.getTodos,
+      createTodo: pocSupabaseAdapter.createTodo,
+      updateTodo: pocSupabaseAdapter.updateTodo,
+      rejectTodo: pocSupabaseAdapter.rejectTodo,
+      deleteTodo: pocSupabaseAdapter.deleteTodo,
+      getPrivateTodos: pocSupabaseAdapter.getPrivateTodos,
+      createPrivateTodo: pocSupabaseAdapter.createPrivateTodo,
+      updatePrivateTodo: pocSupabaseAdapter.updatePrivateTodo,
+      deletePrivateTodo: pocSupabaseAdapter.deletePrivateTodo,
+    }
+  : {
+      getTodos: requireTodoSupabase('getTodos'),
+      createTodo: requireTodoSupabase('createTodo'),
+      updateTodo: requireTodoSupabase('updateTodo'),
+      rejectTodo: requireTodoSupabase('rejectTodo'),
+      deleteTodo: requireTodoSupabase('deleteTodo'),
+      getPrivateTodos: requireTodoSupabase('getPrivateTodos'),
+      createPrivateTodo: requireTodoSupabase('createPrivateTodo'),
+      updatePrivateTodo: requireTodoSupabase('updatePrivateTodo'),
+      deletePrivateTodo: requireTodoSupabase('deletePrivateTodo'),
+    };
+
 const workflowAdapter = hasSupabase
   ? {
       getWorkflowPhases: pocSupabaseAdapter.getWorkflowPhases,
@@ -261,6 +289,7 @@ export const dbAdapter = {
   ...mockDbAdapter,
   ...scheduleTaskTypesAdapter,
   ...workflowAdapter,
+  ...todoAdapter,
   getUsers: hasSupabase ? pocSupabaseAdapter.getUsers : mockDbAdapter.getUsers,
   createUser: hasSupabase ? pocSupabaseAdapter.createUser : mockDbAdapter.createUser,
   updateUser: hasSupabase ? pocSupabaseAdapter.updateUser : mockDbAdapter.updateUser,

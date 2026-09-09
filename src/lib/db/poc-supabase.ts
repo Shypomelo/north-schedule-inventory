@@ -35,6 +35,9 @@ import {
   MemberPosition,
   ProjectPositionAssignment,
   MemberProjectResponsibility,
+  Todo,
+  PrivateTodoInput,
+  PrivateTodoUpdate,
   isActiveFormalTransaction,
 } from './types';
 import { throwMissingCoreTablesErrorIfNeeded } from './supabase-errors';
@@ -61,6 +64,40 @@ const mapUser = (row: any): User => ({
   created_at: row.created_at || new Date().toISOString(),
   updated_at: row.updated_at || new Date().toISOString(),
 });
+
+const mapTodo = (row: any): Todo => ({
+  id: row.id,
+  title: row.title || '',
+  content: row.content || null,
+  project_id: row.project_id || null,
+  task_type: row.task_type || null,
+  status: row.status || '待安排',
+  scope: row.scope === 'PRIVATE' ? 'PRIVATE' : 'TEAM',
+  created_by: row.created_by || null,
+  assigned_to: row.assigned_to || null,
+  assigned_by: row.assigned_by || null,
+  converted_task_id: row.converted_task_id || null,
+  rejected_by: row.rejected_by || null,
+  rejected_at: row.rejected_at || null,
+  rejection_reason: row.rejection_reason || null,
+  created_at: row.created_at || new Date().toISOString(),
+  updated_at: row.updated_at || new Date().toISOString(),
+});
+
+const buildTeamTodoPayload = (
+  todo: Partial<Omit<Todo, 'id' | 'created_at' | 'updated_at'>>,
+): Record<string, unknown> => {
+  const payload: Record<string, unknown> = { scope: 'TEAM' };
+  const fields: Array<keyof Omit<Todo, 'id' | 'created_at' | 'updated_at' | 'scope'>> = [
+    'title', 'content', 'project_id', 'task_type', 'status', 'created_by',
+    'assigned_to', 'assigned_by', 'converted_task_id', 'rejected_by',
+    'rejected_at', 'rejection_reason',
+  ];
+  fields.forEach(field => {
+    if (todo[field] !== undefined) payload[field] = todo[field];
+  });
+  return payload;
+};
 
 const toStringArray = (value: string[] | string | null | undefined): string[] => {
   if (!value) return [];
@@ -1662,6 +1699,119 @@ export const pocSupabaseAdapter = {
       positions: (positions ?? []) as Position[],
       milestones: (milestones ?? []) as ProjectMilestone[],
     });
+  },
+
+  // --- Todos ---
+  getTodos: async (): Promise<Todo[]> => {
+    const { data, error } = await supabase
+      .from('todos')
+      .select('*')
+      .eq('scope', 'TEAM')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return (data ?? []).map(mapTodo);
+  },
+
+  createTodo: async (
+    todo: Omit<Todo, 'id' | 'created_at' | 'updated_at'>,
+  ): Promise<Todo> => {
+    const { data, error } = await supabase
+      .from('todos')
+      .insert(buildTeamTodoPayload(todo))
+      .select()
+      .single();
+    if (error) throw error;
+    return mapTodo(data);
+  },
+
+  updateTodo: async (
+    id: string,
+    updates: Partial<Omit<Todo, 'id' | 'created_at' | 'updated_at'>>,
+  ): Promise<Todo> => {
+    const { data, error } = await supabase
+      .from('todos')
+      .update(buildTeamTodoPayload(updates))
+      .eq('id', id)
+      .eq('scope', 'TEAM')
+      .select()
+      .single();
+    if (error) throw error;
+    return mapTodo(data);
+  },
+
+  rejectTodo: async (id: string, reason: string): Promise<Todo> => {
+    const { data, error } = await supabase
+      .rpc('reject_todo', { p_todo_id: id, p_reason: reason.trim() })
+      .single();
+    if (error) throw error;
+    return mapTodo(data);
+  },
+
+  deleteTodo: async (id: string): Promise<void> => {
+    const { error } = await supabase
+      .from('todos')
+      .delete()
+      .eq('id', id)
+      .eq('scope', 'TEAM');
+    if (error) throw error;
+  },
+
+  getPrivateTodos: async (): Promise<Todo[]> => {
+    const { data, error } = await supabase
+      .from('todos')
+      .select('*')
+      .eq('scope', 'PRIVATE')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return (data ?? []).map(mapTodo);
+  },
+
+  createPrivateTodo: async (input: PrivateTodoInput): Promise<Todo> => {
+    const { data, error } = await supabase
+      .from('todos')
+      .insert({
+        title: input.title.trim(),
+        status: '待安排',
+        scope: 'PRIVATE',
+        created_by: input.created_by,
+        content: null,
+        project_id: null,
+        task_type: null,
+        assigned_to: null,
+        assigned_by: null,
+        converted_task_id: null,
+        rejected_by: null,
+        rejected_at: null,
+        rejection_reason: null,
+      })
+      .select()
+      .single();
+    if (error) throw error;
+    return mapTodo(data);
+  },
+
+  updatePrivateTodo: async (id: string, updates: PrivateTodoUpdate): Promise<Todo> => {
+    const payload: PrivateTodoUpdate = {};
+    if (updates.title !== undefined) payload.title = updates.title.trim();
+    if (updates.status !== undefined) payload.status = updates.status;
+    const { data, error } = await supabase
+      .from('todos')
+      .update(payload)
+      .eq('id', id)
+      .eq('scope', 'PRIVATE')
+      .select()
+      .single();
+    if (error) throw error;
+    return mapTodo(data);
+  },
+
+  deletePrivateTodo: async (id: string): Promise<void> => {
+    const { error } = await supabase
+      .from('todos')
+      .delete()
+      .eq('id', id)
+      .eq('scope', 'PRIVATE');
+    if (error) throw error;
   },
 
   // --- Schedule Task Types ---
