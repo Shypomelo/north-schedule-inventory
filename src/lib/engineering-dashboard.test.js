@@ -109,6 +109,20 @@ test('Dashboard uses the shared Todo adapters and keeps the route responsive', (
   assert.match(layout, /pt-14 md:pt-0/);
 });
 
+test('Dashboard today schedule reuses Schedule presentation, weather, member, map, and detail sources', () => {
+  const dashboard = fs.readFileSync(path.join(__dirname, '..', 'app', 'page.tsx'), 'utf8');
+  const schedule = fs.readFileSync(path.join(__dirname, '..', 'app', 'schedule', 'page.tsx'), 'utf8');
+  assert.match(dashboard, /getScheduleTaskPresentation\(task, projects, allUsers, taskMembers\)/);
+  assert.match(schedule, /getScheduleTaskPresentation\(task, projects, users, members\)/);
+  assert.match(dashboard, /useScheduleWeather\(todayTasks, projects\)/);
+  assert.match(schedule, /useScheduleWeather\(visibleWeatherTasks, projects\)/);
+  assert.match(dashboard, /display\.collaboratorDisplay/);
+  assert.match(dashboard, /href=\{display\.mapUrl\}/);
+  assert.match(dashboard, /event => event\.stopPropagation\(\)/);
+  assert.match(dashboard, /<ScheduleTaskDetail/);
+  assert.match(dashboard, /onClick=\{\(\) => setSelectedTask\(task\)\}/);
+});
+
 test('project responsibilities use the projects deleted_at contract instead of a nonexistent is_active column', () => {
   const adapter = fs.readFileSync(path.join(__dirname, 'db', 'poc-supabase.ts'), 'utf8');
   const method = adapter.slice(

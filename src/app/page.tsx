@@ -3,13 +3,16 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import { zhTW } from 'date-fns/locale';
-import { ArrowUpRight, BriefcaseBusiness, CalendarDays, CheckCircle2, Circle, ListTodo, Loader2, Plus, Users } from 'lucide-react';
+import { ArrowUpRight, BriefcaseBusiness, CalendarDays, CheckCircle2, Circle, ListTodo, Loader2, MapPin, Plus, Users } from 'lucide-react';
 import { ProjectDetailModal } from '@/components/ProjectDetailModal';
+import { ScheduleTaskDetail } from '@/components/ScheduleTaskDetail';
 import { useUser } from '@/components/UserContext';
 import { dbAdapter } from '@/lib/db';
 import type { MemberProjectResponsibility, Project, ScheduleTask, ScheduleTaskMember, Todo } from '@/lib/db/types';
 import { buildDashboardProjectCards } from '@/lib/engineering-dashboard';
 import { formatScheduleTaskTime, selectTodayMemberSchedule } from '@/lib/schedule-selectors';
+import { getScheduleTaskPresentation } from '@/lib/schedule-presentation';
+import { useScheduleWeather } from '@/hooks/useScheduleWeather';
 
 export default function EngineeringDashboardPage() {
   const { currentUser, allUsers } = useUser();
@@ -27,6 +30,7 @@ export default function EngineeringDashboardPage() {
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedProject, setSelectedProject] = useState<{ project: Project; milestoneId: string | null } | null>(null);
+  const [selectedTask, setSelectedTask] = useState<ScheduleTask | null>(null);
   const today = useMemo(() => format(new Date(), 'yyyy-MM-dd'), []);
   const canMutateTodos = Boolean(currentUser && currentUser.role !== 'VIEWER');
 
@@ -66,6 +70,7 @@ export default function EngineeringDashboardPage() {
     memberId: currentUser.id,
     today,
   }) : [], [currentUser, taskMembers, tasks, today]);
+  const getTaskWeatherDisplay = useScheduleWeather(todayTasks, projects);
   const projectCards = useMemo(
     () => buildDashboardProjectCards(responsibilities, today),
     [responsibilities, today],
@@ -167,22 +172,52 @@ export default function EngineeringDashboardPage() {
           {todayTasks.length === 0 ? <EmptyState text="今天暫時沒有排程" /> : (
             <div className="space-y-2.5">
               {todayTasks.map(task => {
-                const project = projects.find(row => row.id === task.project_id);
-                const collaboratorIds = taskMembers.filter(member => member.task_id === task.id).map(member => member.user_id);
-                const collaborators = allUsers.filter(user => collaboratorIds.includes(user.id)).map(user => user.name);
+                const display = getScheduleTaskPresentation(task, projects, allUsers, taskMembers);
+                const weather = getTaskWeatherDisplay(task);
                 const isDone = task.status === '完成' || task.status === '已完成';
                 return (
-                  <article key={task.id} className={`rounded-xl border-l-4 bg-[var(--surface-secondary)] px-3.5 py-3 ${isDone ? 'border-[var(--text-muted)] opacity-55' : task.is_tentative ? 'border-warning' : 'border-accent'}`}>
+                  <article
+                    key={task.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`查看排程：${display.projectName}`}
+                    onClick={() => setSelectedTask(task)}
+                    onKeyDown={event => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setSelectedTask(task);
+                      }
+                    }}
+                    className={`cursor-pointer rounded-xl border-l-4 bg-[var(--surface-secondary)] px-3.5 py-3 transition hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-accent/60 ${isDone ? 'border-[var(--text-muted)] opacity-55' : task.is_tentative ? 'border-warning' : 'border-accent'}`}
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="truncate font-semibold">{project?.short_name || project?.name || task.project_name || '未匹配案場'}</div>
+                        <div className="truncate font-semibold">{display.projectName}</div>
                         <div className="mt-0.5 truncate text-sm font-medium text-accent">[{task.task_type}] {task.title || '無標題'}</div>
                       </div>
                       <span className="shrink-0 rounded-full bg-page px-2 py-1 text-xs font-semibold text-secondary">{formatScheduleTaskTime(task)}</span>
                     </div>
-                    <div className="mt-2 text-xs leading-5 text-secondary">
-                      <div>主要：{allUsers.find(user => user.id === task.main_assignee_id)?.name || '未指定'}</div>
-                      {collaborators.length ? <div>協同：{collaborators.join('、')}</div> : null}
+                    <div className="mt-2 min-w-0 text-xs leading-5 text-secondary">
+                      <div className="truncate">{display.assigneeDisplay}</div>
+                      <div className="flex min-w-0 items-center justify-between gap-2">
+                        <span className="min-w-0 truncate">{display.collaboratorDisplay || '協同：無'}</span>
+                        <span className="shrink-0 whitespace-nowrap" aria-label={`天氣：${weather?.label || '無資料'}`}>
+                          {weather ? `${weather.icon} ${weather.label}` : '天氣：—'}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-2 border-t border-theme-border/60 pt-2">
+                      <a
+                        href={display.mapUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={event => event.stopPropagation()}
+                        onKeyDown={event => event.stopPropagation()}
+                        className="inline-flex min-h-10 items-center gap-1 rounded-lg px-2 text-xs font-bold text-accent hover:bg-page"
+                      >
+                        <MapPin size={14} /> MAP
+                      </a>
+                      <span className="text-[11px] font-medium text-secondary">點擊查看完整資訊</span>
                     </div>
                   </article>
                 );
@@ -266,6 +301,17 @@ export default function EngineeringDashboardPage() {
           onUpdate={loadDashboard}
           onConstructionUpdated={() => { void loadDashboard(); }}
           onMilestoneUpdated={() => { void loadDashboard(); }}
+        />
+      ) : null}
+
+      {selectedTask ? (
+        <ScheduleTaskDetail
+          task={selectedTask}
+          projects={projects}
+          users={allUsers}
+          members={taskMembers}
+          weather={getTaskWeatherDisplay(selectedTask)}
+          onClose={() => setSelectedTask(null)}
         />
       ) : null}
     </div>
