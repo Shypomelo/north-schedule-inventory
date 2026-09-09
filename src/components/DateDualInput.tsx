@@ -37,10 +37,12 @@ export function DateDualInput({ expectedDate, completionDate, baseDate, onChange
   const updateCoords = () => {
     if (containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
+      const popoverWidth = 224;
+      const viewportPadding = 8;
       setPopoverCoords({
         top: rect.bottom + window.scrollY,
-        left: rect.left + window.scrollX,
-        width: rect.width
+        left: Math.max(viewportPadding, Math.min(rect.left, window.innerWidth - popoverWidth - viewportPadding)) + window.scrollX,
+        width: Math.min(rect.width, window.innerWidth - viewportPadding * 2)
       });
     }
   };

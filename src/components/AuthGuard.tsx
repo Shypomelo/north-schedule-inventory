@@ -22,7 +22,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen w-screen bg-page text-primary">
+      <div className="flex h-full w-full items-center justify-center bg-page text-primary">
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="w-8 h-8 animate-spin text-accent" />
           <p className="text-secondary">系統載入中...</p>

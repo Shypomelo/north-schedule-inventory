@@ -59,7 +59,7 @@ export default function LoginPage() {
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-page text-primary w-full">
-      <div className="w-full max-w-md p-8 bg-card rounded-xl shadow-lg border border-theme-border">
+      <div className="w-full max-w-md rounded-xl border border-theme-border bg-card p-5 shadow-lg sm:p-8">
         <div className="text-center mb-8">
           <h1 className="text-2xl font-bold text-primary mb-2">北部工程排程與庫存管理系統</h1>
           <p className="text-secondary">請登入以繼續使用系統</p>

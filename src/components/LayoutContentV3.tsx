@@ -9,10 +9,10 @@ export function LayoutContent({ children }: { children: React.ReactNode }) {
   const isLoginPage = pathname === '/login';
 
   return (
-    <div className="flex w-full h-full">
+    <div className="flex h-full min-w-0 w-full">
       {!isLoginPage && <Sidebar />}
-      <main className="flex-1 h-full overflow-auto custom-scrollbar relative">
-        <div className={`${pathname === '/' ? 'min-w-0' : 'min-w-[1400px]'} h-full`}>
+      <main className={`relative h-full min-w-0 flex-1 overflow-auto custom-scrollbar ${isLoginPage ? '' : 'pt-14 md:pt-0'}`}>
+        <div className="h-full min-w-0">
           {children}
         </div>
       </main>
