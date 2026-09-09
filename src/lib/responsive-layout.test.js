@@ -13,8 +13,28 @@ test('application shell exposes mobile navigation without a global desktop minim
   assert.match(layout, /pt-14 md:pt-0/);
   assert.match(sidebar, /開啟導覽選單/);
   assert.match(sidebar, /aria-modal="true"/);
+  assert.match(sidebar, /isMobileNavigationEdgeSwipe/);
   assert.match(sidebar, /md:hidden/);
   assert.match(sidebar, /md:flex/);
+});
+
+test('login card fits mobile dynamic viewport without changing the auth flow', () => {
+  const login = read('app/login/page.tsx');
+  assert.match(login, /min-h-\[100dvh\]/);
+  assert.match(login, /overflow-x-hidden/);
+  assert.match(login, /max-w-md/);
+  assert.match(login, /text-xl[\s\S]*sm:text-2xl/);
+  assert.match(login, /min-h-12 w-full/);
+  assert.match(login, /loginWithGoogle\(snapshot\.redirectTo\)/);
+});
+
+test('schedule detail fits the mobile viewport and retains readable information hierarchy', () => {
+  const detail = read('components/ScheduleTaskDetail.tsx');
+  assert.match(detail, /max-h-\[100dvh\]/);
+  assert.match(detail, /sm:max-w-2xl/);
+  assert.match(detail, /排程完整資訊/);
+  assert.match(detail, /協同人員/);
+  assert.match(detail, /href=\{display\.mapUrl\}/);
 });
 
 test('wide schedule, project, and inventory data use scoped horizontal scrolling', () => {

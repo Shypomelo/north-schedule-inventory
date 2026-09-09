@@ -6,6 +6,7 @@ import { useUser } from '@/components/UserContext';
 import { useTheme } from '@/components/ThemeContext';
 import { UserSelector } from '@/components/UserSelector';
 import { Building2, Calendar, ChevronLeft, ChevronRight, Home, ListChecks, Menu, Package, Palette, Settings, Truck, Users, Wrench, X } from 'lucide-react';
+import { isMobileNavigationEdgeSwipe, type SwipePoint } from '@/lib/mobile-navigation-gesture';
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -28,6 +29,34 @@ export function Sidebar() {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = previousOverflow; };
+  }, [isMobileOpen]);
+
+  useEffect(() => {
+    if (isMobileOpen) return;
+    let startPoint: SwipePoint | null = null;
+
+    const handleTouchStart = (event: TouchEvent) => {
+      if (window.innerWidth >= 768 || event.touches.length !== 1) return;
+      const touch = event.touches[0];
+      startPoint = { x: touch.clientX, y: touch.clientY };
+    };
+    const handleTouchEnd = (event: TouchEvent) => {
+      if (!startPoint || event.changedTouches.length !== 1) {
+        startPoint = null;
+        return;
+      }
+      const touch = event.changedTouches[0];
+      const shouldOpen = isMobileNavigationEdgeSwipe(startPoint, { x: touch.clientX, y: touch.clientY });
+      startPoint = null;
+      if (shouldOpen) setIsMobileOpen(true);
+    };
+
+    window.addEventListener('touchstart', handleTouchStart, { passive: true });
+    window.addEventListener('touchend', handleTouchEnd, { passive: true });
+    return () => {
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchend', handleTouchEnd);
+    };
   }, [isMobileOpen]);
 
   const navItem = (href: string, label: string, Icon: React.ElementType, collapsed: boolean, includeSubpaths = false) => (

@@ -58,11 +58,11 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-page text-primary w-full">
-      <div className="w-full max-w-md rounded-xl border border-theme-border bg-card p-5 shadow-lg sm:p-8">
-        <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-primary mb-2">北部工程排程與庫存管理系統</h1>
-          <p className="text-secondary">請登入以繼續使用系統</p>
+    <div className="flex min-h-[100dvh] w-full items-start justify-center overflow-x-hidden bg-page px-4 py-8 text-primary sm:items-center sm:px-6">
+      <div className="my-auto w-full max-w-md rounded-xl border border-theme-border bg-card p-5 shadow-lg sm:p-8">
+        <div className="mb-7 text-center sm:mb-8">
+          <h1 className="mb-2 break-words text-xl font-bold leading-tight text-primary sm:text-2xl">北部工程排程與庫存管理系統</h1>
+          <p className="text-sm text-secondary sm:text-base">請登入以繼續使用系統</p>
         </div>
 
         {authError && (
@@ -75,7 +75,7 @@ export default function LoginPage() {
         <button
           onClick={handleGoogleLogin}
           disabled={isLoading}
-          className="w-full flex items-center justify-center gap-3 bg-white hover:bg-gray-100 text-gray-900 border border-gray-200 font-medium py-3 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex min-h-12 w-full items-center justify-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 text-center font-medium text-gray-900 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <svg className="w-5 h-5" viewBox="0 0 24 24">
             <path
