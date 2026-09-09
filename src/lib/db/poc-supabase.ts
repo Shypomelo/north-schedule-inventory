@@ -1900,7 +1900,8 @@ export const pocSupabaseAdapter = {
   getScheduleTasks: async (): Promise<ScheduleTask[]> => {
     const { data, error } = await supabase
       .from('schedule_tasks')
-      .select('*');
+      .select('*')
+      .neq('status', '取消');
     if (error) {
       console.error('Error fetching schedule_tasks:', error);
       throw error;
@@ -2087,14 +2088,13 @@ export const pocSupabaseAdapter = {
   },
 
   deleteScheduleTask: async (id: string): Promise<void> => {
-    // For POC, hard delete to keep it simple
     const { error } = await supabase
       .from('schedule_tasks')
-      .delete()
+      .update({ status: '取消', updated_at: new Date().toISOString() })
       .eq('id', id);
 
     if (error) {
-      console.error('Error deleting schedule_task:', error);
+      console.error('Error cancelling schedule_task:', error);
       throw error;
     }
   },

@@ -406,7 +406,7 @@ test('Google delete 403/429/5xx/network failures are surfaced', async () => {
   }
 });
 
-test('schedule deletion syncs Google before hard-deleting the database row', () => {
+test('schedule deletion syncs Google before soft-cancelling the database row', () => {
   const dbAdapterSource = fs.readFileSync(path.join(__dirname, 'db', 'index.ts'), 'utf8');
   const deleteBlockStart = dbAdapterSource.indexOf('deleteScheduleTask: async');
   const deleteBlockEnd = dbAdapterSource.indexOf('// Contractors', deleteBlockStart);
@@ -415,7 +415,7 @@ test('schedule deletion syncs Google before hard-deleting the database row', () 
   const googleDelete = deleteBlock.indexOf("await syncToGoogle('DELETE'");
   const databaseDelete = deleteBlock.indexOf('await fn(id)');
   assert.ok(googleDelete >= 0, 'Google deletion must be invoked for a bound event');
-  assert.ok(databaseDelete > googleDelete, 'database deletion must happen after Google deletion succeeds');
+  assert.ok(databaseDelete > googleDelete, 'database cancellation must happen after Google deletion succeeds');
 });
 
 test('sync and reconcile routes contain no remote-deleted schedule hard-delete path', () => {

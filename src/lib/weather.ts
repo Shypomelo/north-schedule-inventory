@@ -238,6 +238,10 @@ export function selectCwaDaytimeWeather(
   location: CwaLocation,
   date: string,
 ): WeatherState | null {
+  const daytimeTimes = (location.WeatherElement || []).flatMap(element => (
+    (element.Time || []).filter(time => isDaytimeForecast(time, date))
+  ));
+  const hasDaytimeForecast = daytimeTimes.length > 0;
   const forecasts = new Map<string, {
     weatherDescription?: string;
     windSpeed?: string;
@@ -245,7 +249,11 @@ export function selectCwaDaytimeWeather(
   }>();
 
   (location.WeatherElement || []).forEach(element => {
-    (element.Time || []).filter(time => isDaytimeForecast(time, date)).forEach(time => {
+    (element.Time || []).filter(time => (
+      hasDaytimeForecast
+        ? isDaytimeForecast(time, date)
+        : (time.DataTime || time.StartTime || '').slice(0, 10) === date
+    )).forEach(time => {
       const key = getForecastTimeKey(time);
       if (!key) return;
 

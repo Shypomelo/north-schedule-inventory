@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ScheduleTask, ScheduleTaskMember, Project, User, Todo, TaskStatus } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
-import { ScheduleTaskForm } from '@/components/ScheduleTaskForm';
+import { ScheduleTaskFormDialog } from '@/components/ScheduleTaskFormDialog';
 import {
   GoogleCalendarSyncSummaryDialog,
   type GoogleCalendarSyncFailure,
@@ -18,6 +18,12 @@ import { supabase } from '@/lib/db/supabaseClient';
 import { formatScheduleTaskTime, sortScheduleTasks } from '@/lib/schedule-selectors';
 import { getScheduleTaskPresentation } from '@/lib/schedule-presentation';
 import { useScheduleWeather } from '@/hooks/useScheduleWeather';
+import {
+  completeScheduleTaskWithActivity,
+  confirmScheduleTaskDeletion,
+  deleteScheduleTaskWithActivity,
+  updateScheduleTaskWithActivity,
+} from '@/lib/schedule-task-actions';
 import {
   buildMonthScheduleWeeks,
   collapseExpandedMonthWeeks,
@@ -334,21 +340,18 @@ export default function SchedulePage() {
 
       if (editingTask?.id) {
         const originalTask = tasks.find(t => t.id === editingTask.id);
+        if (!originalTask) throw new Error('找不到要更新的排程');
         // Optimistic Update
         setTasks(prev => prev.map(t => t.id === editingTask.id ? { ...t, ...data, updated_at: new Date().toISOString() } as ScheduleTask : t));
         
         try {
-          await dbAdapter.updateScheduleTask(editingTask.id, data, newMemberIds);
-          replaceTaskMembers(editingTask.id, newMemberIds);
-          const projectChanged = originalTask?.project_id !== data.project_id;
-          await dbAdapter.logActivity({
-            actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
-            action_type: 'UPDATE_TASK', target_type: 'ScheduleTask', target_id: editingTask.id, target_label: data.title,
-            project_id: data.project_id, project_name: data.project_name || '',
-            before_value: projectChanged ? (originalTask?.project_name || '未匹配案場') : null,
-            after_value: projectChanged ? (data.project_name || '未匹配案場') : null,
-            message: projectChanged ? '編輯排程任務並更新案場關聯' : '編輯排程任務'
+          await updateScheduleTaskWithActivity({
+            task: originalTask,
+            data,
+            memberIds: newMemberIds,
+            actor: { id: currentUser?.id, name: currentUser?.name },
           });
+          replaceTaskMembers(editingTask.id, newMemberIds);
         } catch (error) {
           console.error('Update failed, rolling back:', error);
           alert('排程更新失敗，請檢查網路連線或稍後再試。');
@@ -590,33 +593,18 @@ export default function SchedulePage() {
 
     try {
       if (action === 'RESCHEDULE_TASK') {
-        setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: '改期' } : t));
-        await dbAdapter.updateScheduleTask(task.id, { status: '改期' });
-        await dbAdapter.logActivity({
-          actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
-          action_type: 'RESCHEDULE_TASK', target_type: 'ScheduleTask', target_id: task.id, target_label: task.title,
-          project_id: task.project_id, project_name: '', before_value: task.status, after_value: '改期', message: null
-        });
+        setEditingTask(task);
+        setEditingTaskMembers(members.filter(member => member.task_id === task.id).map(member => member.user_id));
+        setIsFormOpen(true);
+        return;
       } else if (action === 'COMPLETE_TASK') {
         setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: '完成' } : t));
-        await dbAdapter.updateScheduleTask(task.id, { status: '完成' });
-        if (task.source_todo_id) {
-            setTodos(prev => prev.map(td => td.id === task.source_todo_id ? { ...td, status: '已完成' } : td));
-            await dbAdapter.updateTodo(task.source_todo_id, { status: '已完成' });
-        }
-        await dbAdapter.logActivity({
-          actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
-          action_type: 'COMPLETE_TASK', target_type: 'ScheduleTask', target_id: task.id, target_label: task.title,
-          project_id: task.project_id, project_name: '', before_value: task.status, after_value: '完成', message: null
-        });
+        if (task.source_todo_id) setTodos(prev => prev.map(td => td.id === task.source_todo_id ? { ...td, status: '已完成' } : td));
+        await completeScheduleTaskWithActivity(task, { id: currentUser?.id, name: currentUser?.name });
       } else if (action === 'DELETE_TASK') {
+        if (!confirmScheduleTaskDeletion()) return;
         setTasks(prev => prev.filter(t => t.id !== task.id));
-        await dbAdapter.deleteScheduleTask(task.id);
-        await dbAdapter.logActivity({
-          actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
-          action_type: 'DELETE_TASK', target_type: 'ScheduleTask', target_id: task.id, target_label: task.title,
-          project_id: task.project_id, project_name: '', before_value: task.status, after_value: '刪除', message: '硬刪除'
-        });
+        await deleteScheduleTaskWithActivity(task, { id: currentUser?.id, name: currentUser?.name });
       }
       await fetchData(false);
       if (selectedDayTasks) {
@@ -1201,17 +1189,13 @@ export default function SchedulePage() {
       )}
 
       {isFormOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[var(--modal-bg)] text-[var(--modal-text)] border border-[var(--border)] p-5 rounded-2xl w-full max-w-xl max-h-[95vh] overflow-auto shadow-2xl">
-            <ScheduleTaskForm 
-              initialData={editingTask || undefined}
-              initialMemberIds={editingTaskMembers}
-              onSubmit={handleCreateOrUpdateTask}
-              onCancel={() => { setIsFormOpen(false); setEditingTask(null); setConvertingTodoId(null); setEditingTaskMembers([]); }}
-              isSubmitting={isSubmitting}
-            />
-          </div>
-        </div>
+        <ScheduleTaskFormDialog
+          initialData={editingTask || undefined}
+          initialMemberIds={editingTaskMembers}
+          onSubmit={handleCreateOrUpdateTask}
+          onCancel={() => { setIsFormOpen(false); setEditingTask(null); setConvertingTodoId(null); setEditingTaskMembers([]); }}
+          isSubmitting={isSubmitting}
+        />
       )}
 
       {googleSyncSummary && (

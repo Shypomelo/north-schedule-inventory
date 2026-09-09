@@ -6,6 +6,7 @@ import { zhTW } from 'date-fns/locale';
 import { ArrowUpRight, BriefcaseBusiness, CalendarDays, CheckCircle2, Circle, ListTodo, Loader2, MapPin, Plus, Users } from 'lucide-react';
 import { ProjectDetailModal } from '@/components/ProjectDetailModal';
 import { ScheduleTaskDetail } from '@/components/ScheduleTaskDetail';
+import { ScheduleTaskFormDialog } from '@/components/ScheduleTaskFormDialog';
 import { useUser } from '@/components/UserContext';
 import { dbAdapter } from '@/lib/db';
 import type { MemberProjectResponsibility, Project, ScheduleTask, ScheduleTaskMember, Todo } from '@/lib/db/types';
@@ -13,6 +14,15 @@ import { buildDashboardProjectCards } from '@/lib/engineering-dashboard';
 import { formatScheduleTaskTime, selectTodayMemberSchedule } from '@/lib/schedule-selectors';
 import { getScheduleTaskPresentation } from '@/lib/schedule-presentation';
 import { useScheduleWeather } from '@/hooks/useScheduleWeather';
+import {
+  completeScheduleTaskWithActivity,
+  confirmScheduleTaskDeletion,
+  deleteScheduleTaskWithActivity,
+  updateScheduleTaskWithActivity,
+} from '@/lib/schedule-task-actions';
+
+type MobileDashboardPage = 'schedule' | 'projects' | 'todos';
+type MobileTodoPage = 'private' | 'team';
 
 export default function EngineeringDashboardPage() {
   const { currentUser, allUsers } = useUser();
@@ -31,6 +41,11 @@ export default function EngineeringDashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedProject, setSelectedProject] = useState<{ project: Project; milestoneId: string | null } | null>(null);
   const [selectedTask, setSelectedTask] = useState<ScheduleTask | null>(null);
+  const [editingTask, setEditingTask] = useState<ScheduleTask | null>(null);
+  const [editingTaskMemberIds, setEditingTaskMemberIds] = useState<string[]>([]);
+  const [taskActionPending, setTaskActionPending] = useState(false);
+  const [mobilePage, setMobilePage] = useState<MobileDashboardPage>('schedule');
+  const [mobileTodoPage, setMobileTodoPage] = useState<MobileTodoPage>('private');
   const today = useMemo(() => format(new Date(), 'yyyy-MM-dd'), []);
   const canMutateTodos = Boolean(currentUser && currentUser.role !== 'VIEWER');
 
@@ -148,6 +163,62 @@ export default function EngineeringDashboardPage() {
     }
   };
 
+  const scheduleActor = { id: currentUser?.id, name: currentUser?.name };
+
+  const completeSelectedTask = async () => {
+    if (!selectedTask || !canMutateTodos) return;
+    setTaskActionPending(true);
+    try {
+      await completeScheduleTaskWithActivity(selectedTask, scheduleActor);
+      setSelectedTask(null);
+      await loadDashboard();
+    } catch (mutationError) {
+      setError(mutationError instanceof Error ? mutationError.message : '排程完成失敗');
+    } finally {
+      setTaskActionPending(false);
+    }
+  };
+
+  const openSelectedTaskForReschedule = () => {
+    if (!selectedTask || !canMutateTodos) return;
+    setEditingTask(selectedTask);
+    setEditingTaskMemberIds(taskMembers.filter(member => member.task_id === selectedTask.id).map(member => member.user_id));
+    setSelectedTask(null);
+  };
+
+  const updateSelectedTask = async (
+    data: Omit<ScheduleTask, 'id' | 'created_at' | 'updated_at'>,
+    memberIds: string[],
+  ) => {
+    if (!editingTask || !canMutateTodos) return;
+    setTaskActionPending(true);
+    try {
+      await updateScheduleTaskWithActivity({ task: editingTask, data, memberIds, actor: scheduleActor });
+      setEditingTask(null);
+      setEditingTaskMemberIds([]);
+      await loadDashboard();
+    } catch (mutationError) {
+      setError(mutationError instanceof Error ? mutationError.message : '排程改期失敗');
+      throw mutationError;
+    } finally {
+      setTaskActionPending(false);
+    }
+  };
+
+  const deleteSelectedTask = async () => {
+    if (!selectedTask || !canMutateTodos || !confirmScheduleTaskDeletion()) return;
+    setTaskActionPending(true);
+    try {
+      await deleteScheduleTaskWithActivity(selectedTask, scheduleActor);
+      setSelectedTask(null);
+      await loadDashboard();
+    } catch (mutationError) {
+      setError(mutationError instanceof Error ? mutationError.message : '排程刪除失敗');
+    } finally {
+      setTaskActionPending(false);
+    }
+  };
+
   if (isLoading) {
     return <div className="flex h-full items-center justify-center gap-3 text-secondary"><Loader2 className="animate-spin" size={20} />載入工程儀表…</div>;
   }
@@ -167,8 +238,14 @@ export default function EngineeringDashboardPage() {
 
       {error ? <div className="mb-5 rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">{error}</div> : null}
 
-      <div className="grid items-start gap-5 xl:grid-cols-[minmax(18rem,0.9fr)_minmax(25rem,1.25fr)_minmax(19rem,0.9fr)]">
-        <DashboardSection icon={<CalendarDays size={18} />} title="今日排程" count={todayTasks.length} actionHref="/schedule" actionLabel="查看排程" className="xl:sticky xl:top-6">
+      <nav className="mb-4 grid grid-cols-3 rounded-xl border border-theme-border bg-card p-1 md:hidden" aria-label="工程儀表頁面" role="tablist">
+        <MobileTab active={mobilePage === 'schedule'} onClick={() => setMobilePage('schedule')}>今日排程</MobileTab>
+        <MobileTab active={mobilePage === 'projects'} onClick={() => setMobilePage('projects')}>專案進度</MobileTab>
+        <MobileTab active={mobilePage === 'todos'} onClick={() => setMobilePage('todos')}>TODO</MobileTab>
+      </nav>
+
+      <div className="grid items-start gap-5 md:grid-cols-2 min-[1100px]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.25fr)_minmax(0,0.9fr)]">
+        <DashboardSection icon={<CalendarDays size={18} />} title="今日排程" count={todayTasks.length} actionHref="/schedule" actionLabel="查看排程" className={`${mobilePage === 'schedule' ? 'block' : 'hidden'} md:block min-[1100px]:sticky min-[1100px]:top-6`}>
           {todayTasks.length === 0 ? <EmptyState text="今天暫時沒有排程" /> : (
             <div className="space-y-2.5">
               {todayTasks.map(task => {
@@ -226,7 +303,7 @@ export default function EngineeringDashboardPage() {
           )}
         </DashboardSection>
 
-        <DashboardSection icon={<BriefcaseBusiness size={18} />} title="我的專案進度" count={projectCards.length}>
+        <DashboardSection icon={<BriefcaseBusiness size={18} />} title="我的專案進度" count={projectCards.length} className={`${mobilePage === 'projects' ? 'block' : 'hidden'} md:block`}>
           {projectCards.length === 0 ? <EmptyState text="目前沒有指派中的專案" /> : (
             <div className="space-y-3">
               {projectCards.map(card => {
@@ -266,14 +343,18 @@ export default function EngineeringDashboardPage() {
           )}
         </DashboardSection>
 
-        <div className="space-y-5">
-          <DashboardSection icon={<ListTodo size={18} />} title="我的 TODO" count={visiblePrivateTodos.length}>
+        <div className={`${mobilePage === 'todos' ? 'block' : 'hidden'} space-y-5 md:col-span-2 md:block min-[1100px]:col-span-1`}>
+          <nav className="grid grid-cols-2 rounded-xl border border-theme-border bg-card p-1 md:hidden" aria-label="TODO 類型" role="tablist">
+            <MobileTab active={mobileTodoPage === 'private'} onClick={() => setMobileTodoPage('private')}>我的</MobileTab>
+            <MobileTab active={mobileTodoPage === 'team'} onClick={() => setMobileTodoPage('team')}>團隊</MobileTab>
+          </nav>
+          <DashboardSection icon={<ListTodo size={18} />} title="我的 TODO" count={visiblePrivateTodos.length} className={`${mobileTodoPage === 'private' ? 'block' : 'hidden'} md:block`}>
             <HideCompletedToggle checked={hideCompletedPrivate} onChange={setHideCompletedPrivate} />
             <TodoComposer value={privateTitle} onChange={setPrivateTitle} onSubmit={createPrivateTodo} placeholder="新增私人記事…" disabled={!canMutateTodos} isSaving={savingKey === 'private-new'} />
             <TodoList todos={visiblePrivateTodos} emptyText={hideCompletedPrivate ? '沒有未完成的私人記事' : '目前沒有私人記事'} savingKey={savingKey} onComplete={completePrivateTodo} disabled={!canMutateTodos} />
           </DashboardSection>
 
-          <DashboardSection icon={<Users size={18} />} title="團隊 TODO" count={visibleTeamTodos.length} actionHref="/schedule" actionLabel="週排程待辦">
+          <DashboardSection icon={<Users size={18} />} title="團隊 TODO" count={visibleTeamTodos.length} actionHref="/schedule" actionLabel="週排程待辦" className={`${mobileTodoPage === 'team' ? 'block' : 'hidden'} md:block`}>
             <HideCompletedToggle checked={hideCompletedTeam} onChange={setHideCompletedTeam} />
             <TodoComposer value={teamTitle} onChange={setTeamTitle} onSubmit={createTeamTodo} placeholder="新增團隊待辦…" disabled={!canMutateTodos} isSaving={savingKey === 'team-new'} />
             <TodoList
@@ -311,7 +392,22 @@ export default function EngineeringDashboardPage() {
           users={allUsers}
           members={taskMembers}
           weather={getTaskWeatherDisplay(selectedTask)}
+          canMutate={canMutateTodos}
+          actionPending={taskActionPending}
+          onComplete={() => void completeSelectedTask()}
+          onReschedule={openSelectedTaskForReschedule}
+          onDelete={() => void deleteSelectedTask()}
           onClose={() => setSelectedTask(null)}
+        />
+      ) : null}
+
+      {editingTask ? (
+        <ScheduleTaskFormDialog
+          initialData={editingTask}
+          initialMemberIds={editingTaskMemberIds}
+          onSubmit={updateSelectedTask}
+          onCancel={() => { setEditingTask(null); setEditingTaskMemberIds([]); }}
+          isSubmitting={taskActionPending}
         />
       ) : null}
     </div>
@@ -344,6 +440,14 @@ function DashboardSection({ icon, title, count, children, actionHref, actionLabe
 
 function EmptyState({ text }: { text: string }) {
   return <div className="rounded-xl border border-dashed border-theme-border px-4 py-8 text-center text-sm text-secondary">{text}</div>;
+}
+
+function MobileTab({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button type="button" role="tab" aria-selected={active} onClick={onClick} className={`min-h-11 rounded-lg px-2 text-sm font-bold transition ${active ? 'bg-accent text-white shadow-sm' : 'text-secondary'}`}>
+      {children}
+    </button>
+  );
 }
 
 function HideCompletedToggle({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }) {

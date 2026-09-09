@@ -563,8 +563,13 @@ export const mockDbAdapter = {
     return updated;
   },
   deleteScheduleTask: async (id: string) => {
-    db.schedule_tasks = db.schedule_tasks.filter(t => t.id !== id);
-    db.schedule_task_members = db.schedule_task_members.filter(m => m.task_id !== id);
+    const idx = db.schedule_tasks.findIndex(t => t.id === id);
+    if (idx === -1) throw new Error("Task not found");
+    db.schedule_tasks[idx] = {
+      ...db.schedule_tasks[idx],
+      status: '取消',
+      updated_at: new Date().toISOString(),
+    };
     persist();
   },
   getScheduleTaskMembers: async () => [...db.schedule_task_members],

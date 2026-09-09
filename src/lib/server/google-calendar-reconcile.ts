@@ -127,7 +127,7 @@ export async function reconcileGoogleCalendarCore(
     const now = new Date();
     const syncedAt = now.toISOString();
     const failures: SyncFailure[] = [];
-    let query = supabase.from('schedule_tasks').select(SCHEDULE_TASK_SYNC_COLUMNS);
+    let query = supabase.from('schedule_tasks').select(SCHEDULE_TASK_SYNC_COLUMNS).neq('status', '取消');
     if (body.taskId) query = query.eq('id', body.taskId);
     const { data: queriedTasks, error } = await query;
     if (error) throw error;

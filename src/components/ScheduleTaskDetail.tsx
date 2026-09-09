@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from 'react';
-import { CalendarDays, Clock3, MapPin, Users, X } from 'lucide-react';
+import { CalendarClock, CalendarDays, CheckCircle2, Clock3, Loader2, MapPin, Trash2, Users, X } from 'lucide-react';
 import type { Project, ScheduleTask, ScheduleTaskMember, User } from '@/lib/db/types';
 import type { WeatherDisplay } from '@/lib/weather';
 import { formatScheduleTaskTime } from '@/lib/schedule-selectors';
@@ -13,6 +13,11 @@ export function ScheduleTaskDetail({
   users,
   members,
   weather,
+  canMutate = false,
+  actionPending = false,
+  onComplete,
+  onReschedule,
+  onDelete,
   onClose,
 }: {
   task: ScheduleTask;
@@ -20,6 +25,11 @@ export function ScheduleTaskDetail({
   users: User[];
   members: ScheduleTaskMember[];
   weather: WeatherDisplay | null;
+  canMutate?: boolean;
+  actionPending?: boolean;
+  onComplete?: () => void;
+  onReschedule?: () => void;
+  onDelete?: () => void;
   onClose: () => void;
 }) {
   const display = getScheduleTaskPresentation(task, projects, users, members);
@@ -50,12 +60,8 @@ export function ScheduleTaskDetail({
             <DetailRow icon={<Clock3 size={17} />} label="時間" value={formatScheduleTaskTime(task)} />
             <DetailRow label="主要負責人" value={display.mainAssigneeName || '未指定'} />
             <DetailRow icon={<Users size={17} />} label="協同人員" value={display.collaboratorNames.join('、') || '無'} />
-            <DetailRow label="狀態" value={task.status || '未設定'} />
             <DetailRow label="天氣" value={weather ? `${weather.icon} ${weather.label}` : '無可用天氣資料'} />
-            <DetailRow label="暫定" value={task.is_tentative ? '是' : '否'} />
-            <DetailRow label="建立者" value={task.created_by_name?.trim() || '未知'} />
-            <DetailRow label="來源" value={getScheduleCreationSourceLabel(task.creation_source)} />
-            <DetailRow label="同步狀態" value={task.google_sync_status || '未設定'} />
+            <DetailRow label="狀態" value={task.status || '未設定'} />
           </dl>
 
           <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface-secondary)]/50 p-4">
@@ -73,10 +79,38 @@ export function ScheduleTaskDetail({
             <div className="font-semibold">說明</div>
             <div className="mt-1 whitespace-pre-wrap break-words text-[var(--modal-muted)]">{task.description?.trim() || '無'}</div>
           </div>
+
+          <details className="mt-4 rounded-xl border border-[var(--border)] px-4 py-3 text-xs text-[var(--modal-muted)]">
+            <summary className="cursor-pointer font-semibold text-[var(--modal-text)]">更多資訊</summary>
+            <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+              <SecondaryRow label="暫定" value={task.is_tentative ? '是' : '否'} />
+              <SecondaryRow label="建立者" value={task.created_by_name?.trim() || '未知'} />
+              <SecondaryRow label="來源" value={getScheduleCreationSourceLabel(task.creation_source)} />
+              <SecondaryRow label="同步狀態" value={task.google_sync_status || '未設定'} />
+            </dl>
+          </details>
         </div>
+
+        {onComplete || onReschedule || onDelete ? (
+          <footer className="grid grid-cols-3 gap-2 border-t border-[var(--border)] px-4 py-3 sm:flex sm:justify-end sm:px-6">
+            <button type="button" onClick={onComplete} disabled={!canMutate || actionPending || task.status === '完成' || task.status === '已完成'} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg bg-[var(--accent)] px-3 text-sm font-bold text-[var(--accent-text)] disabled:opacity-45">
+              {actionPending ? <Loader2 className="animate-spin" size={17} /> : <CheckCircle2 size={17} />}完成
+            </button>
+            <button type="button" onClick={onReschedule} disabled={!canMutate || actionPending} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] px-3 text-sm font-bold hover:bg-[var(--surface-secondary)] disabled:opacity-45">
+              <CalendarClock size={17} />改期
+            </button>
+            <button type="button" onClick={onDelete} disabled={!canMutate || actionPending} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-[var(--danger)]/50 px-3 text-sm font-bold text-[var(--danger)] hover:bg-[var(--danger)]/10 disabled:opacity-45">
+              <Trash2 size={17} />刪除
+            </button>
+          </footer>
+        ) : null}
       </section>
     </div>
   );
+}
+
+function SecondaryRow({ label, value }: { label: string; value: string }) {
+  return <div className="flex gap-2"><dt className="font-semibold text-[var(--modal-text)]">{label}：</dt><dd>{value}</dd></div>;
 }
 
 function DetailRow({ icon, label, value }: { icon?: React.ReactNode; label: string; value: string }) {

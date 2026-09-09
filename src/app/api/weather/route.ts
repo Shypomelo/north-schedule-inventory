@@ -73,7 +73,7 @@ async function fetchCwaWeather(
   const cwaUrl = new URL(CWA_API_URL);
   cwaUrl.searchParams.set('format', 'JSON');
   cwaUrl.searchParams.set('locationId', resourceId);
-  cwaUrl.searchParams.set('locationName', district);
+  cwaUrl.searchParams.set('LocationName', district);
 
   const response = await fetch(cwaUrl, {
     cache: 'no-store',
@@ -113,7 +113,8 @@ export async function GET(request: NextRequest) {
   try {
     const weather = await getCachedCwaWeather(date, city, district);
     return NextResponse.json<WeatherResponse>({ weather });
-  } catch {
+  } catch (error) {
+    console.error('CWA weather lookup failed:', error);
     return noWeather();
   }
 }

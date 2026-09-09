@@ -35,6 +35,22 @@ test('schedule detail fits the mobile viewport and retains readable information 
   assert.match(detail, /排程完整資訊/);
   assert.match(detail, /協同人員/);
   assert.match(detail, /href=\{display\.mapUrl\}/);
+  assert.match(detail, /\}完成/);
+  assert.match(detail, /\/>改期/);
+  assert.match(detail, /\/>刪除/);
+  assert.match(detail, /更多資訊/);
+});
+
+test('dashboard uses mobile pages below 768px and three columns from 1100px', () => {
+  const dashboard = read('app/page.tsx');
+  assert.match(dashboard, /type MobileDashboardPage = 'schedule' \| 'projects' \| 'todos'/);
+  assert.match(dashboard, /aria-label="工程儀表頁面"/);
+  assert.match(dashboard, /aria-label="TODO 類型"/);
+  assert.match(dashboard, /md:grid-cols-2/);
+  assert.match(dashboard, /min-\[1100px\]:grid-cols-/);
+  assert.match(dashboard, /mobilePage === 'schedule'/);
+  assert.match(dashboard, /mobileTodoPage === 'private'/);
+  assert.match(dashboard, /mobileTodoPage === 'team'/);
 });
 
 test('wide schedule, project, and inventory data use scoped horizontal scrolling', () => {

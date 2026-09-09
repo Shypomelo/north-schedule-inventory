@@ -22,6 +22,7 @@ const { parseTaiwanProjectLocation } = sourceModule.exports;
 test('parseTaiwanProjectLocation preserves the complete canonical district name', () => {
   const cases = [
     ['桃園市平鎮區中豐路南勢二段460巷118-7號', '桃園市', '平鎮區'],
+    ['桃園市楊梅區楊新路三段25巷36號', '桃園市', '楊梅區'],
     ['桃園市蘆竹區聯福街二巷12-2號', '桃園市', '蘆竹區'],
     ['台南市新市區中正路1號', '台南市', '新市區'],
     ['彰化縣田中鎮中州路一段1號', '彰化縣', '田中鎮'],
