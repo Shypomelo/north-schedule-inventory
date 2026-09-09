@@ -1,21 +1,345 @@
-export default function Home() {
+"use client";
+
+import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { format } from 'date-fns';
+import { zhTW } from 'date-fns/locale';
+import { ArrowUpRight, BriefcaseBusiness, CalendarDays, Circle, ListTodo, Loader2, Plus, Users } from 'lucide-react';
+import { ProjectDetailModal } from '@/components/ProjectDetailModal';
+import { useUser } from '@/components/UserContext';
+import { dbAdapter } from '@/lib/db';
+import type { MemberProjectResponsibility, Project, ScheduleTask, ScheduleTaskMember, Todo } from '@/lib/db/types';
+import { buildDashboardProjectCards } from '@/lib/engineering-dashboard';
+import { formatScheduleTaskTime, selectTodayMemberSchedule } from '@/lib/schedule-selectors';
+
+export default function EngineeringDashboardPage() {
+  const { currentUser, allUsers } = useUser();
+  const [tasks, setTasks] = useState<ScheduleTask[]>([]);
+  const [taskMembers, setTaskMembers] = useState<ScheduleTaskMember[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [responsibilities, setResponsibilities] = useState<MemberProjectResponsibility[]>([]);
+  const [privateTodos, setPrivateTodos] = useState<Todo[]>([]);
+  const [teamTodos, setTeamTodos] = useState<Todo[]>([]);
+  const [privateTitle, setPrivateTitle] = useState('');
+  const [teamTitle, setTeamTitle] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedProject, setSelectedProject] = useState<{ project: Project; milestoneId: string | null } | null>(null);
+  const today = useMemo(() => format(new Date(), 'yyyy-MM-dd'), []);
+  const canMutateTodos = Boolean(currentUser && currentUser.role !== 'VIEWER');
+
+  const loadDashboard = useCallback(async () => {
+    if (!currentUser) return;
+    setError(null);
+    try {
+      const [taskRows, memberRows, projectRows, responsibilityRows, privateRows, teamRows] = await Promise.all([
+        dbAdapter.getScheduleTasks(),
+        dbAdapter.getScheduleTaskMembers(),
+        dbAdapter.getProjects(),
+        dbAdapter.getMemberProjectResponsibilities(currentUser.id),
+        dbAdapter.getPrivateTodos(),
+        dbAdapter.getTodos(),
+      ]);
+      setTasks(taskRows);
+      setTaskMembers(memberRows);
+      setProjects(projectRows);
+      setResponsibilities(responsibilityRows);
+      setPrivateTodos(privateRows);
+      setTeamTodos(teamRows);
+    } catch (loadError) {
+      console.error('Dashboard load failed:', loadError);
+      setError(loadError instanceof Error ? loadError.message : '工程儀表載入失敗');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (currentUser) void loadDashboard();
+  }, [currentUser, loadDashboard]);
+
+  const todayTasks = useMemo(() => currentUser ? selectTodayMemberSchedule({
+    tasks,
+    members: taskMembers,
+    memberId: currentUser.id,
+    today,
+  }) : [], [currentUser, taskMembers, tasks, today]);
+  const projectCards = useMemo(
+    () => buildDashboardProjectCards(responsibilities, today),
+    [responsibilities, today],
+  );
+  const openPrivateTodos = privateTodos.filter(todo => todo.status === '待安排');
+  const openTeamTodos = teamTodos.filter(todo => todo.status === '待安排');
+
+  const createPrivateTodo = async (event: FormEvent) => {
+    event.preventDefault();
+    const title = privateTitle.trim();
+    if (!title || !currentUser || !canMutateTodos) return;
+    setSavingKey('private-new');
+    try {
+      await dbAdapter.createPrivateTodo({ title, created_by: currentUser.id });
+      setPrivateTitle('');
+      await loadDashboard();
+    } catch (mutationError) {
+      setError(mutationError instanceof Error ? mutationError.message : '私人待辦新增失敗');
+    } finally {
+      setSavingKey(null);
+    }
+  };
+
+  const createTeamTodo = async (event: FormEvent) => {
+    event.preventDefault();
+    const title = teamTitle.trim();
+    if (!title || !currentUser || !canMutateTodos) return;
+    setSavingKey('team-new');
+    try {
+      await dbAdapter.createTodo({
+        title,
+        content: null,
+        project_id: null,
+        task_type: null,
+        status: '待安排',
+        scope: 'TEAM',
+        created_by: currentUser.id,
+        assigned_to: null,
+        assigned_by: null,
+        converted_task_id: null,
+        rejected_by: null,
+        rejected_at: null,
+        rejection_reason: null,
+      });
+      setTeamTitle('');
+      await loadDashboard();
+    } catch (mutationError) {
+      setError(mutationError instanceof Error ? mutationError.message : '團隊待辦新增失敗');
+    } finally {
+      setSavingKey(null);
+    }
+  };
+
+  const completePrivateTodo = async (todo: Todo) => {
+    setSavingKey(todo.id);
+    try {
+      await dbAdapter.updatePrivateTodo(todo.id, { status: '已完成' });
+      await loadDashboard();
+    } catch (mutationError) {
+      setError(mutationError instanceof Error ? mutationError.message : '私人待辦更新失敗');
+    } finally {
+      setSavingKey(null);
+    }
+  };
+
+  const completeTeamTodo = async (todo: Todo) => {
+    setSavingKey(todo.id);
+    try {
+      await dbAdapter.updateTodo(todo.id, { status: '已完成' });
+      await loadDashboard();
+    } catch (mutationError) {
+      setError(mutationError instanceof Error ? mutationError.message : '團隊待辦更新失敗');
+    } finally {
+      setSavingKey(null);
+    }
+  };
+
+  if (isLoading) {
+    return <div className="flex h-full items-center justify-center gap-3 text-secondary"><Loader2 className="animate-spin" size={20} />載入工程儀表…</div>;
+  }
+
   return (
-    <div className="p-8">
-      <h1 className="text-3xl font-bold mb-6">儀表板 (Dashboard)</h1>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <div className="bg-card p-6 rounded-lg border border-theme-border backdrop-blur-sm">
-          <h2 className="text-xl font-semibold mb-2">今日任務</h2>
-          <p className="text-secondary">目前尚無今日任務</p>
+    <div className="min-h-full bg-page px-4 py-5 text-primary md:px-6 md:py-7 xl:px-8">
+      <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-accent">Engineering overview</p>
+          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">工程儀表</h1>
         </div>
-        <div className="bg-card p-6 rounded-lg border border-theme-border backdrop-blur-sm">
-          <h2 className="text-xl font-semibold mb-2">待補序號提醒</h2>
-          <p className="text-amber-400">0 筆待補序號</p>
+        <div className="text-right">
+          <div className="font-semibold">{format(new Date(), 'M月d日 EEEE', { locale: zhTW })}</div>
+          <div className="mt-0.5 text-sm text-secondary">{currentUser?.name}</div>
         </div>
-        <div className="bg-card p-6 rounded-lg border border-theme-border backdrop-blur-sm">
-          <h2 className="text-xl font-semibold mb-2">最近庫存異動</h2>
-          <p className="text-secondary">無近期異動</p>
+      </header>
+
+      {error ? <div className="mb-5 rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">{error}</div> : null}
+
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(18rem,0.9fr)_minmax(25rem,1.25fr)_minmax(19rem,0.9fr)]">
+        <DashboardSection icon={<CalendarDays size={18} />} title="今日排程" count={todayTasks.length} actionHref="/schedule" actionLabel="查看排程" className="xl:sticky xl:top-6">
+          {todayTasks.length === 0 ? <EmptyState text="今天暫時沒有排程" /> : (
+            <div className="space-y-2.5">
+              {todayTasks.map(task => {
+                const project = projects.find(row => row.id === task.project_id);
+                const collaboratorIds = taskMembers.filter(member => member.task_id === task.id).map(member => member.user_id);
+                const collaborators = allUsers.filter(user => collaboratorIds.includes(user.id)).map(user => user.name);
+                const isDone = task.status === '完成' || task.status === '已完成';
+                return (
+                  <article key={task.id} className={`rounded-xl border-l-4 bg-[var(--surface-secondary)] px-3.5 py-3 ${isDone ? 'border-[var(--text-muted)] opacity-55' : task.is_tentative ? 'border-warning' : 'border-accent'}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate font-semibold">{project?.short_name || project?.name || task.project_name || '未匹配案場'}</div>
+                        <div className="mt-0.5 truncate text-sm font-medium text-accent">[{task.task_type}] {task.title || '無標題'}</div>
+                      </div>
+                      <span className="shrink-0 rounded-full bg-page px-2 py-1 text-xs font-semibold text-secondary">{formatScheduleTaskTime(task)}</span>
+                    </div>
+                    <div className="mt-2 text-xs leading-5 text-secondary">
+                      <div>主要：{allUsers.find(user => user.id === task.main_assignee_id)?.name || '未指定'}</div>
+                      {collaborators.length ? <div>協同：{collaborators.join('、')}</div> : null}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </DashboardSection>
+
+        <DashboardSection icon={<BriefcaseBusiness size={18} />} title="我的專案進度" count={projectCards.length}>
+          {projectCards.length === 0 ? <EmptyState text="目前沒有指派中的專案" /> : (
+            <div className="space-y-3">
+              {projectCards.map(card => {
+                const fullProject = projects.find(project => project.id === card.project.id) ?? card.project;
+                const milestoneTarget = [...card.progress]
+                  .filter(group => group.current)
+                  .sort((a, b) => (a.current?.planned_date || '9999').localeCompare(b.current?.planned_date || '9999'))[0]
+                  ?.current?.id ?? null;
+                return (
+                  <button type="button" key={card.project.id} onClick={() => setSelectedProject({ project: fullProject, milestoneId: milestoneTarget })} className="group w-full rounded-xl border border-theme-border bg-[var(--surface-secondary)] p-4 text-left transition hover:-translate-y-0.5 hover:border-accent/50 hover:shadow-lg">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-base font-bold">{card.project.name}</div>
+                        {card.project.project_code ? <div className="mt-0.5 text-xs text-secondary">{card.project.project_code}</div> : null}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {card.isOverdue ? <span className="rounded-full bg-danger/10 px-2 py-1 text-[11px] font-bold text-danger">逾期</span> : null}
+                        <ArrowUpRight className="text-secondary transition group-hover:text-accent" size={18} />
+                      </div>
+                    </div>
+                    <div className="mt-3 divide-y divide-theme-border/70">
+                      {card.progress.map(group => (
+                        <div key={group.positionId} className="grid gap-1 py-2.5 first:pt-0 last:pb-0 sm:grid-cols-[5rem_1fr]">
+                          <span className="text-xs font-bold text-secondary">{group.positionName}</span>
+                          <div className="min-w-0 text-sm">
+                            <div className="flex gap-2 text-secondary"><span className="shrink-0">前項</span><span className="truncate text-primary/70">{group.previous?.label || '—'}</span></div>
+                            <div className="mt-1 flex gap-2"><span className="shrink-0 font-semibold text-accent">目前</span><span className="truncate font-semibold">{group.current?.label || '已完成'}</span></div>
+                            <div className="mt-1 flex gap-2 text-secondary"><span className="shrink-0">預計</span><span className={group.current?.planned_date && group.current.planned_date < today ? 'font-semibold text-danger' : ''}>{group.current?.planned_date || '未設定'}</span></div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </DashboardSection>
+
+        <div className="space-y-5">
+          <DashboardSection icon={<ListTodo size={18} />} title="我的 TODO" count={openPrivateTodos.length}>
+            <TodoComposer value={privateTitle} onChange={setPrivateTitle} onSubmit={createPrivateTodo} placeholder="新增私人記事…" disabled={!canMutateTodos} isSaving={savingKey === 'private-new'} />
+            <TodoList todos={openPrivateTodos} emptyText="沒有未完成的私人記事" savingKey={savingKey} onComplete={completePrivateTodo} disabled={!canMutateTodos} />
+          </DashboardSection>
+
+          <DashboardSection icon={<Users size={18} />} title="團隊 TODO" count={openTeamTodos.length} actionHref="/schedule" actionLabel="週排程待辦">
+            <TodoComposer value={teamTitle} onChange={setTeamTitle} onSubmit={createTeamTodo} placeholder="新增團隊待辦…" disabled={!canMutateTodos} isSaving={savingKey === 'team-new'} />
+            <TodoList
+              todos={openTeamTodos}
+              emptyText="目前沒有團隊待辦"
+              savingKey={savingKey}
+              onComplete={completeTeamTodo}
+              disabled={!canMutateTodos}
+              secondary={todo => {
+                const assignee = allUsers.find(user => user.id === todo.assigned_to);
+                const project = projects.find(row => row.id === todo.project_id);
+                return [project?.name, assignee ? `指派給 ${assignee.name}` : null].filter(Boolean).join(' · ');
+              }}
+            />
+          </DashboardSection>
         </div>
       </div>
+
+      {selectedProject ? (
+        <ProjectDetailModal
+          key={`${selectedProject.project.id}:${selectedProject.milestoneId || ''}`}
+          project={selectedProject.project}
+          initialMilestoneId={selectedProject.milestoneId}
+          onClose={() => setSelectedProject(null)}
+          onUpdate={loadDashboard}
+          onConstructionUpdated={() => { void loadDashboard(); }}
+          onMilestoneUpdated={() => { void loadDashboard(); }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function DashboardSection({ icon, title, count, children, actionHref, actionLabel, className = '' }: {
+  icon: ReactNode;
+  title: string;
+  count: number;
+  children: ReactNode;
+  actionHref?: string;
+  actionLabel?: string;
+  className?: string;
+}) {
+  return (
+    <section className={`rounded-2xl border border-theme-border bg-card/70 p-4 shadow-sm backdrop-blur-sm md:p-5 ${className}`}>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/10 text-accent">{icon}</span>
+          <h2 className="font-bold">{title}</h2>
+          <span className="rounded-full bg-page px-2 py-0.5 text-xs font-semibold text-secondary">{count}</span>
+        </div>
+        {actionHref ? <a href={actionHref} className="text-xs font-semibold text-secondary transition hover:text-accent">{actionLabel} →</a> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return <div className="rounded-xl border border-dashed border-theme-border px-4 py-8 text-center text-sm text-secondary">{text}</div>;
+}
+
+function TodoComposer({ value, onChange, onSubmit, placeholder, disabled, isSaving }: {
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit: (event: FormEvent) => void;
+  placeholder: string;
+  disabled: boolean;
+  isSaving: boolean;
+}) {
+  return (
+    <form onSubmit={onSubmit} className="mb-3 flex items-center gap-2 border-b border-theme-border pb-3">
+      <Plus size={17} className="shrink-0 text-accent" />
+      <input value={value} onChange={event => onChange(event.target.value)} disabled={disabled || isSaving} placeholder={disabled ? '僅可檢視' : placeholder} aria-label={placeholder} className="min-w-0 flex-1 bg-transparent py-1.5 text-sm outline-none placeholder:text-secondary/70 disabled:cursor-not-allowed" />
+      <button type="submit" disabled={disabled || isSaving || !value.trim()} className="rounded-lg bg-accent px-2.5 py-1.5 text-xs font-bold text-white transition hover:bg-accent-hover disabled:opacity-40">
+        {isSaving ? <Loader2 className="animate-spin" size={14} /> : '新增'}
+      </button>
+    </form>
+  );
+}
+
+function TodoList({ todos, emptyText, savingKey, onComplete, disabled, secondary }: {
+  todos: Todo[];
+  emptyText: string;
+  savingKey: string | null;
+  onComplete: (todo: Todo) => Promise<void>;
+  disabled?: boolean;
+  secondary?: (todo: Todo) => string;
+}) {
+  if (todos.length === 0) return <p className="py-4 text-center text-sm text-secondary">{emptyText}</p>;
+  return (
+    <div className="divide-y divide-theme-border/70">
+      {todos.map(todo => {
+        const detail = secondary?.(todo);
+        return (
+          <div key={todo.id} className="flex items-start gap-3 py-3 first:pt-1 last:pb-0">
+            <button type="button" onClick={() => void onComplete(todo)} disabled={disabled || savingKey === todo.id} aria-label={`完成 ${todo.title}`} className="mt-0.5 shrink-0 rounded-full text-secondary transition hover:text-accent disabled:opacity-40">
+              {savingKey === todo.id ? <Loader2 className="animate-spin" size={20} /> : <Circle size={20} />}
+            </button>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium leading-5">{todo.title}</div>
+              {detail ? <div className="mt-1 truncate text-xs text-secondary">{detail}</div> : null}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

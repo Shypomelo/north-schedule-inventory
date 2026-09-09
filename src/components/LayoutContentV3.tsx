@@ -12,7 +12,7 @@ export function LayoutContent({ children }: { children: React.ReactNode }) {
     <div className="flex w-full h-full">
       {!isLoginPage && <Sidebar />}
       <main className="flex-1 h-full overflow-auto custom-scrollbar relative">
-        <div className="min-w-[1400px] h-full">
+        <div className={`${pathname === '/' ? 'min-w-0' : 'min-w-[1400px]'} h-full`}>
           {children}
         </div>
       </main>

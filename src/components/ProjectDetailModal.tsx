@@ -14,6 +14,7 @@ import { ProjectPositionAssignments } from './ProjectPositionAssignments';
 
 interface Props {
   project: Project;
+  initialMilestoneId?: string | null;
   onClose: () => void;
   onUpdate: () => Promise<void>;
   onConstructionUpdated: (result: ConstructionMutationResult) => void;
@@ -22,7 +23,7 @@ interface Props {
 
 type TabType = 'workflow' | 'basic' | 'notes';
 
-export function ProjectDetailModal({ project, onClose, onUpdate, onConstructionUpdated, onMilestoneUpdated }: Props) {
+export function ProjectDetailModal({ project, initialMilestoneId, onClose, onUpdate, onConstructionUpdated, onMilestoneUpdated }: Props) {
   const { currentUser } = useUser();
   const [activeTab, setActiveTab] = useState<TabType>('workflow');
   const [editedProject, setEditedProject] = useState<Project>(project);
@@ -199,7 +200,7 @@ export function ProjectDetailModal({ project, onClose, onUpdate, onConstructionU
 
           <div className="min-w-0 flex-1 overflow-y-auto p-6 bg-page/30">
             {activeTab === 'basic' && renderBasicInfo()}
-            {activeTab === 'workflow' && <ProjectWorkflow projectId={project.id} projectName={editedProject.name} actor={currentUser ? { id: currentUser.id, name: currentUser.name } : null} canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')} canRefresh={currentUser?.role === 'ADMIN'} construction={<ConstructionProgressSection model={construction} />} onUpdate={onUpdate} onMilestoneUpdated={onMilestoneUpdated} />}
+            {activeTab === 'workflow' && <ProjectWorkflow projectId={project.id} projectName={editedProject.name} targetMilestoneId={initialMilestoneId} actor={currentUser ? { id: currentUser.id, name: currentUser.name } : null} canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')} canRefresh={currentUser?.role === 'ADMIN'} construction={<ConstructionProgressSection model={construction} />} onUpdate={onUpdate} onMilestoneUpdated={onMilestoneUpdated} />}
             {activeTab === 'notes' && renderNotes()}
           </div>
         </div>

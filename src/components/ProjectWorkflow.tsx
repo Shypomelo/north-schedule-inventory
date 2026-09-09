@@ -42,6 +42,7 @@ const STATUS_LABEL = Object.fromEntries(
 interface ProjectWorkflowProps {
   projectId: string;
   projectName: string;
+  targetMilestoneId?: string | null;
   canEdit: boolean;
   canRefresh: boolean;
   actor: { id: string; name: string } | null;
@@ -52,7 +53,7 @@ interface ProjectWorkflowProps {
 
 type WorkflowMutationAction = Extract<ActivityActionType, `WORKFLOW_${string}`>;
 
-export function ProjectWorkflow({ projectId, projectName, canEdit, canRefresh, actor, construction, onUpdate, onMilestoneUpdated }: ProjectWorkflowProps) {
+export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, canEdit, canRefresh, actor, construction, onUpdate, onMilestoneUpdated }: ProjectWorkflowProps) {
   const [workflow, setWorkflow] = useState<ProjectWorkflowData>({ instance: null, milestones: [] });
   const [phases, setPhases] = useState<WorkflowPhase[]>([]);
   const [types, setTypes] = useState<WorkflowType[]>([]);
@@ -130,6 +131,17 @@ export function ProjectWorkflow({ projectId, projectName, canEdit, canRefresh, a
     () => getCurrentAndNextMilestones(orderedMilestones),
     [orderedMilestones],
   );
+
+  useEffect(() => {
+    if (isLoading || !targetMilestoneId) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(`workflow-milestone-${targetMilestoneId}`)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [isLoading, targetMilestoneId, visibleMilestones]);
 
   const activityLog = (
     action: WorkflowMutationAction,
@@ -440,7 +452,11 @@ export function ProjectWorkflow({ projectId, projectName, canEdit, canRefresh, a
               const dragged = orderedMilestones.find(row => row.id === draggedId);
               const canDrop = dragged?.phase_key_snapshot === milestone.phase_key_snapshot;
               return (
-                <div key={milestone.id}>
+                <div
+                  key={milestone.id}
+                  id={`workflow-milestone-${milestone.id}`}
+                  className={targetMilestoneId === milestone.id ? 'relative z-[1] ring-2 ring-inset ring-accent/70' : ''}
+                >
                   {showPhase ? <div className="border-b border-theme-border bg-page/60 px-3 py-1.5 text-xs font-bold tracking-wide text-secondary">{milestone.phase_name_snapshot}</div> : null}
                   {showConstruction ? (
                     <div data-workflow-phase-content="CONSTRUCTION" className="border-b border-theme-border bg-card px-3 py-3">
