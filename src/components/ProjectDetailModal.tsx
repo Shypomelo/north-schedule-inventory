@@ -49,7 +49,7 @@ export function ProjectDetailModal({ project, initialMilestoneId, onClose, onUpd
 
   const renderBasicInfo = () => (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
           <label className="block text-sm font-medium text-secondary mb-1">案場名稱</label>
           <input
@@ -90,7 +90,7 @@ export function ProjectDetailModal({ project, initialMilestoneId, onClose, onUpd
             disabled={currentUser?.role === 'VIEWER'}
           />
         </div>
-        <div className="col-span-2">
+        <div className="sm:col-span-2">
           <label className="block text-sm font-medium text-secondary mb-1">地址</label>
           <input
             type="text"
@@ -139,7 +139,7 @@ export function ProjectDetailModal({ project, initialMilestoneId, onClose, onUpd
   );
 
   const renderNotes = () => (
-    <div className="h-full flex flex-col">
+    <div className="flex h-full min-h-72 flex-col">
       <label className="block text-sm font-medium text-secondary mb-2">案場備註</label>
       <textarea
         className="flex-1 w-full bg-page p-4 rounded-xl border border-theme-border text-primary outline-none focus:border-accent resize-none leading-relaxed"
@@ -158,12 +158,12 @@ export function ProjectDetailModal({ project, initialMilestoneId, onClose, onUpd
   ];
 
   return (
-    <div className="fixed inset-0 bg-page/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-      <div className="bg-card border border-theme-border rounded-2xl w-full max-w-7xl h-[85vh] max-h-[calc(100vh-2rem)] flex flex-col shadow-2xl overflow-hidden relative">
-        <div className="p-6 border-b border-theme-border bg-card/40 flex items-center justify-between shrink-0">
-          <div>
-            <div className="flex items-center gap-3">
-              <h2 className="text-2xl font-bold text-primary">{editedProject.name}</h2>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-page/80 p-0 backdrop-blur-sm sm:p-4">
+      <div className="relative flex h-[100dvh] max-h-[100dvh] w-full max-w-7xl flex-col overflow-hidden border border-theme-border bg-card shadow-2xl sm:h-[85vh] sm:max-h-[calc(100vh-2rem)] sm:rounded-2xl">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-theme-border bg-card/40 p-4 sm:p-6">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+              <h2 className="min-w-0 break-words text-xl font-bold text-primary sm:text-2xl">{editedProject.name}</h2>
               {saveStatus && (
                 <span className={`text-xs px-2 py-1 rounded-full ${saveStatus === '已儲存' ? 'bg-success/10 text-success' : saveStatus === '儲存失敗' ? 'bg-danger/10 text-danger' : 'bg-accent/10 text-accent'}`}>
                   {saveStatus}
@@ -175,18 +175,18 @@ export function ProjectDetailModal({ project, initialMilestoneId, onClose, onUpd
               <span>{editedProject.project_code || '無代碼'}</span>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-page rounded-full text-secondary hover:text-primary transition-colors">
+          <button onClick={onClose} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full p-2 text-secondary transition-colors hover:bg-page hover:text-primary" aria-label="關閉專案詳細資料">
             <X size={24} />
           </button>
         </div>
 
-        <div className="flex flex-1 overflow-hidden">
-          <div className="w-48 border-r border-theme-border bg-card/20 p-4 space-y-2 shrink-0">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden sm:flex-row">
+          <div className="flex w-full shrink-0 gap-2 overflow-x-auto border-b border-theme-border bg-card/20 p-2 sm:w-48 sm:flex-col sm:space-y-2 sm:border-b-0 sm:border-r sm:p-4">
             {tabs.map(tab => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium text-sm
+                className={`flex min-h-11 min-w-max items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition-all sm:w-full sm:gap-3 sm:px-4 sm:py-3
                   ${activeTab === tab.id
                     ? 'bg-accent/10 text-accent border border-accent/20'
                     : 'text-secondary hover:bg-page hover:text-primary border border-transparent'
@@ -198,7 +198,7 @@ export function ProjectDetailModal({ project, initialMilestoneId, onClose, onUpd
             ))}
           </div>
 
-          <div className="min-w-0 flex-1 overflow-y-auto p-6 bg-page/30">
+          <div className="min-w-0 flex-1 overflow-y-auto bg-page/30 p-3 sm:p-6">
             {activeTab === 'basic' && renderBasicInfo()}
             {activeTab === 'workflow' && <ProjectWorkflow projectId={project.id} projectName={editedProject.name} targetMilestoneId={initialMilestoneId} actor={currentUser ? { id: currentUser.id, name: currentUser.name } : null} canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')} canRefresh={currentUser?.role === 'ADMIN'} construction={<ConstructionProgressSection model={construction} />} onUpdate={onUpdate} onMilestoneUpdated={onMilestoneUpdated} />}
             {activeTab === 'notes' && renderNotes()}

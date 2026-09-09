@@ -504,7 +504,7 @@ export default function ProjectsPage() {
     return (
       <div className="mb-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
         <h2 className="text-xl font-bold text-primary mb-4 px-2 border-l-4 border-accent">{title} <span className="text-secondary text-sm font-normal ml-2">({projectsList.length})</span></h2>
-        <div className="bg-card/40 border border-theme-border rounded-xl overflow-hidden shadow-xl backdrop-blur-sm">
+        <div className="bg-card/40 border border-theme-border rounded-xl overflow-auto shadow-xl backdrop-blur-sm">
           <table className="w-full text-left border-collapse min-w-[1500px]">
             <thead className="bg-[var(--surface-secondary)] text-secondary text-sm border-b border-theme-border">
                 <tr>
@@ -652,11 +652,11 @@ export default function ProjectsPage() {
 
   return (
     <>
-      <div className="p-8 min-w-[1600px] mx-auto flex flex-col h-full">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-primary">{getPageTitle()} <span className="text-lg text-secondary/70 font-normal ml-2">({isActiveView ? filteredProjects.length : filteredBaseProjects.length})</span></h1>
+      <div className="mx-auto flex h-full min-w-0 flex-col p-3 sm:p-5 lg:p-8 xl:min-w-[1600px]">
+      <div className="mb-4 flex flex-col items-stretch justify-between gap-3 sm:mb-6 lg:flex-row lg:items-center">
+        <h1 className="break-words text-2xl font-bold text-primary sm:text-3xl">{getPageTitle()} <span className="ml-1 text-base font-normal text-secondary/70 sm:ml-2 sm:text-lg">({isActiveView ? filteredProjects.length : filteredBaseProjects.length})</span></h1>
         
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-4">
           {isActiveView && saveStatus && (
             <span className={`text-sm ${saveStatus === '已儲存' ? 'text-success' : saveStatus === '儲存失敗' ? 'text-danger' : 'text-accent'}`}>
               {saveStatus}
@@ -665,7 +665,7 @@ export default function ProjectsPage() {
           {isActiveView && (
             <button
               onClick={handleBackup}
-              className="flex items-center gap-2 bg-card hover:bg-page text-secondary hover:text-primary px-4 py-2.5 rounded-lg shadow transition border border-theme-border font-medium"
+              className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg border border-theme-border bg-card px-4 py-2.5 font-medium text-secondary shadow transition hover:bg-page hover:text-primary sm:flex-none"
             >
               建立備份
             </button>
@@ -674,7 +674,7 @@ export default function ProjectsPage() {
             <button 
               onClick={() => setIsActiveFormOpen(true)}
               disabled={currentUser?.role === 'VIEWER'}
-              className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-5 py-2.5 rounded-lg shadow-lg shadow-accent/20 transition disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+              className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-accent px-5 py-2.5 font-medium text-white shadow-lg shadow-accent/20 transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
             >
               <Plus size={20} />
               新增進行中案場
@@ -683,7 +683,7 @@ export default function ProjectsPage() {
             <button 
               onClick={() => { setEditingProject(null); setIsFormModalOpen(true); }}
               disabled={currentUser?.role === 'VIEWER'}
-              className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-5 py-2.5 rounded-lg shadow-lg shadow-accent/20 transition disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+              className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-accent px-5 py-2.5 font-medium text-white shadow-lg shadow-accent/20 transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
             >
               <Plus size={20} />
               新增所有案場
@@ -752,7 +752,7 @@ export default function ProjectsPage() {
         ) : isActiveView ? (
           
           <div className="pb-8 flex flex-col h-full">
-            <div className="flex gap-4 mb-6 border-b border-theme-border/50 pb-2 shrink-0">
+            <div className="mb-6 flex shrink-0 gap-4 overflow-x-auto border-b border-theme-border/50 pb-2">
               <button 
                 onClick={() => setActiveTab('report')}
                 className={`px-4 py-2 font-medium transition-colors border-b-2 -mb-[10px] ${activeTab === 'report' ? 'text-accent border-accent' : 'text-secondary border-transparent hover:text-primary'}`}
@@ -775,7 +775,7 @@ export default function ProjectsPage() {
                 {renderActiveTable("4. 前兩周掛表案件", activeCategories.section4)}
               </>
             ) : (
-              <div className="flex-1 overflow-hidden min-h-[500px]">
+              <div className="min-h-[500px] flex-1 overflow-auto">
                 <GanttChart 
                   projects={filteredProjects} 
                   contractors={contractors} 
@@ -791,7 +791,7 @@ export default function ProjectsPage() {
              <p>找不到相符的案場</p>
            </div>
         ) : (
-          <div className="bg-card/40 border border-theme-border rounded-xl overflow-hidden shadow-xl backdrop-blur-sm">
+          <div className="bg-card/40 border border-theme-border rounded-xl overflow-auto shadow-xl backdrop-blur-sm">
             <table className="w-full text-left border-collapse min-w-[1400px]">
               <thead className="bg-[var(--surface-secondary)] text-secondary text-sm sticky top-0 z-10 border-b border-theme-border backdrop-blur-md">
                   <tr>
@@ -874,11 +874,11 @@ export default function ProjectsPage() {
       )}
 
       {isActiveFormOpen && (
-        <div className="fixed inset-0 bg-page/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-card border border-theme-border p-6 rounded-2xl w-full max-w-2xl my-8 shadow-2xl relative">
-            <h2 className="text-2xl font-bold text-primary mb-6">新增進行中案場</h2>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-page/80 p-2 backdrop-blur-sm sm:p-4">
+          <div className="relative my-2 max-h-[calc(100dvh-1rem)] w-full max-w-2xl overflow-y-auto rounded-2xl border border-theme-border bg-card p-4 shadow-2xl sm:my-8 sm:max-h-[calc(100dvh-2rem)] sm:p-6">
+            <h2 className="mb-6 text-xl font-bold text-primary sm:text-2xl">新增進行中案場</h2>
             <form onSubmit={handleCreateActive} className="flex flex-col gap-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <label className="flex flex-col gap-1">
                   <span className="text-sm text-secondary">案場代碼</span>
                   <input name="project_code" type="text" className="p-2 bg-page border border-theme-border rounded text-primary outline-none focus:border-accent" />
@@ -920,7 +920,7 @@ export default function ProjectsPage() {
                 <span className="text-sm text-secondary">備註</span>
                 <textarea name="notes" className="p-2 bg-page border border-theme-border rounded text-primary outline-none focus:border-accent min-h-[80px]"></textarea>
               </label>
-              <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-theme-border">
+              <div className="mt-4 flex flex-wrap justify-end gap-3 border-t border-theme-border pt-4">
                 <button type="button" onClick={() => setIsActiveFormOpen(false)} className="px-4 py-2 bg-card border border-theme-border text-secondary hover:text-primary rounded-lg transition font-medium">取消</button>
                 <button type="submit" disabled={isSubmitting} className="px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-hover transition font-medium disabled:opacity-50">{isSubmitting ? '儲存中...' : '儲存'}</button>
               </div>
@@ -930,9 +930,9 @@ export default function ProjectsPage() {
       )}
 
       {isFormModalOpen && (
-        <div className="fixed inset-0 bg-page/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-card border border-theme-border p-6 rounded-2xl w-full max-w-4xl my-8 shadow-2xl relative">
-            <h2 className="text-2xl font-bold text-primary mb-6">{editingProject ? '編輯所有案場主檔' : '新增所有案場'}</h2>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-page/80 p-2 backdrop-blur-sm sm:p-4">
+          <div className="relative my-2 max-h-[calc(100dvh-1rem)] w-full max-w-4xl overflow-y-auto rounded-2xl border border-theme-border bg-card p-4 shadow-2xl sm:my-8 sm:max-h-[calc(100dvh-2rem)] sm:p-6">
+            <h2 className="mb-6 text-xl font-bold text-primary sm:text-2xl">{editingProject ? '編輯所有案場主檔' : '新增所有案場'}</h2>
             <ProjectForm 
               initialData={editingProject || undefined}
               onSubmit={handleCreateOrUpdateBase}

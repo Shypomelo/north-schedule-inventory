@@ -414,18 +414,18 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
           <SummaryItem label="目前" milestone={summary.current} />
           <SummaryItem label="接下來" milestone={summary.next} />
         </div>
-        <div className="flex items-center gap-3">
-          <label className="flex items-center gap-2 text-sm text-secondary">
+        <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto">
+          <label className="flex min-h-10 items-center gap-2 text-sm text-secondary">
             <input type="checkbox" checked={hideCompleted} onChange={event => setHideCompleted(event.target.checked)} className="h-4 w-4 accent-accent" />
             隱藏已完成
           </label>
           {canEdit ? (
-            <button type="button" onClick={() => setShowCreate(true)} disabled={!phases.length || !types.length} className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-white hover:bg-accent-hover disabled:opacity-50">
+            <button type="button" onClick={() => setShowCreate(true)} disabled={!phases.length || !types.length} className="flex min-h-10 items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-white hover:bg-accent-hover disabled:opacity-50">
               <Plus size={16} />新增臨時項目
             </button>
           ) : null}
           {canRefresh ? (
-            <button type="button" onClick={() => void previewRefresh()} disabled={isRefreshing} className="flex items-center gap-1.5 rounded-lg border border-theme-border px-3 py-2 text-sm font-semibold text-primary hover:bg-card disabled:opacity-50">
+            <button type="button" onClick={() => void previewRefresh()} disabled={isRefreshing} className="flex min-h-10 items-center gap-1.5 rounded-lg border border-theme-border px-3 py-2 text-sm font-semibold text-primary hover:bg-card disabled:opacity-50">
               <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />重製流程
             </button>
           ) : null}
@@ -550,8 +550,8 @@ function RefreshWorkflowDialog({ preview, isSaving, onClose, onConfirm }: {
   onConfirm: () => Promise<void>;
 }) {
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-page/80 p-4 backdrop-blur-sm">
-      <div role="dialog" aria-modal="true" aria-labelledby="refresh-workflow-title" className="w-full max-w-lg rounded-2xl border border-theme-border bg-card p-6 shadow-2xl">
+    <div className="fixed inset-0 z-[80] flex items-center justify-center overflow-y-auto bg-page/80 p-2 backdrop-blur-sm sm:p-4">
+      <div role="dialog" aria-modal="true" aria-labelledby="refresh-workflow-title" className="max-h-[calc(100dvh-1rem)] w-full max-w-lg overflow-y-auto rounded-2xl border border-theme-border bg-card p-4 shadow-2xl sm:p-6">
         <div className="mb-5 flex items-center justify-between">
           <h3 id="refresh-workflow-title" className="text-lg font-bold text-primary">重製流程</h3>
           <button type="button" onClick={onClose} disabled={isSaving} aria-label="關閉" className="rounded-full p-2 text-secondary hover:bg-page disabled:opacity-50"><X size={20} /></button>
@@ -626,16 +626,16 @@ function CreateCustomMilestoneDialog({ projectId, milestones, phases, types, onC
   };
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-page/80 p-4 backdrop-blur-sm">
-      <form onSubmit={submit} className="w-full max-w-xl rounded-2xl border border-theme-border bg-card p-6 shadow-2xl">
+    <div className="fixed inset-0 z-[80] flex items-center justify-center overflow-y-auto bg-page/80 p-2 backdrop-blur-sm sm:p-4">
+      <form onSubmit={submit} className="max-h-[calc(100dvh-1rem)] w-full max-w-xl overflow-y-auto rounded-2xl border border-theme-border bg-card p-4 shadow-2xl sm:p-6">
         <DialogHeader title="新增臨時項目" onClose={onClose} />
-        <div className="grid grid-cols-2 gap-4">
-          <div className="col-span-2"><TextField label="項目名稱" value={label} onChange={setLabel} /></div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2"><TextField label="項目名稱" value={label} onChange={setLabel} /></div>
           <SelectField label="階段" value={phaseId} onChange={setPhaseId} options={phases.map(phase => ({ value: phase.id, label: phase.name }))} />
           <SelectField label="類型" value={typeId} onChange={setTypeId} options={types.map(type => ({ value: type.id, label: type.name }))} />
           <TextField type="date" label="預計日期（可空）" value={plannedDate} onChange={setPlannedDate} />
           <div />
-          <label className="col-span-2 text-xs text-secondary">備註（可空）<textarea value={notes} onChange={event => setNotes(event.target.value)} className="mt-1 min-h-24 w-full rounded-lg border border-theme-border bg-page px-3 py-2 text-sm text-primary outline-none focus:border-accent" /></label>
+          <label className="text-xs text-secondary sm:col-span-2">備註（可空）<textarea value={notes} onChange={event => setNotes(event.target.value)} className="mt-1 min-h-24 w-full rounded-lg border border-theme-border bg-page px-3 py-2 text-sm text-primary outline-none focus:border-accent" /></label>
         </div>
         <DialogActions onClose={onClose} isSaving={isSaving} submitLabel="新增" disabled={!label.trim() || !phaseId || !typeId} />
       </form>
@@ -663,11 +663,11 @@ function EditCustomMilestoneDialog({ milestone, phases, types, isSaving, onClose
   };
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-page/80 p-4 backdrop-blur-sm">
-      <form onSubmit={submit} className="w-full max-w-md rounded-2xl border border-theme-border bg-card p-6 shadow-2xl">
+    <div className="fixed inset-0 z-[80] flex items-center justify-center overflow-y-auto bg-page/80 p-2 backdrop-blur-sm sm:p-4">
+      <form onSubmit={submit} className="max-h-[calc(100dvh-1rem)] w-full max-w-md overflow-y-auto rounded-2xl border border-theme-border bg-card p-4 shadow-2xl sm:p-6">
         <DialogHeader title="編輯臨時項目" onClose={onClose} />
-        <div className="grid grid-cols-2 gap-4">
-          <div className="col-span-2"><TextField label="項目名稱" value={label} onChange={setLabel} /></div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2"><TextField label="項目名稱" value={label} onChange={setLabel} /></div>
           <SelectField label="階段" value={phaseId} onChange={setPhaseId} options={phases.map(phase => ({ value: phase.id, label: phase.name }))} />
           <SelectField label="類型" value={typeId} onChange={setTypeId} options={types.map(type => ({ value: type.id, label: type.name }))} />
         </div>
