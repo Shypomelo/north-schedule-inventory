@@ -80,6 +80,12 @@ test('Todo adapter uses Supabase scoped sources and never falls back to localSto
   const index = fs.readFileSync(path.join(__dirname, 'db', 'index.ts'), 'utf8');
   assert.match(adapter, /getTodos:[\s\S]*?from\('todos'\)[\s\S]*?eq\('scope', 'TEAM'\)/);
   assert.match(adapter, /getPrivateTodos:[\s\S]*?from\('todos'\)[\s\S]*?eq\('scope', 'PRIVATE'\)/);
+  const teamQuery = adapter.slice(adapter.indexOf('getTodos:'), adapter.indexOf('createTodo:'));
+  const privateQuery = adapter.slice(adapter.indexOf('getPrivateTodos:'), adapter.indexOf('createPrivateTodo:'));
+  for (const query of [teamQuery, privateQuery]) {
+    assert.match(query, /order\('created_at', \{ ascending: false \}\)/);
+    assert.match(query, /limit\(50\)/);
+  }
   assert.match(adapter, /updateTodo:[\s\S]*?update\(buildTeamTodoPayload\(updates\)\)[\s\S]*?eq\('scope', 'TEAM'\)/);
   assert.match(adapter, /updatePrivateTodo:[\s\S]*?payload\.status = updates\.status[\s\S]*?eq\('scope', 'PRIVATE'\)/);
   assert.match(index, /\.\.\.todoAdapter/);
@@ -95,7 +101,12 @@ test('Dashboard uses the shared Todo adapters and keeps the route responsive', (
   assert.match(dashboard, /dbAdapter\.updatePrivateTodo\(todo\.id, \{ status: '已完成' \}\)/);
   assert.match(dashboard, /dbAdapter\.updateTodo\(todo\.id, \{ status: '已完成' \}\)/);
   assert.match(dashboard, /initialMilestoneId=\{selectedProject\.milestoneId\}/);
-  assert.match(layout, /pathname === '\/' \? 'min-w-0' : 'min-w-\[1400px\]'/);
+  assert.match(dashboard, /useState\(true\)/);
+  assert.match(dashboard, /隱藏已完成/);
+  assert.match(dashboard, /!hideCompletedPrivate \|\| todo\.status !== '已完成'/);
+  assert.match(dashboard, /!hideCompletedTeam \|\| todo\.status !== '已完成'/);
+  assert.doesNotMatch(layout, /min-w-\[1400px\]/);
+  assert.match(layout, /pt-14 md:pt-0/);
 });
 
 test('project responsibilities use the projects deleted_at contract instead of a nonexistent is_active column', () => {

@@ -3,7 +3,7 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import { zhTW } from 'date-fns/locale';
-import { ArrowUpRight, BriefcaseBusiness, CalendarDays, Circle, ListTodo, Loader2, Plus, Users } from 'lucide-react';
+import { ArrowUpRight, BriefcaseBusiness, CalendarDays, CheckCircle2, Circle, ListTodo, Loader2, Plus, Users } from 'lucide-react';
 import { ProjectDetailModal } from '@/components/ProjectDetailModal';
 import { useUser } from '@/components/UserContext';
 import { dbAdapter } from '@/lib/db';
@@ -21,6 +21,8 @@ export default function EngineeringDashboardPage() {
   const [teamTodos, setTeamTodos] = useState<Todo[]>([]);
   const [privateTitle, setPrivateTitle] = useState('');
   const [teamTitle, setTeamTitle] = useState('');
+  const [hideCompletedPrivate, setHideCompletedPrivate] = useState(true);
+  const [hideCompletedTeam, setHideCompletedTeam] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -68,8 +70,8 @@ export default function EngineeringDashboardPage() {
     () => buildDashboardProjectCards(responsibilities, today),
     [responsibilities, today],
   );
-  const openPrivateTodos = privateTodos.filter(todo => todo.status === '待安排');
-  const openTeamTodos = teamTodos.filter(todo => todo.status === '待安排');
+  const visiblePrivateTodos = privateTodos.filter(todo => !hideCompletedPrivate || todo.status !== '已完成');
+  const visibleTeamTodos = teamTodos.filter(todo => !hideCompletedTeam || todo.status !== '已完成');
 
   const createPrivateTodo = async (event: FormEvent) => {
     event.preventDefault();
@@ -230,16 +232,18 @@ export default function EngineeringDashboardPage() {
         </DashboardSection>
 
         <div className="space-y-5">
-          <DashboardSection icon={<ListTodo size={18} />} title="我的 TODO" count={openPrivateTodos.length}>
+          <DashboardSection icon={<ListTodo size={18} />} title="我的 TODO" count={visiblePrivateTodos.length}>
+            <HideCompletedToggle checked={hideCompletedPrivate} onChange={setHideCompletedPrivate} />
             <TodoComposer value={privateTitle} onChange={setPrivateTitle} onSubmit={createPrivateTodo} placeholder="新增私人記事…" disabled={!canMutateTodos} isSaving={savingKey === 'private-new'} />
-            <TodoList todos={openPrivateTodos} emptyText="沒有未完成的私人記事" savingKey={savingKey} onComplete={completePrivateTodo} disabled={!canMutateTodos} />
+            <TodoList todos={visiblePrivateTodos} emptyText={hideCompletedPrivate ? '沒有未完成的私人記事' : '目前沒有私人記事'} savingKey={savingKey} onComplete={completePrivateTodo} disabled={!canMutateTodos} />
           </DashboardSection>
 
-          <DashboardSection icon={<Users size={18} />} title="團隊 TODO" count={openTeamTodos.length} actionHref="/schedule" actionLabel="週排程待辦">
+          <DashboardSection icon={<Users size={18} />} title="團隊 TODO" count={visibleTeamTodos.length} actionHref="/schedule" actionLabel="週排程待辦">
+            <HideCompletedToggle checked={hideCompletedTeam} onChange={setHideCompletedTeam} />
             <TodoComposer value={teamTitle} onChange={setTeamTitle} onSubmit={createTeamTodo} placeholder="新增團隊待辦…" disabled={!canMutateTodos} isSaving={savingKey === 'team-new'} />
             <TodoList
-              todos={openTeamTodos}
-              emptyText="目前沒有團隊待辦"
+              todos={visibleTeamTodos}
+              emptyText={hideCompletedTeam ? '目前沒有未完成的團隊待辦' : '目前沒有團隊待辦'}
               savingKey={savingKey}
               onComplete={completeTeamTodo}
               disabled={!canMutateTodos}
@@ -296,6 +300,15 @@ function EmptyState({ text }: { text: string }) {
   return <div className="rounded-xl border border-dashed border-theme-border px-4 py-8 text-center text-sm text-secondary">{text}</div>;
 }
 
+function HideCompletedToggle({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <label className="mb-3 flex min-h-10 cursor-pointer items-center justify-end gap-2 text-xs font-medium text-secondary">
+      <input type="checkbox" checked={checked} onChange={event => onChange(event.target.checked)} className="h-4 w-4 accent-[var(--accent)]" />
+      隱藏已完成
+    </label>
+  );
+}
+
 function TodoComposer({ value, onChange, onSubmit, placeholder, disabled, isSaving }: {
   value: string;
   onChange: (value: string) => void;
@@ -328,13 +341,14 @@ function TodoList({ todos, emptyText, savingKey, onComplete, disabled, secondary
     <div className="divide-y divide-theme-border/70">
       {todos.map(todo => {
         const detail = secondary?.(todo);
+        const isCompleted = todo.status === '已完成';
         return (
           <div key={todo.id} className="flex items-start gap-3 py-3 first:pt-1 last:pb-0">
-            <button type="button" onClick={() => void onComplete(todo)} disabled={disabled || savingKey === todo.id} aria-label={`完成 ${todo.title}`} className="mt-0.5 shrink-0 rounded-full text-secondary transition hover:text-accent disabled:opacity-40">
-              {savingKey === todo.id ? <Loader2 className="animate-spin" size={20} /> : <Circle size={20} />}
+            <button type="button" onClick={() => void onComplete(todo)} disabled={disabled || isCompleted || savingKey === todo.id} aria-label={isCompleted ? `${todo.title} 已完成` : `完成 ${todo.title}`} className="mt-0.5 shrink-0 rounded-full text-secondary transition hover:text-accent disabled:opacity-60">
+              {savingKey === todo.id ? <Loader2 className="animate-spin" size={20} /> : isCompleted ? <CheckCircle2 className="text-accent" size={20} /> : <Circle size={20} />}
             </button>
             <div className="min-w-0 flex-1">
-              <div className="text-sm font-medium leading-5">{todo.title}</div>
+              <div className={`break-words text-sm font-medium leading-5 ${isCompleted ? 'text-secondary line-through' : ''}`}>{todo.title}</div>
               {detail ? <div className="mt-1 truncate text-xs text-secondary">{detail}</div> : null}
             </div>
           </div>

@@ -1707,7 +1707,8 @@ export const pocSupabaseAdapter = {
       .from('todos')
       .select('*')
       .eq('scope', 'TEAM')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(50);
     if (error) throw error;
     return (data ?? []).map(mapTodo);
   },
@@ -1761,7 +1762,8 @@ export const pocSupabaseAdapter = {
       .from('todos')
       .select('*')
       .eq('scope', 'PRIVATE')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(50);
     if (error) throw error;
     return (data ?? []).map(mapTodo);
   },
