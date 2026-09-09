@@ -97,3 +97,13 @@ test('Dashboard uses the shared Todo adapters and keeps the route responsive', (
   assert.match(dashboard, /initialMilestoneId=\{selectedProject\.milestoneId\}/);
   assert.match(layout, /pathname === '\/' \? 'min-w-0' : 'min-w-\[1400px\]'/);
 });
+
+test('project responsibilities use the projects deleted_at contract instead of a nonexistent is_active column', () => {
+  const adapter = fs.readFileSync(path.join(__dirname, 'db', 'poc-supabase.ts'), 'utf8');
+  const method = adapter.slice(
+    adapter.indexOf('getMemberProjectResponsibilities:'),
+    adapter.indexOf('// --- Todos ---'),
+  );
+  assert.match(method, /from\('projects'\)[\s\S]*?is\('deleted_at', null\)/);
+  assert.doesNotMatch(method, /eq\('is_active', true\)/);
+});

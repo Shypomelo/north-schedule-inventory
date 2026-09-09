@@ -1681,7 +1681,7 @@ export const pocSupabaseAdapter = {
     const projectIds = Array.from(new Set(rows.map(row => row.project_id)));
     const positionIds = Array.from(new Set(rows.map(row => row.position_id)));
     const [{ data: projects, error: projectError }, { data: positions, error: positionError }, { data: milestones, error: milestoneError }] = await Promise.all([
-      supabase.from('projects').select('*').in('id', projectIds).eq('is_active', true).is('deleted_at', null),
+      supabase.from('projects').select('*').in('id', projectIds).is('deleted_at', null),
       supabase.from('positions').select('*').in('id', positionIds),
       supabase.from('project_milestones').select('*').in('project_id', projectIds).eq('is_applicable', true).is('deleted_at', null),
     ]);
