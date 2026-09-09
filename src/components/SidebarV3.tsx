@@ -35,27 +35,25 @@ export function Sidebar() {
     if (isMobileOpen) return;
     let startPoint: SwipePoint | null = null;
 
-    const handleTouchStart = (event: TouchEvent) => {
-      if (window.innerWidth >= 768 || event.touches.length !== 1) return;
-      const touch = event.touches[0];
-      startPoint = { x: touch.clientX, y: touch.clientY };
+    const handlePointerDown = (event: PointerEvent) => {
+      if (window.innerWidth >= 768 || !event.isPrimary) return;
+      startPoint = { x: event.clientX, y: event.clientY };
     };
-    const handleTouchEnd = (event: TouchEvent) => {
-      if (!startPoint || event.changedTouches.length !== 1) {
+    const handlePointerUp = (event: PointerEvent) => {
+      if (!startPoint || !event.isPrimary) {
         startPoint = null;
         return;
       }
-      const touch = event.changedTouches[0];
-      const shouldOpen = isMobileNavigationEdgeSwipe(startPoint, { x: touch.clientX, y: touch.clientY });
+      const shouldOpen = isMobileNavigationEdgeSwipe(startPoint, { x: event.clientX, y: event.clientY });
       startPoint = null;
       if (shouldOpen) setIsMobileOpen(true);
     };
 
-    window.addEventListener('touchstart', handleTouchStart, { passive: true });
-    window.addEventListener('touchend', handleTouchEnd, { passive: true });
+    window.addEventListener('pointerdown', handlePointerDown, { passive: true });
+    window.addEventListener('pointerup', handlePointerUp, { passive: true });
     return () => {
-      window.removeEventListener('touchstart', handleTouchStart);
-      window.removeEventListener('touchend', handleTouchEnd);
+      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('pointerup', handlePointerUp);
     };
   }, [isMobileOpen]);
 

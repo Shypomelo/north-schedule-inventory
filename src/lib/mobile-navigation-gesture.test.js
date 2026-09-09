@@ -21,7 +21,7 @@ test('opens only for a deliberate right swipe beginning at the left edge', () =>
 
 test('Sidebar binds the gesture only while the authenticated app shell is mounted', () => {
   const sidebar = fs.readFileSync(path.join(__dirname, '..', 'components', 'SidebarV3.tsx'), 'utf8');
-  assert.match(sidebar, /touchstart/);
-  assert.match(sidebar, /touchend/);
+  assert.match(sidebar, /pointerdown/);
+  assert.match(sidebar, /pointerup/);
   assert.match(sidebar, /isMobileNavigationEdgeSwipe/);
 });
