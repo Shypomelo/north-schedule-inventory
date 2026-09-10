@@ -131,10 +131,17 @@ GRANT EXECUTE ON FUNCTION app_private.is_admin_member() TO authenticated;
 GRANT EXECUTE ON FUNCTION app_private.current_member_id() TO authenticated;
 
 ALTER TABLE public.schedule_tasks ENABLE ROW LEVEL SECURITY;
-GRANT SELECT ON public.schedule_tasks TO authenticated;
+GRANT SELECT, INSERT, UPDATE ON public.schedule_tasks TO authenticated;
 CREATE POLICY schedule_tasks_active_select
 ON public.schedule_tasks FOR SELECT TO authenticated
 USING ((SELECT app_private.is_active_member()));
+CREATE POLICY schedule_tasks_editor_insert
+ON public.schedule_tasks FOR INSERT TO authenticated
+WITH CHECK ((SELECT app_private.is_editor_member()));
+CREATE POLICY schedule_tasks_editor_update
+ON public.schedule_tasks FOR UPDATE TO authenticated
+USING ((SELECT app_private.is_editor_member()))
+WITH CHECK ((SELECT app_private.is_editor_member()));
 
 ALTER TABLE public.todos ENABLE ROW LEVEL SECURITY;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.todos TO authenticated;
@@ -266,10 +273,15 @@ SELECT pg_temp.assert_true(
      AND column_name = 'work_group_id'),
   'schedule work_group_id is NOT NULL'
 );
-SELECT pg_temp.assert_true(pg_temp.statement_fails(
-  $$INSERT INTO public.schedule_tasks (title, task_date, status)
-    VALUES ('Missing group', DATE '2026-09-12', '待處理')$$
-), 'new schedule requires a work group');
+INSERT INTO public.schedule_tasks (id, title, task_date, status) VALUES (
+  '30000000-0000-4000-8000-000000000003',
+  'Legacy schedule without group', DATE '2026-09-12', '待處理'
+);
+SELECT pg_temp.assert_true(
+  (SELECT work_group_id = :'engineering_id' FROM public.schedule_tasks
+   WHERE id = '30000000-0000-4000-8000-000000000003'),
+  'new schedule without a work group defaults to ENGINEERING'
+);
 
 SELECT pg_temp.assert_true(
   (SELECT work_group_id = :'engineering_id' FROM public.todos
@@ -331,10 +343,16 @@ SELECT pg_temp.assert_true(pg_temp.statement_fails(format(
   'INSERT INTO public.todos (title, scope, status, created_by, work_group_id) VALUES (''Bad private group'', ''PRIVATE'', ''待安排'', %L, %L)',
   '10000000-0000-4000-8000-000000000002', :'engineering_id'
 )), 'PRIVATE Todo rejects a work group');
-SELECT pg_temp.assert_true(pg_temp.statement_fails(format(
-  'INSERT INTO public.todos (title, scope, status, created_by) VALUES (''Bad team group'', ''TEAM'', ''待安排'', %L)',
+INSERT INTO public.todos (id, title, scope, status, created_by) VALUES (
+  '40000000-0000-4000-8000-000000000004',
+  'Legacy team Todo without group', 'TEAM', '待安排',
   '10000000-0000-4000-8000-000000000002'
-)), 'TEAM Todo requires a work group');
+);
+SELECT pg_temp.assert_true(
+  (SELECT work_group_id = :'engineering_id' FROM public.todos
+   WHERE id = '40000000-0000-4000-8000-000000000004'),
+  'new TEAM Todo without a work group defaults to ENGINEERING'
+);
 SELECT pg_temp.assert_true(pg_temp.statement_fails(format(
   'INSERT INTO public.todos (title, scope, status, created_by, project_id) VALUES (''Bad private project'', ''PRIVATE'', ''待安排'', %L, %L)',
   '10000000-0000-4000-8000-000000000002',
@@ -370,11 +388,19 @@ SELECT pg_temp.assert_true(
   'active member reads Work Group membership needed by UI'
 );
 SELECT pg_temp.assert_true(
-  (SELECT count(*) = 2 FROM public.schedule_tasks),
+  (SELECT count(*) = 2 FROM public.schedule_tasks
+   WHERE id IN (
+     '30000000-0000-4000-8000-000000000001',
+     '30000000-0000-4000-8000-000000000002'
+   )),
   'existing Schedule active-member SELECT remains permissive'
 );
 SELECT pg_temp.assert_true(
-  (SELECT count(*) = 2 FROM public.todos WHERE scope = 'TEAM'),
+  (SELECT count(*) = 2 FROM public.todos
+   WHERE id IN (
+     '40000000-0000-4000-8000-000000000001',
+     '40000000-0000-4000-8000-000000000003'
+   )),
   'existing TEAM Todo active-member SELECT remains permissive'
 );
 SELECT pg_temp.assert_true(
@@ -393,6 +419,148 @@ SELECT set_config(
   true
 );
 SET LOCAL ROLE authenticated;
+
+INSERT INTO public.schedule_tasks (id, title, task_date, status)
+VALUES (
+  '31000000-0000-4000-8000-000000000001',
+  'Legacy schedule', DATE '2026-09-20', '待處理'
+);
+SELECT pg_temp.assert_true(
+  (SELECT work_group_id = :'engineering_id' FROM public.schedule_tasks
+   WHERE id = '31000000-0000-4000-8000-000000000001'),
+  'legacy Schedule insert defaults to ENGINEERING'
+);
+INSERT INTO public.schedule_tasks (id, title, task_date, status, work_group_id)
+VALUES (
+  '31000000-0000-4000-8000-000000000002',
+  'Explicit project schedule', DATE '2026-09-21', '待處理', :'project_group_id'
+);
+SELECT pg_temp.assert_true(
+  (SELECT work_group_id = :'project_group_id' FROM public.schedule_tasks
+   WHERE id = '31000000-0000-4000-8000-000000000002'),
+  'explicit PROJECT Schedule is preserved'
+);
+
+INSERT INTO public.todos (
+  id, title, scope, status, created_by, assigned_to, assigned_by
+) VALUES (
+  '44000000-0000-4000-8000-000000000001', 'Legacy TEAM Todo', 'TEAM', '待安排',
+  '10000000-0000-4000-8000-000000000002',
+  '10000000-0000-4000-8000-000000000002',
+  '10000000-0000-4000-8000-000000000002'
+);
+SELECT pg_temp.assert_true(
+  (SELECT work_group_id = :'engineering_id' FROM public.todos
+   WHERE id = '44000000-0000-4000-8000-000000000001'),
+  'legacy TEAM Todo insert defaults to ENGINEERING'
+);
+INSERT INTO public.todos (
+  id, title, scope, status, created_by, assigned_to, assigned_by, work_group_id
+) VALUES (
+  '44000000-0000-4000-8000-000000000002', 'Explicit PROJECT Todo', 'TEAM', '待安排',
+  '10000000-0000-4000-8000-000000000002',
+  '10000000-0000-4000-8000-000000000002',
+  '10000000-0000-4000-8000-000000000002', :'project_group_id'
+);
+SELECT pg_temp.assert_true(
+  (SELECT work_group_id = :'project_group_id' FROM public.todos
+   WHERE id = '44000000-0000-4000-8000-000000000002'),
+  'explicit PROJECT TEAM Todo is preserved'
+);
+
+INSERT INTO public.todos (id, title, scope, status, created_by)
+VALUES (
+  '45000000-0000-4000-8000-000000000001', 'Legacy PRIVATE Todo',
+  'PRIVATE', '待安排', '10000000-0000-4000-8000-000000000002'
+);
+SELECT pg_temp.assert_true(
+  (SELECT work_group_id IS NULL FROM public.todos
+   WHERE id = '45000000-0000-4000-8000-000000000001'),
+  'legacy PRIVATE Todo keeps a null work group'
+);
+SELECT pg_temp.assert_true(pg_temp.statement_fails(format(
+  'INSERT INTO public.todos (title, scope, status, created_by, work_group_id) VALUES (''Illegal PRIVATE group'', ''PRIVATE'', ''待安排'', %L, %L)',
+  '10000000-0000-4000-8000-000000000002', :'project_group_id'
+)), 'explicit PRIVATE work group remains rejected');
+
+UPDATE public.schedule_tasks
+SET title = 'Legacy schedule updated', task_date = DATE '2026-09-22'
+WHERE id = '31000000-0000-4000-8000-000000000001';
+SELECT pg_temp.assert_true(
+  (SELECT title = 'Legacy schedule updated'
+          AND work_group_id = :'engineering_id'
+   FROM public.schedule_tasks
+   WHERE id = '31000000-0000-4000-8000-000000000001'),
+  'legacy Schedule update preserves ENGINEERING'
+);
+UPDATE public.todos
+SET scope = 'TEAM', title = 'Legacy TEAM Todo updated', status = '已完成'
+WHERE id = '44000000-0000-4000-8000-000000000001';
+SELECT pg_temp.assert_true(
+  (SELECT title = 'Legacy TEAM Todo updated'
+          AND status = '已完成'
+          AND work_group_id = :'engineering_id'
+   FROM public.todos WHERE id = '44000000-0000-4000-8000-000000000001'),
+  'legacy TEAM Todo update preserves ENGINEERING'
+);
+UPDATE public.todos
+SET title = 'Legacy PRIVATE Todo updated', status = '已完成'
+WHERE id = '45000000-0000-4000-8000-000000000001';
+SELECT pg_temp.assert_true(
+  (SELECT title = 'Legacy PRIVATE Todo updated'
+          AND status = '已完成'
+          AND work_group_id IS NULL
+   FROM public.todos WHERE id = '45000000-0000-4000-8000-000000000001'),
+  'legacy PRIVATE Todo update preserves null work group'
+);
+
+INSERT INTO public.todos (
+  id, title, scope, status, created_by, assigned_to, assigned_by
+) VALUES (
+  '44000000-0000-4000-8000-000000000003', 'Legacy conversion Todo', 'TEAM', '待安排',
+  '10000000-0000-4000-8000-000000000002',
+  '10000000-0000-4000-8000-000000000002',
+  '10000000-0000-4000-8000-000000000002'
+);
+INSERT INTO public.schedule_tasks (id, title, task_date, status)
+VALUES (
+  '31000000-0000-4000-8000-000000000003',
+  'Legacy converted schedule', DATE '2026-09-23', '待處理'
+);
+UPDATE public.todos
+SET scope = 'TEAM', status = '已排程',
+    converted_task_id = '31000000-0000-4000-8000-000000000003'
+WHERE id = '44000000-0000-4000-8000-000000000003';
+SELECT pg_temp.assert_true(
+  (SELECT work_group_id = :'engineering_id' FROM public.schedule_tasks
+   WHERE id = '31000000-0000-4000-8000-000000000003')
+  AND (SELECT work_group_id = :'engineering_id'
+              AND converted_task_id = '31000000-0000-4000-8000-000000000003'
+       FROM public.todos WHERE id = '44000000-0000-4000-8000-000000000003'),
+  'legacy Todo to Schedule conversion remains ENGINEERING-compatible'
+);
+SELECT pg_temp.assert_true(
+  NOT EXISTS (
+    SELECT 1 FROM public.schedule_tasks
+    WHERE id IN (
+      '31000000-0000-4000-8000-000000000001',
+      '31000000-0000-4000-8000-000000000003'
+    ) AND work_group_id IS DISTINCT FROM :'engineering_id'
+  ),
+  'legacy schedules preserve current Google behavior through ENGINEERING fallback'
+);
+SELECT pg_temp.assert_true(
+  (SELECT bool_and(NOT procedure.prosecdef)
+   FROM pg_proc AS procedure
+   JOIN pg_namespace AS namespace ON namespace.oid = procedure.pronamespace
+   WHERE namespace.nspname = 'app_private'
+     AND procedure.proname IN (
+       'default_legacy_schedule_work_group',
+       'default_legacy_team_todo_work_group'
+     )),
+  'legacy compatibility triggers are SECURITY INVOKER'
+);
+
 SELECT pg_temp.assert_true(
   NOT EXISTS (SELECT 1 FROM public.work_zones),
   'zero active Work Zones is legal before initialization'

@@ -41,6 +41,27 @@ CREATE INDEX member_work_groups_group_member_idx
 ALTER TABLE public.schedule_tasks ADD COLUMN work_group_id uuid;
 ALTER TABLE public.schedule_tasks ADD CONSTRAINT schedule_tasks_work_group_id_fkey
   FOREIGN KEY (work_group_id) REFERENCES public.work_groups(id) ON DELETE RESTRICT;
+CREATE OR REPLACE FUNCTION app_private.default_legacy_schedule_work_group()
+RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path = ''
+AS $$
+BEGIN
+  IF NEW.work_group_id IS NULL THEN
+    SELECT work_group.id INTO NEW.work_group_id
+    FROM public.work_groups AS work_group
+    WHERE work_group.key = 'ENGINEERING';
+
+    IF NEW.work_group_id IS NULL THEN
+      RAISE EXCEPTION 'ENGINEERING work group is not configured'
+        USING ERRCODE = '23502';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION app_private.default_legacy_schedule_work_group() FROM PUBLIC;
+CREATE TRIGGER schedule_tasks_default_legacy_work_group
+BEFORE INSERT ON public.schedule_tasks
+FOR EACH ROW EXECUTE FUNCTION app_private.default_legacy_schedule_work_group();
 UPDATE public.schedule_tasks
 SET work_group_id = (SELECT id FROM public.work_groups WHERE key = 'ENGINEERING')
 WHERE work_group_id IS NULL;
@@ -58,6 +79,27 @@ CREATE INDEX schedule_tasks_work_group_date_status_idx
 ALTER TABLE public.todos ADD COLUMN work_group_id uuid, ADD COLUMN received_at timestamptz;
 ALTER TABLE public.todos ADD CONSTRAINT todos_work_group_id_fkey
   FOREIGN KEY (work_group_id) REFERENCES public.work_groups(id) ON DELETE RESTRICT;
+CREATE OR REPLACE FUNCTION app_private.default_legacy_team_todo_work_group()
+RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path = ''
+AS $$
+BEGIN
+  IF NEW.scope = 'TEAM' AND NEW.work_group_id IS NULL THEN
+    SELECT work_group.id INTO NEW.work_group_id
+    FROM public.work_groups AS work_group
+    WHERE work_group.key = 'ENGINEERING';
+
+    IF NEW.work_group_id IS NULL THEN
+      RAISE EXCEPTION 'ENGINEERING work group is not configured'
+        USING ERRCODE = '23502';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION app_private.default_legacy_team_todo_work_group() FROM PUBLIC;
+CREATE TRIGGER todos_default_legacy_team_work_group
+BEFORE INSERT ON public.todos
+FOR EACH ROW EXECUTE FUNCTION app_private.default_legacy_team_todo_work_group();
 UPDATE public.todos
 SET work_group_id = (SELECT id FROM public.work_groups WHERE key = 'ENGINEERING')
 WHERE scope = 'TEAM' AND work_group_id IS NULL;
