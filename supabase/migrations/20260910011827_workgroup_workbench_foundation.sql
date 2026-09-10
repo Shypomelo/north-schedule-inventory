@@ -195,7 +195,7 @@ FOR EACH ROW EXECUTE FUNCTION app_private.set_workbench_updated_at();
 CREATE TRIGGER work_items_set_updated_at BEFORE UPDATE ON public.work_items
 FOR EACH ROW EXECUTE FUNCTION app_private.set_workbench_updated_at();
 
-CREATE OR REPLACE FUNCTION app_private.enforce_active_work_zone_count()
+CREATE OR REPLACE FUNCTION app_private.enforce_active_work_zone_limit()
 RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path = ''
 AS $$
 DECLARE
@@ -208,18 +208,18 @@ BEGIN
   SELECT count(*) INTO v_active_count
   FROM public.work_zones
   WHERE owner_member_id = v_owner_member_id AND is_active;
-  IF v_active_count < 2 OR v_active_count > 3 THEN
-    RAISE EXCEPTION 'member % must have 2 or 3 active work zones (found %)',
+  IF v_active_count > 3 THEN
+    RAISE EXCEPTION 'member % cannot have more than 3 active work zones (found %)',
       v_owner_member_id, v_active_count USING ERRCODE = '23514';
   END IF;
   RETURN NULL;
 END;
 $$;
-REVOKE ALL ON FUNCTION app_private.enforce_active_work_zone_count() FROM PUBLIC;
-CREATE CONSTRAINT TRIGGER work_zones_active_count_guard
+REVOKE ALL ON FUNCTION app_private.enforce_active_work_zone_limit() FROM PUBLIC;
+CREATE CONSTRAINT TRIGGER work_zones_active_limit_guard
 AFTER INSERT OR UPDATE OR DELETE ON public.work_zones
 DEFERRABLE INITIALLY DEFERRED
-FOR EACH ROW EXECUTE FUNCTION app_private.enforce_active_work_zone_count();
+FOR EACH ROW EXECUTE FUNCTION app_private.enforce_active_work_zone_limit();
 
 CREATE OR REPLACE FUNCTION app_private.prepare_work_item_todo_provenance()
 RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path = ''
@@ -401,7 +401,7 @@ COMMENT ON TABLE public.work_groups IS
 COMMENT ON TABLE public.member_work_groups IS
   'Member-to-work-group assignment metadata; not an authorization boundary.';
 COMMENT ON TABLE public.work_zones IS
-  'Owner-private Office Workbench zones. Configured owners must retain 2-3 active zones.';
+  'Owner-private Office Workbench zones. DB permits 0-3 active zones; completed configuration requires 2-3.';
 COMMENT ON TABLE public.work_items IS
   'Owner-private Office Workbench items with immutable Todo provenance.';
 COMMENT ON COLUMN public.todos.received_at IS

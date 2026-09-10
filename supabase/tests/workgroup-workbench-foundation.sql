@@ -1,6 +1,7 @@
 -- Run only against an empty, disposable LOCAL PostgreSQL database as postgres:
 --   psql -v ON_ERROR_STOP=1 -f supabase/tests/workgroup-workbench-foundation.sql
--- This script creates a minimal pre-migration schema and rolls every write back.
+-- By default every write rolls back. KEEP_SCHEMA=1 commits the rehearsal once,
+-- then verifies provenance again from a subsequent transaction.
 \set ON_ERROR_STOP on
 BEGIN;
 SET LOCAL statement_timeout = '30s';
@@ -129,6 +130,12 @@ GRANT EXECUTE ON FUNCTION app_private.is_editor_member() TO authenticated;
 GRANT EXECUTE ON FUNCTION app_private.is_admin_member() TO authenticated;
 GRANT EXECUTE ON FUNCTION app_private.current_member_id() TO authenticated;
 
+ALTER TABLE public.schedule_tasks ENABLE ROW LEVEL SECURITY;
+GRANT SELECT ON public.schedule_tasks TO authenticated;
+CREATE POLICY schedule_tasks_active_select
+ON public.schedule_tasks FOR SELECT TO authenticated
+USING ((SELECT app_private.is_active_member()));
+
 ALTER TABLE public.todos ENABLE ROW LEVEL SECURITY;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.todos TO authenticated;
 CREATE POLICY todos_team_select ON public.todos FOR SELECT TO authenticated
@@ -239,6 +246,14 @@ SELECT pg_temp.assert_true(
   'PROJECT is not Google-sync eligible'
 );
 SELECT pg_temp.assert_true(
+  (SELECT count(*) = 2 FROM public.schedule_tasks),
+  'migration preserves all existing Schedule rows'
+);
+SELECT pg_temp.assert_true(
+  (SELECT count(*) = 2 FROM public.todos),
+  'migration preserves all existing Todo rows'
+);
+SELECT pg_temp.assert_true(
   NOT EXISTS (
     SELECT 1 FROM public.schedule_tasks
     WHERE work_group_id <> :'engineering_id' OR work_group_id IS NULL
@@ -260,6 +275,11 @@ SELECT pg_temp.assert_true(
   (SELECT work_group_id = :'engineering_id' FROM public.todos
    WHERE id = '40000000-0000-4000-8000-000000000001'),
   'existing TEAM Todo backfills to ENGINEERING'
+);
+SELECT pg_temp.assert_true(
+  (SELECT status = '待安排' FROM public.todos
+   WHERE id = '40000000-0000-4000-8000-000000000001'),
+  'migration preserves existing Todo status'
 );
 SELECT pg_temp.assert_true(
   (SELECT work_group_id IS NULL FROM public.todos
@@ -349,6 +369,18 @@ SELECT pg_temp.assert_true(
   (SELECT count(*) = 2 FROM public.member_work_groups),
   'active member reads Work Group membership needed by UI'
 );
+SELECT pg_temp.assert_true(
+  (SELECT count(*) = 2 FROM public.schedule_tasks),
+  'existing Schedule active-member SELECT remains permissive'
+);
+SELECT pg_temp.assert_true(
+  (SELECT count(*) = 2 FROM public.todos WHERE scope = 'TEAM'),
+  'existing TEAM Todo active-member SELECT remains permissive'
+);
+SELECT pg_temp.assert_true(
+  NOT EXISTS (SELECT 1 FROM public.todos WHERE scope = 'PRIVATE'),
+  'existing PRIVATE Todo remains hidden from another member'
+);
 SELECT pg_temp.assert_true(pg_temp.statement_fails(format(
   'INSERT INTO public.member_work_groups (member_id, work_group_id) VALUES (%L, %L)',
   '10000000-0000-4000-8000-000000000004', :'engineering_id'
@@ -361,28 +393,72 @@ SELECT set_config(
   true
 );
 SET LOCAL ROLE authenticated;
-SET CONSTRAINTS work_zones_active_count_guard DEFERRED;
-INSERT INTO public.work_zones (id, owner_member_id, name, sort_order) VALUES
-  ('50000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000002', 'Zone A', 1),
-  ('50000000-0000-4000-8000-000000000002', '10000000-0000-4000-8000-000000000002', 'Zone B', 2);
-SET CONSTRAINTS work_zones_active_count_guard IMMEDIATE;
+SELECT pg_temp.assert_true(
+  NOT EXISTS (SELECT 1 FROM public.work_zones),
+  'zero active Work Zones is legal before initialization'
+);
+SET CONSTRAINTS work_zones_active_limit_guard DEFERRED;
+INSERT INTO public.work_zones (id, owner_member_id, name, sort_order)
+VALUES (
+  '50000000-0000-4000-8000-000000000001',
+  '10000000-0000-4000-8000-000000000002', 'Zone A', 1
+);
+SET CONSTRAINTS work_zones_active_limit_guard IMMEDIATE;
+SELECT pg_temp.assert_true(
+  (SELECT count(*) = 1 FROM public.work_zones),
+  'one active Work Zone is legal at DB level'
+);
+INSERT INTO public.work_zones (id, owner_member_id, name, sort_order)
+VALUES (
+  '50000000-0000-4000-8000-000000000002',
+  '10000000-0000-4000-8000-000000000002', 'Zone B', 2
+);
 SELECT pg_temp.assert_true(
   (SELECT count(*) = 2 FROM public.work_zones),
-  'owner creates two active Work Zones atomically'
+  'two active Work Zones are legal'
+);
+INSERT INTO public.work_zones (id, owner_member_id, name, sort_order)
+VALUES (
+  '50000000-0000-4000-8000-000000000005',
+  '10000000-0000-4000-8000-000000000002', 'Zone C', 3
+);
+SELECT pg_temp.assert_true(
+  (SELECT count(*) = 3 FROM public.work_zones),
+  'three active Work Zones are legal'
 );
 SELECT pg_temp.assert_true(pg_temp.statement_fails(
   $$INSERT INTO public.work_zones (owner_member_id, name, sort_order)
     VALUES ('10000000-0000-4000-8000-000000000002', 'Duplicate slot', 1)$$
 ), 'duplicate active sort order is rejected');
 SELECT pg_temp.assert_true(pg_temp.statement_fails(
-  $$INSERT INTO public.work_zones (owner_member_id, name, sort_order) VALUES
-    ('10000000-0000-4000-8000-000000000002', 'Zone C', 3),
-    ('10000000-0000-4000-8000-000000000002', 'Zone D', 4)$$
-), 'more than three active Work Zones are rejected');
+  $$INSERT INTO public.work_zones (owner_member_id, name, sort_order)
+    VALUES ('10000000-0000-4000-8000-000000000002', 'Zone D', 4)$$
+), 'the fourth active Work Zone is rejected');
 SELECT pg_temp.assert_true(pg_temp.statement_fails(
   $$INSERT INTO public.work_zones (owner_member_id, name, sort_order)
     VALUES ('10000000-0000-4000-8000-000000000003', 'Spoofed owner zone', 1)$$
 ), 'Work Zone ownership is enforced');
+
+INSERT INTO public.todos (id, title, scope, status, created_by)
+VALUES (
+  '42000000-0000-4000-8000-000000000003', 'Atomic rollback fixture',
+  'PRIVATE', '待安排', '10000000-0000-4000-8000-000000000002'
+);
+SELECT pg_temp.assert_true(pg_temp.statement_fails(
+  $$SELECT public.promote_private_todo_to_work_item(
+      '42000000-0000-4000-8000-000000000003',
+      '50000000-0000-4000-8000-000000000001',
+      '29999999-0000-4000-8000-000000000001')$$
+), 'promotion rolls back when Work Item insert fails');
+SELECT pg_temp.assert_true(
+  (SELECT status = '待安排' FROM public.todos
+   WHERE id = '42000000-0000-4000-8000-000000000003')
+  AND NOT EXISTS (
+    SELECT 1 FROM public.work_items
+    WHERE source_todo_id = '42000000-0000-4000-8000-000000000003'
+  ),
+  'failed promotion leaves neither stored Todo nor Work Item'
+);
 
 INSERT INTO public.todos (id, title, content, scope, status, created_by, received_at)
 VALUES (
@@ -448,11 +524,11 @@ SELECT set_config(
   true
 );
 SET LOCAL ROLE authenticated;
-SET CONSTRAINTS work_zones_active_count_guard DEFERRED;
+SET CONSTRAINTS work_zones_active_limit_guard DEFERRED;
 INSERT INTO public.work_zones (id, owner_member_id, name, sort_order) VALUES
   ('50000000-0000-4000-8000-000000000003', '10000000-0000-4000-8000-000000000003', 'Zone A', 1),
   ('50000000-0000-4000-8000-000000000004', '10000000-0000-4000-8000-000000000003', 'Zone B', 2);
-SET CONSTRAINTS work_zones_active_count_guard IMMEDIATE;
+SET CONSTRAINTS work_zones_active_limit_guard IMMEDIATE;
 SELECT pg_temp.assert_true(
   NOT EXISTS (
     SELECT 1 FROM public.work_zones
@@ -483,6 +559,34 @@ SELECT pg_temp.assert_true(pg_temp.statement_fails(
 ), 'direct Work Item insert cannot spoof another member Todo source');
 
 RESET ROLE;
+SELECT set_config(
+  'request.jwt.claims',
+  jsonb_build_object('role', 'authenticated', 'email', 'admin@example.test')::text,
+  true
+);
+SET LOCAL ROLE authenticated;
+SELECT pg_temp.assert_true(
+  pg_temp.affected_rows(
+    'UPDATE public.work_groups SET sort_order = sort_order WHERE key = ''PROJECT'''
+  ) = 1,
+  'ADMIN can manage Work Groups'
+);
+INSERT INTO public.member_work_groups (member_id, work_group_id)
+VALUES ('10000000-0000-4000-8000-000000000001', :'engineering_id');
+SELECT pg_temp.assert_true(
+  EXISTS (
+    SELECT 1 FROM public.member_work_groups
+    WHERE member_id = '10000000-0000-4000-8000-000000000001'
+  ),
+  'ADMIN can manage Work Group membership'
+);
+SELECT pg_temp.assert_true(
+  NOT EXISTS (SELECT 1 FROM public.work_zones)
+  AND NOT EXISTS (SELECT 1 FROM public.work_items),
+  'ADMIN does not automatically read private Workbench data'
+);
+
+RESET ROLE;
 INSERT INTO public.todos (
   id, title, scope, status, created_by, assigned_to, assigned_by,
   work_group_id, converted_task_id
@@ -503,6 +607,27 @@ SELECT pg_temp.assert_true(pg_temp.statement_fails(format(
 
 \if :{?KEEP_SCHEMA}
 COMMIT;
+BEGIN;
+SELECT set_config(
+  'request.jwt.claims',
+  jsonb_build_object('role', 'authenticated', 'email', 'owner1@example.test')::text,
+  true
+);
+SET LOCAL ROLE authenticated;
+SELECT pg_temp.assert_true(
+  (SELECT status = '已收納' FROM public.todos
+   WHERE id = '42000000-0000-4000-8000-000000000001')
+  AND (SELECT source_todo_id = '42000000-0000-4000-8000-000000000001'
+       FROM public.work_items WHERE id = :'promoted_work_item_id'),
+  'post-promotion linkage remains valid in a subsequent transaction'
+);
+SELECT pg_temp.assert_true(pg_temp.statement_fails(
+  $$SELECT public.promote_private_todo_to_work_item(
+      '42000000-0000-4000-8000-000000000001',
+      '50000000-0000-4000-8000-000000000001')$$
+), 'subsequent transaction still rejects repeated promotion');
+RESET ROLE;
+ROLLBACK;
 \else
 ROLLBACK;
 \endif
