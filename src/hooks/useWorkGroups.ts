@@ -16,10 +16,11 @@ export function useWorkGroups() {
   useEffect(() => {
     let cancelled = false;
     setError(null);
-    if (!memberId) return;
+    if (!memberId) { setLoadedMember(undefined); return; }
+    setLoadedMember(undefined);
     Promise.all([dbAdapter.getWorkGroups(), dbAdapter.getMemberWorkGroups(memberId)])
       .then(([g, m]) => { if (!cancelled) { setGroups(g); setMemberships(m); setLoadedMember(memberId); } })
-      .catch(() => { if (!cancelled) setError('工作群組載入失敗，請重新整理'); });
+      .catch(() => { if (!cancelled) { setError('工作群組載入失敗，請重新整理'); setLoadedMember(memberId); } });
     return () => { cancelled = true; };
   }, [memberId]);
   const resolution = resolveMemberDefaultWorkGroup(currentUser?.id, memberships, groups);

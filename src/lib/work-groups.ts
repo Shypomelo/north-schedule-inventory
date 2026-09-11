@@ -45,7 +45,7 @@ function resolveWorkGroupMembership(
 
 // Workspace preference only: never an authorization boundary or a position mapping.
 export function resolveMemberDefaultWorkGroup(memberId: string | undefined, memberships: MemberWorkGroup[], groups: WorkGroup[]): WorkGroupResolution {
-  return resolveWorkGroupMembership(memberId, memberships, groups, true);
+  return resolveWorkGroupMembership(memberId, memberships, groups, false);
 }
 
 export function resolveParticipantWorkGroups(
