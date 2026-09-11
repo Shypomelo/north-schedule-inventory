@@ -13,6 +13,7 @@ import { WorkflowMilestoneQuickEditor } from '@/components/WorkflowMilestoneQuic
 import { useUser } from '@/components/UserContext';
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
 import { parseTaiwanProjectLocation, projectMatchesSearchQuery } from '@/lib/project-location';
+import { isActiveProject } from '@/lib/project-selectors';
 import { buildWorkflowActivityLog, getWorkflowMilestoneProjectPatch } from '@/lib/project-workflow';
 import { logWorkflowActivitySafely } from '@/lib/workflow-activity';
 import { supabase } from '@/lib/db/supabaseClient';
@@ -205,7 +206,7 @@ export default function ProjectsPage() {
 
   const filteredProjects = useMemo(() => {
     return projects.filter(p => {
-      if (p.status === '已結案' || p.status === '作廢') return false;
+      if (!isActiveProject(p)) return false;
       if (filterUser && p.manager !== filterUser.name) return false;
 
       if (searchTerm) {

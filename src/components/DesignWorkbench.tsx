@@ -9,6 +9,7 @@ import type {Project,ProjectMilestone,Todo} from '@/lib/db/types';
 import {TodoInlineText} from './TodoInlineText';
 import {ProjectOverviewCards} from './ProjectOverviewCards';
 import {ProjectDetailModal} from './ProjectDetailModal';
+import {selectActiveProjects} from '@/lib/project-selectors';
 const field='min-h-11 w-full min-w-0 rounded border border-theme-border bg-page p-2';
 export function DesignWorkbench() {
  const {currentUser}=useUser();
@@ -17,7 +18,7 @@ export function DesignWorkbench() {
  const today=format(new Date(),'yyyy-MM-dd');const editable=!!currentUser&&currentUser.role!=='VIEWER';
  const load=useCallback(async()=>{if(!currentUser)return;try{const [z,i,p,ids,t]=await Promise.all([workbenchAdapter.getZones(currentUser.id),workbenchAdapter.getItems(currentUser.id),dbAdapter.getProjects(),workbenchAdapter.getAssignedProjectIds(currentUser.id),dbAdapter.getPrivateTodos()]);const m=await workbenchAdapter.getMilestones(ids);setZones(z);setItems(i);setProjects(p);setMyIds(ids);setMilestones(m);setTodos(t);setWorkTab(old=>z.some(v=>v.id===old)?old:z[0]?.id||'');setError('');}catch{setError('無法載入設計工作台，請確認測試環境資料與 candidate migration。');}finally{setLoading(false);}},[currentUser]);
  useEffect(()=>{void load();},[load]);
- const ordered=sortWorkItems(items,today);const myProjects=projects.filter(p=>myIds.includes(p.id));
+ const ordered=sortWorkItems(items,today);const myProjects=selectActiveProjects(projects).filter(p=>myIds.includes(p.id));
  if(loading)return <p className="p-5">載入設計工作台…</p>;
  return <div className="min-w-0 space-y-4 p-4 text-primary md:p-6"><header className="flex flex-wrap items-center justify-between gap-2"><h1 className="text-2xl font-bold">設計工作台</h1><button disabled={!editable} className="min-h-11 rounded border px-3" onClick={()=>setConfigure(true)}>設定工作區</button></header>{error&&<p role="alert" className="text-danger">{error}</p>}
  <nav aria-label="設計視角頁面" className="grid grid-cols-3 gap-1 md:hidden">{[['projects','專案'],['work','工作'],['todos','TODO']].map(([key,label])=><button key={key} type="button" aria-pressed={tab===key} className="min-h-11 rounded border border-theme-border aria-pressed:bg-accent/20" onClick={()=>setTab(key)}>{label}</button>)}</nav>

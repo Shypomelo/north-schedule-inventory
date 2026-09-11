@@ -31,5 +31,7 @@ export function DashboardViewSelector() {
  const {allowed,selected,select,error,loading}=useDashboardView();
  if(loading)return <p className="text-xs">載入視角…</p>;
  if(error)return <p role="alert" className="break-words text-xs text-danger">{error}</p>;
- return <label className="mb-2 block text-xs">視角：{allowed.length>1?<select aria-label="工作視角" className="mt-1 min-h-11 w-full min-w-0 rounded border border-theme-border bg-theme-card text-primary" value={selected?.key||''} onChange={e=>select(e.target.value as DashboardViewKey)}>{allowed.map(view=><option key={view.id} value={view.key}>{view.name}</option>)}</select>:<span>{selected?.name||'未指派啟用視角'}</span>}</label>;
+ const label=(key:DashboardViewKey)=>({ENGINEERING:'工程',PROJECT_MANAGEMENT:'專案管理',DESIGN:'設計'} as const)[key];
+ if(allowed.length<=1)return <p className="mb-2 text-xs font-semibold text-[var(--sidebar-muted)]">{selected?label(selected.key):'未指派啟用視角'}</p>;
+ return <label className="mb-2 block"><span className="sr-only">工作視角</span><select aria-label="工作視角" className="min-h-11 w-full min-w-0 rounded-lg border border-[var(--sidebar-border)] bg-[var(--sidebar-hover)] px-3 text-sm font-semibold text-[var(--sidebar-text)] outline-none transition hover:bg-[var(--sidebar-active)] focus:ring-2 focus:ring-[var(--sidebar-brand)]" value={selected?.key||''} onChange={e=>select(e.target.value as DashboardViewKey)}>{allowed.map(view=><option key={view.id} value={view.key}>{label(view.key)}</option>)}</select></label>;
 }
