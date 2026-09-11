@@ -38,7 +38,7 @@ test('schedule detail fits the mobile viewport and retains readable information 
   assert.match(detail, /\}完成/);
   assert.match(detail, /\/>改期/);
   assert.match(detail, /\/>刪除/);
-  assert.match(detail, /更多資訊/);
+  assert.match(detail, /查看歷程/);
 });
 
 test('dashboard uses mobile pages below 768px and three columns from 1100px', () => {
