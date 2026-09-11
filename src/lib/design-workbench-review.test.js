@@ -11,19 +11,20 @@ test('Design Workbench loads PROJECT Team Todo below global private Todo',()=>{
   assert.match(source,/我的 TODO[\s\S]*團隊 TODO/);
 });
 
-test('quick Todo defaults received date locally and sends it without changing created_at',()=>{
+test('quick Todo omits date input and adapter defaults received_at now without changing created_at',()=>{
   const source=read('../components/DesignWorkbench.tsx');
   const adapter=read('db/poc-supabase.ts');
-  assert.match(source,/useState\(format\(new Date\(\),'yyyy-MM-dd'\)\)/);
-  assert.match(source,/aria-label="收到日期" required type="date"/);
-  assert.match(source,/received_at:receivedDate\+'T00:00:00\+08:00'/);
-  assert.match(adapter,/received_at: input\.received_at/);
+  assert.doesNotMatch(source,/aria-label="收到日期" required type="date"/);
+  assert.match(source,/createPrivateTodo\(\{title:title\.trim\(\),created_by:currentUser\.id\}\)/);
+  assert.match(adapter,/received_at: input\.received_at \?\? new Date\(\)\.toISOString\(\)/);
   assert.doesNotMatch(adapter,/created_at: input\.received_at/);
 });
 
 test('Todo cards expose received date as secondary metadata',()=>{
   const source=read('../components/DesignWorkbench.tsx');
-  assert.match(source,/replace\('-','\/'\)\} 收到/);
+  assert.match(source,/<TodoReceivedDate/);
+  assert.match(source,/formatTodoReceivedDate/);
+  assert.match(source,/updatePrivateTodo[\s\S]*updateTodo/);
 });
 
 test('desktop workbench panels scroll independently while mobile keeps natural page scroll',()=>{

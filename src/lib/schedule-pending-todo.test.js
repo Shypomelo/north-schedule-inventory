@@ -18,8 +18,9 @@ test('right click edit cannot bubble into schedule conversion',()=>{
  assert.match(source,/event\.stopPropagation\(\);const todo=todos\.find/);
 });
 
-test('mobile ellipsis exposes edit without replacing tap conversion',()=>{
- assert.match(source,/aria-label=\{`編輯待辦：\$\{todo\.title\}`\}/);
+test('mobile ellipsis exposes edit and delete menu without replacing tap conversion',()=>{
+ assert.match(source,/aria-label=\{`待辦操作：\$\{todo\.title\}`\}/);
  assert.match(source,/md:hidden/);
  assert.match(source,/>⋯<\/button>/);
+ assert.match(source,/>刪除待辦<\/button>/);
 });

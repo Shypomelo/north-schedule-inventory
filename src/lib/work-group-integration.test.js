@@ -71,12 +71,12 @@ function fixture(role = 'ADMIN', seed = {}) {
   };
   return { client, tables, writes };
 }
-test('no membership resolves ENGINEERING without mutating inputs', () => {
+test('no membership requires configuration without mutating inputs', () => {
   const memberships = [];
   const result = resolve('member', memberships, groups);
-  assert.equal(result.status, 'resolved');
-  assert.equal(result.activeGroup.id, 'e');
-  assert.equal(result.source, 'legacy-engineering');
+  assert.equal(result.status, 'configuration-required');
+  assert.equal(result.activeGroup, null);
+  assert.equal(result.source, null);
   assert.deepEqual(memberships, []);
 });
 test('active ENGINEERING only resolves ENGINEERING', () => {
@@ -134,7 +134,7 @@ test('ADMIN can remove all memberships', async () => {
   const f = fixture('ADMIN', { member_work_groups: [link('p', true)] });
   const saved = await createWorkGroupAdapter(f.client).setMemberWorkGroups('member', [], null);
   assert.deepEqual(saved, []);
-  assert.equal(resolve('member', saved, groups).activeGroup.id, 'e');
+  assert.equal(resolve('member', saved, groups).status, 'configuration-required');
 });
 test('invalid default blocked before writes', async () => {
   const f = fixture();
@@ -218,11 +218,12 @@ for (const action of ['CREATE', 'UPDATE', 'DELETE']) test('PROJECT server ' + ac
   assert.equal(response.status, 200); assert.equal(response.body.reason, 'google_calendar_ineligible');
   assert.equal(response.body.skipped, true); assert.equal(googleCalls, 0); assert.equal(dbWrites, 0);
 });
-test('Admin membership UI has touch checkboxes and one default radio group', () => {
-  const ui = read('../components/MemberWorkGroupEditor.tsx');
+test('Admin single modal owns work group and dashboard assignments', () => {
+  const ui = read('../app/admin/users/page.tsx');
+  assert.match(ui, /工作群組與預設工作空間/); assert.match(ui, /Dashboard 工作視角與預設視角/);
   assert.match(ui, /type="checkbox"/); assert.match(ui, /type="radio"/);
-  assert.match(ui, /儲存工作群組/); assert.match(ui, /disabled=\{!isAdmin \|\| saving\}/);
-  assert.match(read('../app/admin/users/page.tsx'), /MemberWorkGroupEditor/);
+  assert.match(ui, /updateMemberWorkspaceProfile/);
+  assert.doesNotMatch(ui, /MemberWorkGroupEditor|DashboardViewAssignments/);
 });
 test('Dashboard TEAM uses ENGINEERING; Today Schedule and My TODO stay cross-group/global', () => {
   const source = read('../app/page.tsx');
