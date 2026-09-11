@@ -45,4 +45,3 @@ export function selectProjectsForEngineeringMember(
 export function keepValidDefault(selectedIds: string[], defaultId: string | null): string | null {
   return defaultId && selectedIds.includes(defaultId) ? defaultId : selectedIds[0] ?? null;
 }
-
