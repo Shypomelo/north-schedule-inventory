@@ -17,6 +17,7 @@ test('all three perspective surfaces reuse the canonical active predicate',()=>{
   const design=fs.readFileSync(path.join(__dirname,'../components/DesignWorkbench.tsx'),'utf8');
   const activePage=fs.readFileSync(path.join(__dirname,'../app/projects/[[...filter]]/page.tsx'),'utf8');
   assert.match(dashboard,/selectActiveProjects\(projectRows\)/);
+  assert.match(dashboard,/responsibilityRows\.filter\(row => isActiveProject\(row\.project\)\)/);
   assert.match(design,/selectActiveProjects\(projects\)/);
   assert.match(activePage,/isActiveProject\(p\)/);
   assert.deepEqual(selectActiveProjects([project('進行中'),project('已結案')]).map(p=>p.status),['進行中']);

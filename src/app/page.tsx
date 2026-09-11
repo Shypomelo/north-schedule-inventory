@@ -21,7 +21,7 @@ import { buildDashboardProjectCards } from '@/lib/engineering-dashboard';
 import { presentBusinessDate } from '@/lib/date-presentation';
 import { formatScheduleTaskTime, selectTodayMemberSchedule } from '@/lib/schedule-selectors';
 import { getScheduleTaskPresentation } from '@/lib/schedule-presentation';
-import { selectActiveProjects } from '@/lib/project-selectors';
+import { isActiveProject, selectActiveProjects } from '@/lib/project-selectors';
 import { useScheduleWeather } from '@/hooks/useScheduleWeather';
 import {
   completeScheduleTaskWithActivity,
@@ -92,7 +92,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
       const activeProjectRows = selectActiveProjects(projectRows);
       setProjects(activeProjectRows);
       if(projectManagement)setOverviewMilestones(await workbenchAdapter.getMilestones(activeProjectRows.map(project=>project.id)));
-      setResponsibilities(responsibilityRows);
+      setResponsibilities(responsibilityRows.filter(row => isActiveProject(row.project)));
       setPrivateTodos(privateRows);
       setTeamTodos(teamRows);
       setWorkGroups(workGroupRows.filter(group => group.is_active));
