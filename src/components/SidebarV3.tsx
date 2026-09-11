@@ -11,6 +11,7 @@ import { isMobileNavigationEdgeSwipe, type SwipePoint } from '@/lib/mobile-navig
 import { dbAdapter } from '@/lib/db';
 import type { MemberPosition, Position } from '@/lib/db/types';
 import { ROLE_LABELS, selectEngineeringMembers } from '@/lib/personnel-workspace';
+import { buildMemberProjectsHref } from '@/lib/project-routes';
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -113,7 +114,7 @@ export function Sidebar() {
           </summary>
           {!collapsed && <div className="mt-1 flex flex-col gap-1 pl-2">
             <a href="/projects/active" className={`min-h-11 rounded p-2 text-sm text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] ${isActive('/projects/active', true) ? 'bg-[var(--sidebar-active)]' : ''}`}>進行中案場</a>
-            {engineeringUsers.map(user => <a key={user.id} href={`/projects/${user.id}`} className={`min-h-11 rounded p-2 text-sm text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] ${isActive(`/projects/${user.id}`, true) ? 'bg-[var(--sidebar-active)]' : ''}`}>{user.name}案場</a>)}
+            {engineeringUsers.map(user => { const href = buildMemberProjectsHref(user.id); return <a key={user.id} href={href} className={`min-h-11 rounded p-2 text-sm text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] ${isActive(href, true) ? 'bg-[var(--sidebar-active)]' : ''}`}>{user.name}案場</a>; })}
             <a href="/projects" className={`min-h-11 rounded p-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--sidebar-hover)] ${isActive('/projects') ? 'bg-[var(--sidebar-active)]' : ''}`}>所有案場</a>
           </div>}
         </details>

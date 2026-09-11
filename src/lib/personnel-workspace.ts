@@ -1,4 +1,5 @@
-import type { MemberPosition, Position, ProjectPositionAssignment, User, UserRole } from './db/types';
+import type { MemberPosition, Position, Project, ProjectPositionAssignment, User, UserRole } from './db/types';
+import { isActiveProject } from './project-selectors';
 
 export const ROLE_LABELS: Record<UserRole, string> = {
   ADMIN: '管理員',
@@ -40,6 +41,21 @@ export function selectProjectsForEngineeringMember(
     .filter(assignment => assignment.member_id === memberId && assignment.position_id === engineeringPosition.id)
     .map(assignment => assignment.project_id));
   return projectIds.filter(id => allowed.has(id));
+}
+
+export function selectActiveProjectsForEngineeringMember<T extends Pick<Project, 'id' | 'status' | 'is_active'>>(
+  projects: T[],
+  memberId: string,
+  positions: Position[],
+  assignments: ProjectPositionAssignment[],
+): T[] {
+  const assignedProjectIds = new Set(selectProjectsForEngineeringMember(
+    projects.map(project => project.id),
+    memberId,
+    positions,
+    assignments,
+  ));
+  return projects.filter(project => assignedProjectIds.has(project.id) && isActiveProject(project));
 }
 
 export function keepValidDefault(selectedIds: string[], defaultId: string | null): string | null {

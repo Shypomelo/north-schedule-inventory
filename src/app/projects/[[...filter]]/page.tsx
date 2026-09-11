@@ -20,7 +20,8 @@ import { supabase } from '@/lib/db/supabaseClient';
 import { getConstructionOuterDisplay, getConstructionProjectPatch, getConstructionToday, validateActualCompletionDate } from '@/lib/construction-progress';
 import { MapPin, Plus, Search, Filter, Maximize2 } from 'lucide-react';
 import { useParams } from 'next/navigation';
-import { selectEngineeringMembers, selectProjectsForEngineeringMember } from '@/lib/personnel-workspace';
+import { selectActiveProjectsForEngineeringMember, selectEngineeringMembers } from '@/lib/personnel-workspace';
+import { parseProjectsRoute } from '@/lib/project-routes';
 
 const getCity = (address: string | null) => {
   if (!address) return null;
@@ -61,7 +62,8 @@ const logWorkflowInitialization = (
 export default function ProjectsPage() {
   const params = useParams();
   const { currentUser } = useUser();
-  const filterKey = Array.isArray(params.filter) ? params.filter[0] : params.filter || 'all';
+  const projectsRoute = parseProjectsRoute(params.filter);
+  const memberId = projectsRoute.kind === 'member' ? projectsRoute.memberId : null;
 
   const [projects, setProjects] = useState<Project[]>([]);
   
@@ -174,12 +176,13 @@ export default function ProjectsPage() {
     fetchProjects();
   }, []);
 
-  const filterUser = users.find(u => u.id === filterKey);
-  const isActiveView = filterKey === 'active' || !!filterUser;
+  const filterUser = memberId ? users.find(user => user.id === memberId) : undefined;
+  const isActiveView = projectsRoute.kind === 'active' || projectsRoute.kind === 'member';
 
   const getPageTitle = () => {
-    if (filterKey === 'active') return '進行中案場';
+    if (projectsRoute.kind === 'active') return '進行中案場';
     if (filterUser) return `${filterUser.name}案場`;
+    if (projectsRoute.kind === 'member') return '個人案場';
     return '所有案場';
   };
 
@@ -213,19 +216,19 @@ export default function ProjectsPage() {
   }, [projects, searchTerm, filterCity, filterWarrantyStatus, filterInverterBrand]);
 
   const filteredProjects = useMemo(() => {
-    const assignedProjectIds = filterUser
-      ? new Set(selectProjectsForEngineeringMember(projects.map(project => project.id), filterUser.id, positions, projectAssignments))
-      : null;
+    if (memberId) {
+      return selectActiveProjectsForEngineeringMember(projects, memberId, positions, projectAssignments)
+        .filter(project => !searchTerm || projectMatchesSearchQuery(project, searchTerm, [project.notes]));
+    }
     return projects.filter(p => {
       if (!isActiveProject(p)) return false;
-      if (assignedProjectIds && !assignedProjectIds.has(p.id)) return false;
 
       if (searchTerm) {
         if (!projectMatchesSearchQuery(p, searchTerm, [p.notes])) return false;
       }
       return true;
     });
-  }, [projects, searchTerm, filterUser, positions, projectAssignments]);
+  }, [projects, searchTerm, memberId, positions, projectAssignments]);
 
   const activeCategories = useMemo(() => {
     const cats = {
