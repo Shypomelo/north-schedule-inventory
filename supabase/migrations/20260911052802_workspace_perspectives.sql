@@ -31,7 +31,7 @@ RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path='' AS $$
 BEGIN
  IF NOT coalesce(app_private.is_admin_member(),false) THEN RAISE EXCEPTION 'Only admin members may assign dashboard views' USING ERRCODE='42501'; END IF;
  PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('dashboard_views:'||p_member_id::text,0));
- IF p_view_ids IS NULL OR EXISTS (SELECT 1 FROM unnest(p_view_ids) id WHERE id IS NULL OR NOT EXISTS (SELECT 1 FROM public.dashboard_views v WHERE v.id=id AND v.is_active))
+ IF p_view_ids IS NULL OR EXISTS (SELECT 1 FROM unnest(p_view_ids) AS requested(view_id) WHERE requested.view_id IS NULL OR NOT EXISTS (SELECT 1 FROM public.dashboard_views v WHERE v.id=requested.view_id AND v.is_active))
  OR (p_default_id IS NOT NULL AND NOT p_default_id=ANY(p_view_ids)) THEN RAISE EXCEPTION 'Invalid dashboard view assignment' USING ERRCODE='23514'; END IF;
  DELETE FROM public.member_dashboard_views WHERE member_id=p_member_id;
  INSERT INTO public.member_dashboard_views(member_id,dashboard_view_id,is_default)

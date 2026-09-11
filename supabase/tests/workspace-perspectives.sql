@@ -16,6 +16,11 @@ SELECT pg_temp.assert_ok((SELECT count(*)=1 FROM public.member_dashboard_views W
 SELECT pg_temp.assert_ok(pg_temp.denied($q$UPDATE public.member_dashboard_views SET is_default=true$q$),'second default rejected');
 SELECT pg_temp.assert_ok(pg_temp.denied($q$SELECT public.set_member_dashboard_views('10000000-0000-4000-8000-000000000002','{}',(SELECT id FROM public.dashboard_views WHERE key='DESIGN'))$q$),'invalid replacement atomic');
 SELECT pg_temp.assert_ok((SELECT count(*)=3 FROM public.member_dashboard_views),'failed replacement preserved memberships');
+RESET ROLE;
+UPDATE public.dashboard_views SET is_active=false WHERE key='DESIGN';
+SET LOCAL ROLE authenticated;
+SELECT pg_temp.assert_ok(pg_temp.denied($q$SELECT public.set_member_dashboard_views('10000000-0000-4000-8000-000000000002',ARRAY(SELECT id FROM public.dashboard_views WHERE key='DESIGN'),NULL)$q$),'inactive view assignment rejected');
+SELECT pg_temp.assert_ok((SELECT count(*)=3 FROM public.member_dashboard_views),'inactive assignment failure preserves original state');
 SET LOCAL request.jwt.claims='{"email":"owner2@example.test"}';
 SELECT pg_temp.assert_ok((SELECT count(*)=0 FROM public.member_dashboard_views),'nonadmin cannot read other membership');
 SET LOCAL request.jwt.claims='{"email":"admin@example.test"}';

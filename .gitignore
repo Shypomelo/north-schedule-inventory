@@ -13,4 +13,5 @@ tsconfig.tsbuildinfo
 
 .vercel/
 .codex-logs/
+supabase/.temp/
 scripts/diagnose-supabase.mjs
