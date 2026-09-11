@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { ScheduleTask, ScheduleTaskMember, Project, User, Todo, TaskStatus } from '@/lib/db/types';
+import { ScheduleTask, ScheduleTaskMember, Project, User, Todo, TaskStatus, WorkGroup, WorkGroupKey } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { ScheduleTaskFormDialog } from '@/components/ScheduleTaskFormDialog';
 import {
@@ -15,7 +15,7 @@ import { ChevronLeft, ChevronRight, Plus, X, ArrowLeft, RefreshCw } from 'lucide
 import { useUser } from '@/components/UserContext';
 import { getDatabaseErrorMessage, isMissingCoreTablesError } from '@/lib/db/supabase-errors';
 import { supabase } from '@/lib/db/supabaseClient';
-import { formatScheduleTaskTime, sortScheduleTasks } from '@/lib/schedule-selectors';
+import { formatScheduleTaskTime, selectScheduleTasksByWorkGroup, sortScheduleTasks } from '@/lib/schedule-selectors';
 import { getScheduleTaskPresentation } from '@/lib/schedule-presentation';
 import { useScheduleWeather } from '@/hooks/useScheduleWeather';
 import {
@@ -112,6 +112,8 @@ export default function SchedulePage() {
   const [members, setMembers] = useState<ScheduleTaskMember[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]);
+  const [activeWorkGroupKey, setActiveWorkGroupKey] = useState<WorkGroupKey>('ENGINEERING');
   const [isLoading, setIsLoading] = useState(true);
 
   // Task Modal & Drawer State
@@ -232,7 +234,7 @@ export default function SchedulePage() {
         setTimeout(() => reject(new Error('讀取超時，請重試')), 10000)
       );
 
-      const [t, m, p, u, td] = await Promise.race([
+      const [t, m, p, u, td, wg] = await Promise.race([
         Promise.all([
           dbAdapter.getScheduleTasks().catch(e => { console.error('Schedule tasks error:', e); return []; }),
           dbAdapter.getScheduleTaskMembers().catch(e => { console.error('Schedule members error:', e); return []; }),
@@ -242,16 +244,18 @@ export default function SchedulePage() {
             return [];
           }),
           dbAdapter.getUsers().catch(e => { console.error('Users error:', e); return []; }),
-          dbAdapter.getTodos().catch(e => { console.error('Todos error:', e); return []; })
+          dbAdapter.getTodos().catch(e => { console.error('Todos error:', e); return []; }),
+          dbAdapter.getWorkGroups()
         ]),
         timeoutPromise
-      ]) as [ScheduleTask[], ScheduleTaskMember[], Project[], User[], Todo[]];
+      ]) as [ScheduleTask[], ScheduleTaskMember[], Project[], User[], Todo[], WorkGroup[]];
 
       setTasks(t);
       setMembers(m);
       setProjects(p);
       setUsers(u);
       setTodos(td);
+      setWorkGroups(wg);
 
       if (showLoading) setIsLoading(false);
 
@@ -272,6 +276,16 @@ export default function SchedulePage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  const activeWorkGroup = workGroups.find(group => group.key === activeWorkGroupKey);
+  const groupTasks = useMemo(
+    () => selectScheduleTasksByWorkGroup(tasks, activeWorkGroup?.id),
+    [activeWorkGroup?.id, tasks],
+  );
+
+  useEffect(() => {
+    setSelectedDayTasks(null);
+  }, [activeWorkGroupKey]);
 
   // Week View Dates
   const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 }); 
@@ -300,7 +314,7 @@ export default function SchedulePage() {
       for (const week of expandedMonthWeekDetails) {
         for (const day of week.scheduleDays) {
           const dateStr = format(day, 'yyyy-MM-dd');
-          visibleTasks.push(...sortTasks(tasks.filter(task => task.task_date === dateStr)).slice(0, DAILY_TASK_DISPLAY_LIMIT));
+          visibleTasks.push(...sortTasks(groupTasks.filter(task => task.task_date === dateStr)).slice(0, DAILY_TASK_DISPLAY_LIMIT));
         }
       }
       return visibleTasks;
@@ -310,10 +324,10 @@ export default function SchedulePage() {
     const visibleWeekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
     for (let index = 0; index < 6; index += 1) {
       const dateStr = format(addDays(visibleWeekStart, index), 'yyyy-MM-dd');
-      visibleTasks.push(...sortTasks(tasks.filter(task => task.task_date === dateStr)).slice(0, DAILY_TASK_DISPLAY_LIMIT));
+      visibleTasks.push(...sortTasks(groupTasks.filter(task => task.task_date === dateStr)).slice(0, DAILY_TASK_DISPLAY_LIMIT));
     }
     return visibleTasks;
-  }, [currentDate, expandedMonthWeekDetails, selectedDayTasks, tasks, viewMode]);
+  }, [currentDate, expandedMonthWeekDetails, groupTasks, selectedDayTasks, viewMode]);
 
   const getTaskWeatherDisplay = useScheduleWeather(visibleWeatherTasks, projects);
 
@@ -336,18 +350,19 @@ export default function SchedulePage() {
   const handleCreateOrUpdateTask = async (data: Omit<ScheduleTask, 'id' | 'created_at' | 'updated_at'>, newMemberIds: string[]) => {
     setIsSubmitting(true);
     try {
-      let sourceTodoId = convertingTodoId || (editingTask as ScheduleTask)?.source_todo_id;
+      const sourceTodoId = convertingTodoId || (editingTask as ScheduleTask)?.source_todo_id;
 
       if (editingTask?.id) {
         const originalTask = tasks.find(t => t.id === editingTask.id);
         if (!originalTask) throw new Error('找不到要更新的排程');
+        const safeData = { ...data, work_group_id: originalTask.work_group_id };
         // Optimistic Update
-        setTasks(prev => prev.map(t => t.id === editingTask.id ? { ...t, ...data, updated_at: new Date().toISOString() } as ScheduleTask : t));
+        setTasks(prev => prev.map(t => t.id === editingTask.id ? { ...t, ...safeData, updated_at: new Date().toISOString() } as ScheduleTask : t));
         
         try {
           await updateScheduleTaskWithActivity({
             task: originalTask,
-            data,
+            data: safeData,
             memberIds: newMemberIds,
             actor: { id: currentUser?.id, name: currentUser?.name },
           });
@@ -362,7 +377,15 @@ export default function SchedulePage() {
           throw error;
         }
       } else {
-        const payload = { ...data, source_todo_id: convertingTodoId };
+        const targetWorkGroup = convertingTodoId
+          ? workGroups.find(group => group.key === 'ENGINEERING')
+          : activeWorkGroup;
+        if (!targetWorkGroup) throw new Error('找不到排程群組');
+        const payload = {
+          ...data,
+          work_group_id: targetWorkGroup.id,
+          source_todo_id: convertingTodoId,
+        };
         
         // Optimistic Create
         const tempId = `temp-${Date.now()}`;
@@ -416,7 +439,7 @@ export default function SchedulePage() {
         const dateStr = format(selectedDayTasks.date, 'yyyy-MM-dd');
         setSelectedDayTasks({
           date: selectedDayTasks.date,
-          tasks: sortTasks(freshTasks.filter(t => t.task_date === dateStr))
+          tasks: sortTasks(freshTasks.filter(t => t.task_date === dateStr && t.work_group_id === activeWorkGroup?.id))
         });
       }
 
@@ -512,8 +535,11 @@ export default function SchedulePage() {
   };
 
   const openTodoConvertForm = (todo: Todo, dateStr: string) => {
+    const engineeringWorkGroup = workGroups.find(group => group.key === 'ENGINEERING');
+    if (!engineeringWorkGroup) return;
     setConvertingTodoId(todo.id);
     setEditingTask({
+      work_group_id: engineeringWorkGroup.id,
       title: todo.title,
       description: todo.content,
       project_id: todo.project_id,
@@ -563,7 +589,7 @@ export default function SchedulePage() {
           const freshTasks = await dbAdapter.getScheduleTasks();
           setSelectedDayTasks(prev => prev ? {
             date: prev.date,
-            tasks: sortTasks(freshTasks.filter(t => t.task_date === format(prev.date, 'yyyy-MM-dd')))
+            tasks: sortTasks(freshTasks.filter(t => t.task_date === format(prev.date, 'yyyy-MM-dd') && t.work_group_id === activeWorkGroup?.id))
           } : null);
         }
       } else if (dragType === 'todo') {
@@ -611,7 +637,7 @@ export default function SchedulePage() {
         const freshTasks = await dbAdapter.getScheduleTasks();
         setSelectedDayTasks(prev => prev ? {
           date: prev.date,
-          tasks: sortTasks(freshTasks.filter(t => t.task_date === format(prev.date, 'yyyy-MM-dd')))
+          tasks: sortTasks(freshTasks.filter(t => t.task_date === format(prev.date, 'yyyy-MM-dd') && t.work_group_id === activeWorkGroup?.id))
         } : null);
       }
     } catch(err) {
@@ -635,7 +661,7 @@ export default function SchedulePage() {
     <div className={`grid min-w-[72rem] ${includeTodoColumn ? 'grid-cols-7 flex-1' : 'grid-cols-6'} border border-[var(--border)] rounded-xl bg-[var(--surface)] overflow-hidden`}>
       {days.map(day => {
         const dateStr = format(day, 'yyyy-MM-dd');
-        const dayTasks = sortTasks(tasks.filter(task => task.task_date === dateStr));
+        const dayTasks = sortTasks(groupTasks.filter(task => task.task_date === dateStr));
         const displayTasks = dayTasks.slice(0, DAILY_TASK_DISPLAY_LIMIT);
         const hiddenCount = dayTasks.length - DAILY_TASK_DISPLAY_LIMIT;
 
@@ -792,10 +818,25 @@ export default function SchedulePage() {
   );
 
   return (
-    <div className="mx-auto flex h-full min-w-0 flex-col p-3 sm:p-5 lg:p-8 xl:min-w-[1500px]">
+    <div className="mx-auto flex h-full min-w-0 flex-col p-3 sm:p-5 lg:p-8">
       <div className="mb-4 flex flex-col items-stretch justify-between gap-3 lg:mb-6 lg:flex-row lg:items-center">
         <div className="flex flex-wrap items-center gap-3 lg:gap-6">
           <h1 className="w-full text-2xl font-bold text-[var(--text-primary)] sm:w-auto sm:text-3xl">排程管理</h1>
+
+          <div className="flex rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1" role="tablist" aria-label="排程群組">
+            {workGroups.filter(group => group.key === 'ENGINEERING' || group.key === 'PROJECT').map(group => (
+              <button
+                key={group.id}
+                type="button"
+                role="tab"
+                aria-selected={activeWorkGroupKey === group.key}
+                onClick={() => setActiveWorkGroupKey(group.key)}
+                className={`min-h-9 rounded-md px-3 py-1.5 text-sm font-semibold transition ${activeWorkGroupKey === group.key ? 'bg-[var(--accent)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
+              >
+                {group.key === 'ENGINEERING' ? '工程排程' : '專案排程'}
+              </button>
+            ))}
+          </div>
           
           <div className="flex bg-[var(--surface)] rounded-lg p-1 border border-[var(--border)]">
             <button 
@@ -874,8 +915,8 @@ export default function SchedulePage() {
             重新同步 Google 日曆
           </button>
           <button
-            onClick={() => { setEditingTask(null); setConvertingTodoId(null); setEditingTaskMembers([]); setIsFormOpen(true); }}
-            disabled={currentUser?.role === 'VIEWER'}
+            onClick={() => { setEditingTask({ work_group_id: activeWorkGroup?.id || '' }); setConvertingTodoId(null); setEditingTaskMembers([]); setIsFormOpen(true); }}
+            disabled={currentUser?.role === 'VIEWER' || !activeWorkGroup}
             className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded bg-[var(--accent)] px-4 py-2 text-[var(--accent-text)] shadow transition hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
           >
             <Plus size={20} />
@@ -892,8 +933,8 @@ export default function SchedulePage() {
         </div>
       ) : isLoading ? (
         <div className="flex-1 flex items-center justify-center text-[var(--text-secondary)]">載入中...</div>
-      ) : tasks.length === 0 && viewMode === 'week' ? (
-        <div className="flex-1 flex items-center justify-center text-[var(--text-secondary)]">目前沒有排程，點擊右上角「新增任務」開始排程。</div>
+      ) : groupTasks.length === 0 && viewMode === 'week' ? (
+        <div className="flex-1 flex items-center justify-center text-[var(--text-secondary)]">目前沒有{activeWorkGroupKey === 'ENGINEERING' ? '工程' : '專案'}排程，點擊右上角「新增任務」開始排程。</div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col overflow-auto">
           {viewMode === 'week' ? (
@@ -926,7 +967,7 @@ export default function SchedulePage() {
                         ) : (
                           week.calendarDays.map((day, dayIndex) => {
                             const dateStr = format(day, 'yyyy-MM-dd');
-                            const dayTasks = sortTasks(tasks.filter(t => t.task_date === dateStr));
+                            const dayTasks = sortTasks(groupTasks.filter(t => t.task_date === dateStr));
                             const isCurrentMonth = day.getMonth() === currentDate.getMonth();
 
                             return (
@@ -1139,7 +1180,7 @@ export default function SchedulePage() {
             disabled={currentUser?.role === 'VIEWER'}
             onClick={(e) => {
               e.stopPropagation();
-              setEditingTask({ task_date: dayContextMenu.dateStr, task_type: '維修', status: '已排程' as TaskStatus });
+              setEditingTask({ work_group_id: activeWorkGroup?.id || '', task_date: dayContextMenu.dateStr, task_type: '維修', status: '已排程' as TaskStatus });
               setEditingTaskMembers([]);
               setIsFormOpen(true);
               setDayContextMenu(null);

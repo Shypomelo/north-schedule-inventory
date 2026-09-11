@@ -26,10 +26,12 @@ const {
 } = sourceModule.exports;
 
 const calendarId = 'calendar@example.com';
+const engineeringWorkGroupId = 'work-group-engineering';
 const syncedAt = '2026-09-03T00:00:00.000Z';
 
 const createTask = (overrides = {}) => ({
   id: 'task-1',
+  work_group_id: engineeringWorkGroupId,
   task_type: 'Maintenance',
   title: 'Inspect inverter',
   project_id: null,
@@ -139,6 +141,7 @@ const importMember = {
 
 const mapImport = (event = importEvent, projects = [], activeMembers = []) => mapManualGoogleEvent(event, {
   calendarId,
+  workGroupId: engineeringWorkGroupId,
   projects,
   activeMembers,
   syncedAt,
@@ -147,6 +150,7 @@ const mapImport = (event = importEvent, projects = [], activeMembers = []) => ma
 test('Google import binds the only exact project match', () => {
   const result = mapImport(importEvent, [importProject]);
   assert.equal(result.ok, true);
+  assert.equal(result.task.work_group_id, engineeringWorkGroupId);
   assert.equal(result.task.project_id, importProject.id);
   assert.equal(result.task.project_name, importProject.project_name);
 });

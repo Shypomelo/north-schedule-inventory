@@ -1,12 +1,13 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { ScheduleTask, Project, User, TaskStatus } from '@/lib/db/types';
+import { ScheduleTask, Project, User, TaskStatus, WorkGroup } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { getProjectLocationLabel, getProjectSearchScore } from '@/lib/project-location';
 import { useUser } from './UserContext';
 import { addHours, format, parse } from 'date-fns';
 import { useScheduleTaskTypes } from '@/hooks/useScheduleTaskTypes';
+import { selectSchedulePrimaryCandidates } from '@/lib/schedule-selectors';
 
 const PRIMARY_TIME_HOURS = [
   '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18',
@@ -38,12 +39,14 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
   const isCreateMode = !initialData?.id;
   const [projects, setProjects] = useState<Project[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]);
   
   let initialStatus = initialData?.status || '';
   if (['未開始', '進行中', '取消'].includes(initialStatus)) initialStatus = '';
   else if (initialStatus === '已完成') initialStatus = '完成';
 
   const [formData, setFormData] = useState<Omit<ScheduleTask, 'id' | 'created_at' | 'updated_at'>>({
+    work_group_id: initialData?.work_group_id || '',
     task_type: initialData?.task_type || '',
     title: initialData?.title || '',
     project_id: initialData?.project_id || null,
@@ -89,10 +92,11 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    Promise.all([dbAdapter.getProjects(), dbAdapter.getUsers()]).then(([pData, uData]) => {
+    Promise.all([dbAdapter.getProjects(), dbAdapter.getUsers(), dbAdapter.getWorkGroups()]).then(([pData, uData, groupData]) => {
       setProjects(pData.filter(p => p.is_active));
       const activeUsers = uData.filter(u => u.is_active);
       setUsers(activeUsers);
+      setWorkGroups(groupData);
       
       if (initialData?.project_id && !initialData?.project_name) {
         const p = pData.find(x => x.id === initialData.project_id);
@@ -265,10 +269,12 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
     }, memberIds);
   };
 
-  const mainAssigneeUsers = users.filter(user => (
-    user.category === 'ENGINEERING'
-    || (isEditingExistingTask && user.id === formData.main_assignee_id)
-  ));
+  const currentWorkGroup = workGroups.find(group => group.id === formData.work_group_id);
+  const mainAssigneeUsers = selectSchedulePrimaryCandidates(
+    users,
+    currentWorkGroup?.key,
+    isEditingExistingTask ? formData.main_assignee_id : null,
+  );
   const coworkerUsers = users;
   const startTimeParts = splitTime(formData.start_time);
   const endTimeParts = splitTime(formData.end_time);
@@ -289,6 +295,11 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
           />
           <span className="text-sm font-semibold text-amber-400">暫定任務</span>
         </label>
+      </div>
+
+      <div className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface-secondary)]/50 px-3 py-2 text-sm">
+        <span className="font-semibold text-[var(--modal-muted)]">排程群組</span>
+        <span className="font-bold text-[var(--modal-text)]">{currentWorkGroup?.name || '載入中...'}</span>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">

@@ -1,4 +1,27 @@
-import type { ScheduleTask, ScheduleTaskMember } from './db/types';
+import type { ScheduleTask, ScheduleTaskMember, User, WorkGroupKey } from './db/types';
+
+export function selectScheduleTasksByWorkGroup(
+  tasks: ScheduleTask[],
+  workGroupId: string | null | undefined,
+): ScheduleTask[] {
+  if (!workGroupId) return [];
+  return tasks.filter(task => task.work_group_id === workGroupId);
+}
+
+export function selectSchedulePrimaryCandidates(
+  users: User[],
+  workGroupKey: WorkGroupKey | undefined,
+  currentAssigneeId?: string | null,
+): User[] {
+  return users.filter(user => (
+    (workGroupKey === 'ENGINEERING'
+      ? user.category === 'ENGINEERING'
+      : workGroupKey === 'PROJECT'
+        ? user.role !== 'VIEWER'
+        : false)
+    || user.id === currentAssigneeId
+  ));
+}
 
 export function sortScheduleTasks(taskList: ScheduleTask[]) {
   return [...taskList].filter(task => task.status !== '取消').sort((a, b) => {

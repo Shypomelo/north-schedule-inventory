@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { CalendarClock, CalendarDays, CheckCircle2, Clock3, Loader2, MapPin, Trash2, Users, X } from 'lucide-react';
-import type { Project, ScheduleTask, ScheduleTaskMember, User } from '@/lib/db/types';
+import type { Project, ScheduleTask, ScheduleTaskMember, User, WorkGroup } from '@/lib/db/types';
 import type { WeatherDisplay } from '@/lib/weather';
 import { formatScheduleTaskTime } from '@/lib/schedule-selectors';
 import { getScheduleCreationSourceLabel, getScheduleTaskPresentation } from '@/lib/schedule-presentation';
@@ -12,6 +12,7 @@ export function ScheduleTaskDetail({
   projects,
   users,
   members,
+  workGroups = [],
   weather,
   canMutate = false,
   actionPending = false,
@@ -24,6 +25,7 @@ export function ScheduleTaskDetail({
   projects: Project[];
   users: User[];
   members: ScheduleTaskMember[];
+  workGroups?: WorkGroup[];
   weather: WeatherDisplay | null;
   canMutate?: boolean;
   actionPending?: boolean;
@@ -32,7 +34,7 @@ export function ScheduleTaskDetail({
   onDelete?: () => void;
   onClose: () => void;
 }) {
-  const display = getScheduleTaskPresentation(task, projects, users, members);
+  const display = getScheduleTaskPresentation(task, projects, users, members, workGroups);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -62,6 +64,7 @@ export function ScheduleTaskDetail({
             <DetailRow icon={<Users size={17} />} label="協同人員" value={display.collaboratorNames.join('、') || '無'} />
             <DetailRow label="天氣" value={weather ? `${weather.icon} ${weather.label}` : '無可用天氣資料'} />
             <DetailRow label="狀態" value={task.status || '未設定'} />
+            <DetailRow label="排程群組" value={display.workGroupName} />
           </dl>
 
           <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface-secondary)]/50 p-4">

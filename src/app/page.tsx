@@ -9,7 +9,7 @@ import { ScheduleTaskDetail } from '@/components/ScheduleTaskDetail';
 import { ScheduleTaskFormDialog } from '@/components/ScheduleTaskFormDialog';
 import { useUser } from '@/components/UserContext';
 import { dbAdapter } from '@/lib/db';
-import type { MemberProjectResponsibility, Project, ScheduleTask, ScheduleTaskMember, Todo } from '@/lib/db/types';
+import type { MemberProjectResponsibility, Project, ScheduleTask, ScheduleTaskMember, Todo, WorkGroup } from '@/lib/db/types';
 import { buildDashboardProjectCards } from '@/lib/engineering-dashboard';
 import { formatScheduleTaskTime, selectTodayMemberSchedule } from '@/lib/schedule-selectors';
 import { getScheduleTaskPresentation } from '@/lib/schedule-presentation';
@@ -29,6 +29,7 @@ export default function EngineeringDashboardPage() {
   const [tasks, setTasks] = useState<ScheduleTask[]>([]);
   const [taskMembers, setTaskMembers] = useState<ScheduleTaskMember[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]);
   const [responsibilities, setResponsibilities] = useState<MemberProjectResponsibility[]>([]);
   const [privateTodos, setPrivateTodos] = useState<Todo[]>([]);
   const [teamTodos, setTeamTodos] = useState<Todo[]>([]);
@@ -53,13 +54,14 @@ export default function EngineeringDashboardPage() {
     if (!currentUser) return;
     setError(null);
     try {
-      const [taskRows, memberRows, projectRows, responsibilityRows, privateRows, teamRows] = await Promise.all([
+      const [taskRows, memberRows, projectRows, responsibilityRows, privateRows, teamRows, workGroupRows] = await Promise.all([
         dbAdapter.getScheduleTasks(),
         dbAdapter.getScheduleTaskMembers(),
         dbAdapter.getProjects(),
         dbAdapter.getMemberProjectResponsibilities(currentUser.id),
         dbAdapter.getPrivateTodos(),
         dbAdapter.getTodos(),
+        dbAdapter.getWorkGroups(),
       ]);
       setTasks(taskRows);
       setTaskMembers(memberRows);
@@ -67,6 +69,7 @@ export default function EngineeringDashboardPage() {
       setResponsibilities(responsibilityRows);
       setPrivateTodos(privateRows);
       setTeamTodos(teamRows);
+      setWorkGroups(workGroupRows);
     } catch (loadError) {
       console.error('Dashboard load failed:', loadError);
       setError(loadError instanceof Error ? loadError.message : '工程儀表載入失敗');
@@ -249,7 +252,7 @@ export default function EngineeringDashboardPage() {
           {todayTasks.length === 0 ? <EmptyState text="今天暫時沒有排程" /> : (
             <div className="space-y-2.5">
               {todayTasks.map(task => {
-                const display = getScheduleTaskPresentation(task, projects, allUsers, taskMembers);
+                const display = getScheduleTaskPresentation(task, projects, allUsers, taskMembers, workGroups);
                 const weather = getTaskWeatherDisplay(task);
                 const isDone = task.status === '完成' || task.status === '已完成';
                 return (
@@ -270,7 +273,10 @@ export default function EngineeringDashboardPage() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="truncate font-semibold">{display.projectName}</div>
-                        <div className="mt-0.5 truncate text-sm font-medium text-accent">[{task.task_type}] {task.title || '無標題'}</div>
+                        <div className="mt-0.5 flex min-w-0 items-center gap-2">
+                          <span className="truncate text-sm font-medium text-accent">[{task.task_type}] {task.title || '無標題'}</span>
+                          <span className="shrink-0 rounded-full border border-theme-border px-1.5 py-0.5 text-[10px] font-semibold text-secondary">{display.workGroupName}</span>
+                        </div>
                       </div>
                       <span className="shrink-0 rounded-full bg-page px-2 py-1 text-xs font-semibold text-secondary">{formatScheduleTaskTime(task)}</span>
                     </div>
@@ -391,6 +397,7 @@ export default function EngineeringDashboardPage() {
           projects={projects}
           users={allUsers}
           members={taskMembers}
+          workGroups={workGroups}
           weather={getTaskWeatherDisplay(selectedTask)}
           canMutate={canMutateTodos}
           actionPending={taskActionPending}

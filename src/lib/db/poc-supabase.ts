@@ -38,6 +38,7 @@ import {
   Todo,
   PrivateTodoInput,
   PrivateTodoUpdate,
+  WorkGroup,
   isActiveFormalTransaction,
 } from './types';
 import { throwMissingCoreTablesErrorIfNeeded } from './supabase-errors';
@@ -1412,6 +1413,16 @@ const validateProjectConstructionCompletionUpdates = (p: Partial<Project>) => {
 };
 
 export const pocSupabaseAdapter = {
+  getWorkGroups: async (): Promise<WorkGroup[]> => {
+    const { data, error } = await supabase
+      .from('work_groups')
+      .select('id, key, name, google_calendar_sync_enabled, is_active, sort_order')
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true });
+    if (error) throw error;
+    return (data || []) as WorkGroup[];
+  },
+
   // --- Users (team_members) ---
   getUsers: async (): Promise<User[]> => {
     const { data, error } = await supabase
@@ -1910,6 +1921,7 @@ export const pocSupabaseAdapter = {
     // Map Supabase schema back to frontend ScheduleTask
     return data.map((row: any) => ({
       id: row.id,
+      work_group_id: row.work_group_id,
       task_type: row.task_type || '',
       title: row.title || '',
       project_id: row.project_id || null,
@@ -1959,6 +1971,7 @@ export const pocSupabaseAdapter = {
   ): Promise<ScheduleTask> => {
     const memberNameMap = await loadTeamMemberNamesById([t.main_assignee_id, ...newMemberIds].filter(Boolean) as string[]);
     const taskData = {
+      work_group_id: t.work_group_id,
       project_id: t.project_id,
       project_name: t.project_name,
       task_type: t.task_type,
@@ -2059,6 +2072,7 @@ export const pocSupabaseAdapter = {
     
     return {
       id: data.id,
+      work_group_id: data.work_group_id,
       task_type: data.task_type || '',
       title: data.title || '',
       project_id: data.project_id || null,

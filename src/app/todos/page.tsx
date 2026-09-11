@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Todo, Project } from '@/lib/db/types';
+import { Todo, Project, WorkGroup } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { TodoForm } from '@/components/TodoForm';
 import { ScheduleTaskForm } from '@/components/ScheduleTaskForm';
@@ -12,6 +12,7 @@ export default function TodosPage() {
   const { currentUser } = useUser();
   const [todos, setTodos] = useState<Todo[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
@@ -20,9 +21,14 @@ export default function TodosPage() {
 
   const fetchData = async () => {
     setIsLoading(true);
-    const [tData, pData] = await Promise.all([dbAdapter.getTodos(), dbAdapter.getProjects()]);
+    const [tData, pData, groupData] = await Promise.all([
+      dbAdapter.getTodos(),
+      dbAdapter.getProjects(),
+      dbAdapter.getWorkGroups(),
+    ]);
     setTodos(tData);
     setProjects(pData);
+    setWorkGroups(groupData);
     setIsLoading(false);
   };
 
@@ -58,7 +64,12 @@ export default function TodosPage() {
   const handleConvertToTask = async (taskData: any, memberIds: string[]) => {
     setIsSubmitting(true);
     try {
-      const newTask = await dbAdapter.createScheduleTask(taskData, memberIds);
+      const engineeringWorkGroup = workGroups.find(group => group.key === 'ENGINEERING');
+      if (!engineeringWorkGroup) throw new Error('找不到工程排程群組');
+      const newTask = await dbAdapter.createScheduleTask({
+        ...taskData,
+        work_group_id: engineeringWorkGroup.id,
+      }, memberIds);
       if (editingTodo) {
         await dbAdapter.updateTodo(editingTodo.id, { status: '已排程', converted_task_id: newTask.id });
       }
@@ -152,6 +163,7 @@ export default function TodosPage() {
             <h2 className="text-2xl font-bold text-primary mb-6">待辦轉為排程任務</h2>
             <ScheduleTaskForm 
               initialData={{
+                work_group_id: workGroups.find(group => group.key === 'ENGINEERING')?.id || '',
                 title: editingTodo.title,
                 description: editingTodo.content || '',
                 project_id: editingTodo.project_id || '',

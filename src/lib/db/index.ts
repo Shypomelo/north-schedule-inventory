@@ -291,6 +291,7 @@ export const dbAdapter = {
   ...workflowAdapter,
   ...todoAdapter,
   getUsers: hasSupabase ? pocSupabaseAdapter.getUsers : mockDbAdapter.getUsers,
+  getWorkGroups: hasSupabase ? pocSupabaseAdapter.getWorkGroups : mockDbAdapter.getWorkGroups,
   createUser: hasSupabase ? pocSupabaseAdapter.createUser : mockDbAdapter.createUser,
   updateUser: hasSupabase ? pocSupabaseAdapter.updateUser : mockDbAdapter.updateUser,
   getScheduleTasks: hasSupabase ? pocSupabaseAdapter.getScheduleTasks : mockDbAdapter.getScheduleTasks,

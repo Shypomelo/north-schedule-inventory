@@ -23,12 +23,13 @@ export async function updateScheduleTaskWithActivity({
   memberIds: string[];
   actor: ScheduleActor;
 }) {
-  const updatedTask = await dbAdapter.updateScheduleTask(task.id, data, memberIds);
-  const projectChanged = task.project_id !== data.project_id;
-  const timingChanged = task.task_date !== data.task_date
-    || task.start_time !== data.start_time
-    || task.end_time !== data.end_time
-    || task.is_all_day !== data.is_all_day;
+  const safeData = { ...data, work_group_id: task.work_group_id };
+  const updatedTask = await dbAdapter.updateScheduleTask(task.id, safeData, memberIds);
+  const projectChanged = task.project_id !== safeData.project_id;
+  const timingChanged = task.task_date !== safeData.task_date
+    || task.start_time !== safeData.start_time
+    || task.end_time !== safeData.end_time
+    || task.is_all_day !== safeData.is_all_day;
 
   await dbAdapter.logActivity({
     actor_user_id: actorId(actor),
@@ -36,15 +37,15 @@ export async function updateScheduleTaskWithActivity({
     action_type: timingChanged ? 'RESCHEDULE_TASK' : 'UPDATE_TASK',
     target_type: 'ScheduleTask',
     target_id: task.id,
-    target_label: data.title,
-    project_id: data.project_id,
-    project_name: data.project_name || '',
+    target_label: safeData.title,
+    project_id: safeData.project_id,
+    project_name: safeData.project_name || '',
     before_value: timingChanged
       ? `${task.task_date} ${formatScheduleTaskTime(task)}`
       : projectChanged ? (task.project_name || '未匹配案場') : null,
     after_value: timingChanged
-      ? `${data.task_date} ${formatScheduleTaskTime(data as ScheduleTask)}`
-      : projectChanged ? (data.project_name || '未匹配案場') : null,
+      ? `${safeData.task_date} ${formatScheduleTaskTime(safeData as ScheduleTask)}`
+      : projectChanged ? (safeData.project_name || '未匹配案場') : null,
     message: timingChanged
       ? '編輯排程並改期'
       : projectChanged ? '編輯排程任務並更新案場關聯' : '編輯排程任務',

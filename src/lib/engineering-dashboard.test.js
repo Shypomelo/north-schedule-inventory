@@ -112,11 +112,12 @@ test('Dashboard uses the shared Todo adapters and keeps the route responsive', (
 test('Dashboard today schedule reuses Schedule presentation, weather, member, map, and detail sources', () => {
   const dashboard = fs.readFileSync(path.join(__dirname, '..', 'app', 'page.tsx'), 'utf8');
   const schedule = fs.readFileSync(path.join(__dirname, '..', 'app', 'schedule', 'page.tsx'), 'utf8');
-  assert.match(dashboard, /getScheduleTaskPresentation\(task, projects, allUsers, taskMembers\)/);
+  assert.match(dashboard, /getScheduleTaskPresentation\(task, projects, allUsers, taskMembers, workGroups\)/);
   assert.match(schedule, /getScheduleTaskPresentation\(task, projects, users, members\)/);
   assert.match(dashboard, /useScheduleWeather\(todayTasks, projects\)/);
   assert.match(schedule, /useScheduleWeather\(visibleWeatherTasks, projects\)/);
   assert.match(dashboard, /display\.collaboratorDisplay/);
+  assert.match(dashboard, /display\.workGroupName/);
   assert.match(dashboard, /href=\{display\.mapUrl\}/);
   assert.match(dashboard, /event => event\.stopPropagation\(\)/);
   assert.match(dashboard, /<ScheduleTaskDetail/);
