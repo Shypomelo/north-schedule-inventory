@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Project, User, Contractor, WorkflowSnapshotResult } from '@/lib/db/types';
+import { Project, User, Contractor, WorkflowSnapshotResult, MemberPosition, Position, ProjectPositionAssignment } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { ProjectForm } from '@/components/ProjectForm';
 import { ProjectDetailModal } from '@/components/ProjectDetailModal';
@@ -20,6 +20,7 @@ import { supabase } from '@/lib/db/supabaseClient';
 import { getConstructionOuterDisplay, getConstructionProjectPatch, getConstructionToday, validateActualCompletionDate } from '@/lib/construction-progress';
 import { MapPin, Plus, Search, Filter, Maximize2 } from 'lucide-react';
 import { useParams } from 'next/navigation';
+import { selectEngineeringMembers, selectProjectsForEngineeringMember } from '@/lib/personnel-workspace';
 
 const getCity = (address: string | null) => {
   if (!address) return null;
@@ -65,6 +66,8 @@ export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   
   const [users, setUsers] = useState<User[]>([]);
+  const [positions, setPositions] = useState<Position[]>([]);
+  const [projectAssignments, setProjectAssignments] = useState<ProjectPositionAssignment[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   
   // Custom Filters
@@ -142,17 +145,22 @@ export default function ProjectsPage() {
         setTimeout(() => reject(new Error('讀取超時，請重試')), 10000)
       );
 
-      const [data, usersData, contractorsData] = await Promise.race([
+      const [data, usersData, contractorsData, positionRows, memberPositionRows, assignmentRows] = await Promise.race([
         Promise.all([
           dbAdapter.getProjects(),
           dbAdapter.getUsers().catch(e => { console.error(e); return []; }),
-          dbAdapter.getContractors()
+          dbAdapter.getContractors(),
+          dbAdapter.getPositions(),
+          dbAdapter.getMemberPositions(),
+          dbAdapter.getProjectPositionAssignments(),
         ]),
         timeoutPromise
-      ]) as [Project[], User[], Contractor[]];
+      ]) as [Project[], User[], Contractor[], Position[], MemberPosition[], ProjectPositionAssignment[]];
 
       setProjects(data);
-      setUsers(usersData.filter(u => u.is_active && u.category === 'ENGINEERING'));
+      setUsers(selectEngineeringMembers(usersData, positionRows, memberPositionRows));
+      setPositions(positionRows);
+      setProjectAssignments(assignmentRows);
       setContractors(contractorsData.filter(c => c.is_active));
     } catch (err: any) {
       console.error('Fetch projects failed:', err);
@@ -205,16 +213,19 @@ export default function ProjectsPage() {
   }, [projects, searchTerm, filterCity, filterWarrantyStatus, filterInverterBrand]);
 
   const filteredProjects = useMemo(() => {
+    const assignedProjectIds = filterUser
+      ? new Set(selectProjectsForEngineeringMember(projects.map(project => project.id), filterUser.id, positions, projectAssignments))
+      : null;
     return projects.filter(p => {
       if (!isActiveProject(p)) return false;
-      if (filterUser && p.manager !== filterUser.name) return false;
+      if (assignedProjectIds && !assignedProjectIds.has(p.id)) return false;
 
       if (searchTerm) {
         if (!projectMatchesSearchQuery(p, searchTerm, [p.notes])) return false;
       }
       return true;
     });
-  }, [projects, searchTerm, filterUser]);
+  }, [projects, searchTerm, filterUser, positions, projectAssignments]);
 
   const activeCategories = useMemo(() => {
     const cats = {

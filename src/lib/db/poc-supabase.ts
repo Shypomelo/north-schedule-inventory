@@ -1625,11 +1625,10 @@ export const pocSupabaseAdapter = {
     return (data ?? []) as Position[];
   },
 
-  getProjectPositionAssignments: async (projectId: string): Promise<ProjectPositionAssignment[]> => {
-    const { data, error } = await supabase
-      .from('project_position_assignments')
-      .select('*')
-      .eq('project_id', projectId);
+  getProjectPositionAssignments: async (projectId?: string): Promise<ProjectPositionAssignment[]> => {
+    let query = supabase.from('project_position_assignments').select('*');
+    if (projectId) query = query.eq('project_id', projectId);
+    const { data, error } = await query;
     if (error) throw error;
     return (data ?? []) as ProjectPositionAssignment[];
   },
@@ -1802,7 +1801,7 @@ export const pocSupabaseAdapter = {
         rejected_by: null,
         rejected_at: null,
         rejection_reason: null,
-        received_at: input.received_at,
+        received_at: input.received_at ?? new Date().toISOString(),
       })
       .select()
       .single();
