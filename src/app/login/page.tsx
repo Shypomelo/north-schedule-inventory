@@ -4,21 +4,15 @@ import React, { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/components/UserContext';
 import { LogIn, AlertCircle } from 'lucide-react';
+import { getSafeNextPath, selectLoginNextPath } from '@/lib/auth-lifecycle';
 
 const INTENDED_PATH_STORAGE_KEY = 'north-schedule-intended-path';
-
-const getSafeNextPath = (value?: string | null) => {
-  if (!value) return '/';
-  if (!value.startsWith('/') || value.startsWith('//')) return '/';
-  if (value === '/login' || value.startsWith('/login?')) return '/';
-  return value;
-};
 
 const getLoginRedirectSnapshot = () => {
   const params = new URLSearchParams(window.location.search);
   const queryNext = getSafeNextPath(params.get('next'));
   const storedNext = getSafeNextPath(sessionStorage.getItem(INTENDED_PATH_STORAGE_KEY));
-  const redirectTo = queryNext !== '/' ? queryNext : storedNext;
+  const redirectTo = selectLoginNextPath(queryNext, storedNext);
 
   return {
     href: window.location.href,
