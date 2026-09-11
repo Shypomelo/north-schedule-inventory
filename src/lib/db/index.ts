@@ -2,6 +2,7 @@ import { mockDbAdapter } from './mock';
 import { pocSupabaseAdapter } from './poc-supabase';
 import { supabase } from './supabaseClient';
 import { createWorkGroupAdapter } from './work-group-adapter';
+import { createPersonnelWorkspaceAdapter } from './personnel-workspace-adapter';
 
 const hasSupabase = !!process.env.NEXT_PUBLIC_SUPABASE_URL && !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const isProduction = process.env.NODE_ENV === 'production';
@@ -295,6 +296,9 @@ export const dbAdapter = {
   getWorkGroups: hasSupabase ? pocSupabaseAdapter.getWorkGroups : mockDbAdapter.getWorkGroups,
   getMemberWorkGroups: hasSupabase ? createWorkGroupAdapter(supabase).getMemberWorkGroups : async (_memberId?: string) => [],
   setMemberWorkGroups: createWorkGroupAdapter(supabase).setMemberWorkGroups,
+  updateMemberWorkspaceProfile: hasSupabase
+    ? createPersonnelWorkspaceAdapter(supabase).updateMemberWorkspaceProfile
+    : async () => { throw new Error('Supabase is required for atomic personnel workspace updates.'); },
   createUser: hasSupabase ? pocSupabaseAdapter.createUser : mockDbAdapter.createUser,
   updateUser: hasSupabase ? pocSupabaseAdapter.updateUser : mockDbAdapter.updateUser,
   getScheduleTasks: hasSupabase ? pocSupabaseAdapter.getScheduleTasks : mockDbAdapter.getScheduleTasks,

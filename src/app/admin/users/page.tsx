@@ -8,8 +8,9 @@ import { dbAdapter } from '@/lib/db';
 import { Plus, Edit2, ShieldAlert } from 'lucide-react';
 import { WorkGroup } from '@/lib/db/types';
 import { MemberWorkGroup } from '@/lib/work-groups';
-import { MemberWorkGroupEditor } from '@/components/MemberWorkGroupEditor';
-import { DashboardViewAssignments } from '@/components/MemberDashboardViewEditor';
+import { perspectiveAdapter } from '@/lib/db/perspective-adapter';
+import type { DashboardView, MemberDashboardView } from '@/lib/dashboard-perspectives';
+import { keepValidDefault, ROLE_LABELS } from '@/lib/personnel-workspace';
 
 const OWNER_TEAM_MEMBER_ID = '65916798-f0ec-4d41-8b17-785c4189bd83';
 const isOwnerUser = (user?: Pick<User, 'id'> | null) => user?.id === OWNER_TEAM_MEMBER_ID;
@@ -24,6 +25,12 @@ export default function AdminUsersPage() {
   const [positions, setPositions] = useState<Position[]>([]);
   const [memberPositions, setMemberPositions] = useState<MemberPosition[]>([]);
   const [selectedPositionIds, setSelectedPositionIds] = useState<string[]>([]);
+  const [dashboardViews, setDashboardViews] = useState<DashboardView[]>([]);
+  const [dashboardMemberships, setDashboardMemberships] = useState<MemberDashboardView[]>([]);
+  const [selectedWorkGroupIds, setSelectedWorkGroupIds] = useState<string[]>([]);
+  const [defaultWorkGroupId, setDefaultWorkGroupId] = useState<string | null>(null);
+  const [selectedDashboardViewIds, setSelectedDashboardViewIds] = useState<string[]>([]);
+  const [defaultDashboardViewId, setDefaultDashboardViewId] = useState<string | null>(null);
   const [newPositionName, setNewPositionName] = useState('');
   const [positionSavingId, setPositionSavingId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -33,10 +40,8 @@ export default function AdminUsersPage() {
   
   const [formData, setFormData] = useState<Partial<User>>({
     name: '',
-    short_name: '',
     email: '',
     role: 'VIEWER',
-    category: 'OTHER',
     is_active: true,
     notes: '',
     google_calendar_email: ''
@@ -62,22 +67,26 @@ export default function AdminUsersPage() {
         setTimeout(() => reject(new Error('讀取超時，請重試')), 10000)
       );
       
-      const [data, positionRows, memberPositionRows, groupRows, membershipRows] = await Promise.race([
+      const [data, positionRows, memberPositionRows, groupRows, membershipRows, viewRows, dashboardMembershipRows] = await Promise.race([
         Promise.all([
           dbAdapter.getUsers(),
           dbAdapter.getPositions(true),
           dbAdapter.getMemberPositions(),
           dbAdapter.getWorkGroups(),
           dbAdapter.getMemberWorkGroups(),
+          perspectiveAdapter.getDashboardViews(),
+          perspectiveAdapter.getMemberDashboardViews(),
         ]),
         timeoutPromise
-      ]) as [User[], Position[], MemberPosition[], WorkGroup[], MemberWorkGroup[]];
+      ]) as [User[], Position[], MemberPosition[], WorkGroup[], MemberWorkGroup[], DashboardView[], MemberDashboardView[]];
       
       setUsers(data);
       setWorkGroups(groupRows);
       setMemberships(membershipRows);
       setPositions(positionRows);
       setMemberPositions(memberPositionRows);
+      setDashboardViews(viewRows);
+      setDashboardMemberships(dashboardMembershipRows);
     } catch (err: any) {
       console.error('Fetch users failed:', err);
       setError(err.message || '無法載入人員資料');
@@ -99,10 +108,8 @@ export default function AdminUsersPage() {
       setEditingUser(user);
       setFormData({
         name: user.name,
-        short_name: user.short_name,
         email: user.email,
         role: user.role,
-        category: user.category || 'OTHER',
         is_active: user.is_active,
         notes: user.notes || '',
         google_calendar_email: user.google_calendar_email || ''
@@ -110,27 +117,35 @@ export default function AdminUsersPage() {
       setSelectedPositionIds(memberPositions
         .filter(link => link.member_id === user.id)
         .map(link => link.position_id));
+      const groupLinks = memberships.filter(link => link.member_id === user.id && workGroups.some(group => group.id === link.work_group_id));
+      setSelectedWorkGroupIds(groupLinks.map(link => link.work_group_id));
+      setDefaultWorkGroupId(groupLinks.find(link => link.is_default)?.work_group_id ?? groupLinks[0]?.work_group_id ?? null);
+      const viewLinks = dashboardMemberships.filter(link => link.member_id === user.id && dashboardViews.some(view => view.id === link.dashboard_view_id));
+      setSelectedDashboardViewIds(viewLinks.map(link => link.dashboard_view_id));
+      setDefaultDashboardViewId(viewLinks.find(link => link.is_default)?.dashboard_view_id ?? viewLinks[0]?.dashboard_view_id ?? null);
     } else {
       setEditingUser(null);
       setFormData({
         name: '',
-        short_name: '',
         email: '',
         role: 'VIEWER',
-        category: 'OTHER',
         is_active: true,
         notes: '',
         google_calendar_email: ''
       });
       setSelectedPositionIds([]);
+      setSelectedWorkGroupIds([]);
+      setDefaultWorkGroupId(null);
+      setSelectedDashboardViewIds([]);
+      setDefaultDashboardViewId(null);
     }
     setIsModalOpen(true);
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.short_name) {
-      alert("姓名與簡稱必填");
+    if (!formData.name || !formData.email) {
+      alert("姓名與 Email 必填");
       return;
     }
     
@@ -139,12 +154,22 @@ export default function AdminUsersPage() {
         ? { ...formData, role: 'ADMIN' as UserRole, is_active: true }
         : formData;
 
-      const savedUser = editingUser
-        ? await dbAdapter.updateUser(editingUser.id, payload)
-        : await dbAdapter.createUser(payload as any);
-      await dbAdapter.setMemberPositions(savedUser.id, selectedPositionIds);
+      await dbAdapter.updateMemberWorkspaceProfile({
+        memberId: editingUser?.id ?? null,
+        name: payload.name!,
+        email: payload.email!,
+        role: payload.role as UserRole,
+        isActive: payload.is_active !== false,
+        googleCalendarEmail: payload.google_calendar_email || null,
+        notes: payload.notes || null,
+        positionIds: selectedPositionIds,
+        workGroupIds: selectedWorkGroupIds,
+        defaultWorkGroupId,
+        dashboardViewIds: selectedDashboardViewIds,
+        defaultDashboardViewId,
+      });
       setIsModalOpen(false);
-      loadUsers();
+      await loadUsers();
       // Force reload layout or context if user edits themselves, but for now just load users table
     } catch (err: any) {
       console.error('Save user error:', err);
@@ -205,7 +230,7 @@ export default function AdminUsersPage() {
             <ShieldAlert className="text-accent" />
             系統管理 - 人員管理
           </h1>
-          <p className="text-secondary mt-1">管理系統人員清單及權限角色</p>
+          <p className="text-secondary mt-1">在單一人員檔案中管理系統權限、職位與工作區設定</p>
         </div>
         <button
           onClick={() => handleOpenModal()}
@@ -232,7 +257,7 @@ export default function AdminUsersPage() {
                 <th className="p-4 font-semibold">姓名</th>
                 <th className="p-4 font-semibold">簡稱</th>
                 <th className="p-4 font-semibold">職位</th>
-                <th className="p-4 font-semibold">角色</th>
+                <th className="p-4 font-semibold">系統權限</th>
                 <th className="p-4 font-semibold">狀態</th>
                 <th className="p-4 font-semibold">登入 Email</th>
                 <th className="p-4 font-semibold">Google Calendar Email</th>
@@ -277,7 +302,7 @@ export default function AdminUsersPage() {
                       user.role === 'ENGINEER' ? 'bg-page text-primary border border-theme-border' :
                       'bg-theme-border/30 text-secondary'
                     }`}>
-                      {user.role}
+                      {ROLE_LABELS[user.role]}
                     </span>
                   </td>
                   <td className="p-4">
@@ -307,16 +332,6 @@ export default function AdminUsersPage() {
         )}
       </div>
 
-      {!isLoading && !error && <section className="min-w-0 space-y-3 rounded-xl border border-theme-border bg-card p-3 sm:p-6">
-        <h2 className="text-lg font-bold">工作群組 / 預設工作空間</h2>
-        <p className="text-sm text-secondary">與系統權限、既有分類、專案職位分開設定。未加入群組仍可查看兩邊排程。</p>
-        <DashboardViewAssignments members={users} />
-        {users.filter(user => user.is_active).map(member => <MemberWorkGroupEditor
-          key={`${member.id}:${JSON.stringify(memberships.filter(row => row.member_id === member.id))}`}
-          member={member} groups={workGroups} memberships={memberships.filter(row => row.member_id === member.id)}
-          isAdmin={isAdmin} onSaved={loadUsers}
-        />)}
-      </section>}
       <section className="rounded-xl border border-theme-border bg-card p-6 shadow-sm">
         <div className="mb-4">
           <h2 className="text-lg font-bold text-primary">職位管理</h2>
@@ -355,8 +370,8 @@ export default function AdminUsersPage() {
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-page/80 p-2 backdrop-blur-sm sm:p-4">
-          <div className="max-h-[calc(100dvh-1rem)] w-full max-w-lg overflow-y-auto rounded-2xl border border-theme-border bg-card shadow-xl">
-            <div className="flex justify-between items-center p-6 border-b border-theme-border bg-card/50">
+          <div className="flex max-h-[calc(100dvh-1rem)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-theme-border bg-card shadow-xl">
+            <div className="flex shrink-0 items-center justify-between border-b border-theme-border bg-card p-4 sm:p-6">
               <h2 className="text-xl font-bold text-primary">
                 {editingUser ? '編輯人員' : '新增人員'}
               </h2>
@@ -368,136 +383,70 @@ export default function AdminUsersPage() {
               </button>
             </div>
             
-            <form onSubmit={handleSave} className="p-6 flex flex-col gap-4">
+            <form onSubmit={handleSave} className="flex min-h-0 flex-1 flex-col">
+              <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4 sm:p-6">
               {editingOwner && (
                 <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">
                   系統擁有者固定為 Admin 且不可停用。
                 </div>
               )}
 
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium text-secondary">姓名 <span className="text-danger">*</span></label>
-                  <input 
-                    type="text" 
-                    required
-                    value={formData.name || ''} 
-                    onChange={e => setFormData({...formData, name: e.target.value})}
-                    className="bg-page border border-theme-border rounded-lg p-2.5 text-primary outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-                    placeholder="例如: 柚子"
-                  />
+              <section className="space-y-4" aria-labelledby="basic-profile-heading">
+                <h3 id="basic-profile-heading" className="font-semibold text-primary">基本資料與系統權限</h3>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <label className="flex flex-col gap-1.5 text-sm font-medium text-secondary">姓名 <span className="sr-only">必填</span>
+                    <input type="text" required value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} className="rounded-lg border border-theme-border bg-page p-2.5 text-primary outline-none focus:border-accent" />
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-sm font-medium text-secondary">登入 Email <span className="sr-only">必填</span>
+                    <input type="email" required value={formData.email || ''} onChange={e => setFormData({...formData, email: e.target.value})} disabled={editingOwner} className="rounded-lg border border-theme-border bg-page p-2.5 text-primary outline-none focus:border-accent disabled:opacity-60" />
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-sm font-medium text-secondary">系統權限
+                    <select value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as UserRole})} disabled={editingOwner} className="rounded-lg border border-theme-border bg-page p-2.5 text-primary outline-none focus:border-accent disabled:opacity-60">
+                      <option value="ADMIN">管理員</option><option value="ENGINEER">一般使用者</option><option value="VIEWER">唯讀</option>
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-sm font-medium text-secondary">狀態
+                    <select value={formData.is_active ? 'true' : 'false'} onChange={e => setFormData({...formData, is_active: e.target.value === 'true'})} disabled={editingOwner} className="rounded-lg border border-theme-border bg-page p-2.5 text-primary outline-none focus:border-accent disabled:opacity-60">
+                      <option value="true">啟用</option><option value="false">停用</option>
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-sm font-medium text-secondary sm:col-span-2">Google Calendar Email
+                    <input type="email" value={formData.google_calendar_email || ''} onChange={e => setFormData({...formData, google_calendar_email: e.target.value})} className="rounded-lg border border-theme-border bg-page p-2.5 text-primary outline-none focus:border-accent" />
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-sm font-medium text-secondary sm:col-span-2">備註
+                    <textarea value={formData.notes || ''} onChange={e => setFormData({...formData, notes: e.target.value})} className="h-24 resize-none rounded-lg border border-theme-border bg-page p-2.5 text-primary outline-none focus:border-accent" />
+                  </label>
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium text-secondary">簡稱 <span className="text-danger">*</span></label>
-                  <input 
-                    type="text" 
-                    required
-                    value={formData.short_name || ''} 
-                    onChange={e => setFormData({...formData, short_name: e.target.value})}
-                    className="bg-page border border-theme-border rounded-lg p-2.5 text-primary outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-                    placeholder="例如: 柚"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium text-secondary">既有分類／相容設定 <span className="text-danger">*</span></label>
-                  <select 
-                    value={formData.category} 
-                    onChange={e => setFormData({...formData, category: e.target.value as 'ENGINEERING' | 'MANAGEMENT' | 'OTHER'})}
-                    className="bg-page border border-theme-border rounded-lg p-2.5 text-primary outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-                  >
-                    <option value="ENGINEERING">工程</option>
-                    <option value="MANAGEMENT">管理</option>
-                    <option value="OTHER">其他</option>
-                  </select>
-                  <p className="text-xs text-secondary">供既有工程人員篩選功能使用；工作職位請在下方職位欄設定。</p>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium text-secondary">角色 <span className="text-danger">*</span></label>
-                  <select 
-                    value={formData.role} 
-                    onChange={e => setFormData({...formData, role: e.target.value as UserRole})}
-                    disabled={editingOwner}
-                    className="bg-page border border-theme-border rounded-lg p-2.5 text-primary outline-none focus:border-accent focus:ring-1 focus:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <option value="ADMIN">Admin</option>
-                    <option value="ENGINEER">Engineer</option>
-                    <option value="VIEWER">Viewer</option>
-                  </select>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium text-secondary">狀態 <span className="text-danger">*</span></label>
-                  <select 
-                    value={formData.is_active ? 'true' : 'false'} 
-                    onChange={e => setFormData({...formData, is_active: e.target.value === 'true'})}
-                    disabled={editingOwner}
-                    className="bg-page border border-theme-border rounded-lg p-2.5 text-primary outline-none focus:border-accent focus:ring-1 focus:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <option value="true">啟用</option>
-                    <option value="false">停用</option>
-                  </select>
-                </div>
-              </div>
+              </section>
 
               <fieldset className="rounded-lg border border-theme-border p-3">
-                <legend className="px-1 text-sm font-medium text-secondary">職位（可複選）</legend>
+                <legend className="px-1 text-sm font-semibold text-primary">職位（可複選）</legend>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {positions.filter(position => position.is_active).map(position => (
-                    <label key={position.id} className="flex items-center gap-2 rounded-lg bg-page px-3 py-2 text-sm text-primary">
-                      <input
-                        type="checkbox"
-                        checked={selectedPositionIds.includes(position.id)}
-                        onChange={event => setSelectedPositionIds(current => event.target.checked
-                          ? Array.from(new Set([...current, position.id]))
-                          : current.filter(id => id !== position.id))}
-                        className="h-4 w-4 accent-accent"
-                      />
-                      {position.name}
-                    </label>
-                  ))}
-                  {positions.every(position => !position.is_active) && (
-                    <span className="col-span-2 text-sm text-secondary">目前沒有啟用中的職位。</span>
-                  )}
+                  {positions.filter(position => position.is_active).map(position => <label key={position.id} className="flex min-h-11 items-center gap-2 rounded-lg bg-page px-3 py-2 text-sm text-primary"><input type="checkbox" checked={selectedPositionIds.includes(position.id)} onChange={event => setSelectedPositionIds(current => event.target.checked ? Array.from(new Set([...current, position.id])) : current.filter(id => id !== position.id))} className="h-4 w-4 accent-accent" />{position.name}</label>)}
+                  {positions.every(position => !position.is_active) && <span className="text-sm text-secondary">目前沒有啟用中的職位。</span>}
                 </div>
               </fieldset>
 
-              <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium text-secondary">登入 Email (Supabase Auth) <span className="text-danger">*</span></label>
-                <input 
-                  type="email" 
-                  required
-                  value={formData.email || ''} 
-                  onChange={e => setFormData({...formData, email: e.target.value})}
-                  disabled={editingOwner}
-                  className="bg-page border border-theme-border rounded-lg p-2.5 text-primary outline-none focus:border-accent focus:ring-1 focus:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
-                  placeholder="name@example.com"
-                />
+              <fieldset className="rounded-lg border border-theme-border p-3">
+                <legend className="px-1 text-sm font-semibold text-primary">工作群組與預設工作空間</legend>
+                <div className="space-y-2">{workGroups.filter(group => group.is_active).map(group => {
+                  const selected = selectedWorkGroupIds.includes(group.id);
+                  return <div key={group.id} className="flex min-h-11 flex-wrap items-center justify-between gap-3 rounded-lg bg-page px-3 py-2"><label className="flex items-center gap-2 text-sm text-primary"><input type="checkbox" checked={selected} onChange={event => { const next = event.target.checked ? [...selectedWorkGroupIds, group.id] : selectedWorkGroupIds.filter(id => id !== group.id); setSelectedWorkGroupIds(next); setDefaultWorkGroupId(keepValidDefault(next, defaultWorkGroupId)); }} />{group.key === 'ENGINEERING' ? '工程' : '專案設計'}</label><label className="flex items-center gap-2 text-xs text-secondary"><input type="radio" name="default-work-group" disabled={!selected} checked={defaultWorkGroupId === group.id} onChange={() => setDefaultWorkGroupId(group.id)} />預設</label></div>;
+                })}</div>
+              </fieldset>
+
+              <fieldset className="rounded-lg border border-theme-border p-3">
+                <legend className="px-1 text-sm font-semibold text-primary">Dashboard 工作視角與預設視角</legend>
+                <p className="mb-2 text-xs text-secondary">管理員固定可使用所有啟用視角；勾選項目只保存其偏好與預設。</p>
+                <div className="space-y-2">{dashboardViews.filter(view => view.is_active).map(view => {
+                  const selected = selectedDashboardViewIds.includes(view.id);
+                  const label = view.key === 'ENGINEERING' ? '工程' : view.key === 'PROJECT_MANAGEMENT' ? '專案管理' : '設計';
+                  return <div key={view.id} className="flex min-h-11 flex-wrap items-center justify-between gap-3 rounded-lg bg-page px-3 py-2"><label className="flex items-center gap-2 text-sm text-primary"><input type="checkbox" checked={selected} onChange={event => { const next = event.target.checked ? [...selectedDashboardViewIds, view.id] : selectedDashboardViewIds.filter(id => id !== view.id); setSelectedDashboardViewIds(next); setDefaultDashboardViewId(keepValidDefault(next, defaultDashboardViewId)); }} />{label}</label><label className="flex items-center gap-2 text-xs text-secondary"><input type="radio" name="default-dashboard-view" disabled={!selected} checked={defaultDashboardViewId === view.id} onChange={() => setDefaultDashboardViewId(view.id)} />預設</label></div>;
+                })}</div>
+              </fieldset>
               </div>
 
-              <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium text-secondary">Google Calendar Email</label>
-                <input 
-                  type="email" 
-                  value={formData.google_calendar_email || ''} 
-                  onChange={e => setFormData({...formData, google_calendar_email: e.target.value})}
-                  className="bg-page border border-theme-border rounded-lg p-2.5 text-primary outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-                  placeholder="calendar@example.com (選填)"
-                />
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium text-secondary">備註</label>
-                <textarea 
-                  value={formData.notes || ''} 
-                  onChange={e => setFormData({...formData, notes: e.target.value})}
-                  className="bg-page border border-theme-border rounded-lg p-2.5 text-primary outline-none focus:border-accent focus:ring-1 focus:ring-accent resize-none h-24"
-                  placeholder="其他備註資訊..."
-                />
-              </div>
-
-              <div className="flex justify-end gap-3 mt-4">
+              <div className="flex shrink-0 justify-end gap-3 border-t border-theme-border bg-card p-4 sm:px-6">
                 <button 
                   type="button"
                   onClick={() => setIsModalOpen(false)}
