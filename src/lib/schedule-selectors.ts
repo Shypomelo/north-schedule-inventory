@@ -1,11 +1,22 @@
 import type { ScheduleTask, ScheduleTaskMember, User, WorkGroupKey } from './db/types';
+import type { MemberWorkGroup } from './work-groups';
 
 export function selectScheduleTasksByWorkGroup(
   tasks: ScheduleTask[],
   workGroupId: string | null | undefined,
+  participants?: { members: ScheduleTaskMember[]; users: User[]; memberships: MemberWorkGroup[]; groupKey?: WorkGroupKey },
 ): ScheduleTask[] {
   if (!workGroupId) return [];
-  return tasks.filter(task => task.work_group_id === workGroupId);
+  const participantIds=new Set((participants?.users||[]).filter(user=>{
+    const rows=participants!.memberships.filter(row=>row.member_id===user.id);
+    return rows.length?rows.some(row=>row.work_group_id===workGroupId):participants!.groupKey==='ENGINEERING'&&user.category==='ENGINEERING';
+  }).map(user=>user.id));
+  const sharedTaskIds=new Set((participants?.members||[]).filter(member=>participantIds.has(member.user_id)).map(member=>member.task_id));
+  const seen=new Set<string>();
+  return tasks.filter(task=>{
+    const visible=task.work_group_id===workGroupId||participantIds.has(task.main_assignee_id||'')||sharedTaskIds.has(task.id);
+    if(!visible||seen.has(task.id))return false;seen.add(task.id);return true;
+  });
 }
 
 export function selectSchedulePrimaryCandidates(

@@ -18,6 +18,7 @@ import { useUser } from '@/components/UserContext';
 import { getDatabaseErrorMessage, isMissingCoreTablesError } from '@/lib/db/supabase-errors';
 import { supabase } from '@/lib/db/supabaseClient';
 import { formatScheduleTaskTime, selectScheduleTasksByWorkGroup, sortScheduleTasks } from '@/lib/schedule-selectors';
+import type { MemberWorkGroup } from '@/lib/work-groups';
 import { getScheduleTaskPresentation } from '@/lib/schedule-presentation';
 import { useScheduleWeather } from '@/hooks/useScheduleWeather';
 import {
@@ -114,6 +115,7 @@ export default function SchedulePage() {
   const [tasks, setTasks] = useState<ScheduleTask[]>([]);
   const [todos, setTodos] = useState<Todo[]>([]);
   const [members, setMembers] = useState<ScheduleTaskMember[]>([]);
+  const [groupMemberships,setGroupMemberships]=useState<MemberWorkGroup[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]);
@@ -244,7 +246,7 @@ export default function SchedulePage() {
         setTimeout(() => reject(new Error('讀取超時，請重試')), 10000)
       );
 
-      const [t, m, p, u, td, wg] = await Promise.race([
+      const [t, m, p, u, td, wg, memberships] = await Promise.race([
         Promise.all([
           dbAdapter.getScheduleTasks().catch(e => { console.error('Schedule tasks error:', e); return []; }),
           dbAdapter.getScheduleTaskMembers().catch(e => { console.error('Schedule members error:', e); return []; }),
@@ -255,10 +257,11 @@ export default function SchedulePage() {
           }),
           dbAdapter.getUsers().catch(e => { console.error('Users error:', e); return []; }),
           dbAdapter.getWorkGroups().then(groups => Promise.all(groups.map(group => dbAdapter.getTodos(group.id)))).then(rows => rows.flat()).catch(e => { console.error('Todos error:', e); return []; }),
-          dbAdapter.getWorkGroups()
+          dbAdapter.getWorkGroups(),
+          dbAdapter.getMemberWorkGroups()
         ]),
         timeoutPromise
-      ]) as [ScheduleTask[], ScheduleTaskMember[], Project[], User[], Todo[], WorkGroup[]];
+      ]) as [ScheduleTask[], ScheduleTaskMember[], Project[], User[], Todo[], WorkGroup[],MemberWorkGroup[]];
 
       setTasks(t);
       setMembers(m);
@@ -266,6 +269,7 @@ export default function SchedulePage() {
       setUsers(u);
       setTodos(td);
       setWorkGroups(wg);
+      setGroupMemberships(memberships);
 
       if (showLoading) setIsLoading(false);
 
@@ -289,8 +293,8 @@ export default function SchedulePage() {
 
   const activeWorkGroup = workGroups.find(group => group.key === activeWorkGroupKey);
   const groupTasks = useMemo(
-    () => selectScheduleTasksByWorkGroup(tasks, activeWorkGroup?.id),
-    [activeWorkGroup?.id, tasks],
+    () => selectScheduleTasksByWorkGroup(tasks, activeWorkGroup?.id,{members,users,memberships:groupMemberships,groupKey:activeWorkGroup?.key}),
+    [activeWorkGroup?.id, activeWorkGroup?.key, tasks,members,users,groupMemberships],
   );
 
   useEffect(() => {
@@ -449,7 +453,7 @@ export default function SchedulePage() {
         const dateStr = format(selectedDayTasks.date, 'yyyy-MM-dd');
         setSelectedDayTasks({
           date: selectedDayTasks.date,
-          tasks: sortTasks(freshTasks.filter(t => t.task_date === dateStr && t.work_group_id === activeWorkGroup?.id))
+          tasks: sortTasks(selectScheduleTasksByWorkGroup(freshTasks,activeWorkGroup?.id,{members,users,memberships:groupMemberships,groupKey:activeWorkGroup?.key}).filter(t => t.task_date === dateStr))
         });
       }
 
@@ -600,7 +604,7 @@ export default function SchedulePage() {
           const freshTasks = await dbAdapter.getScheduleTasks();
           setSelectedDayTasks(prev => prev ? {
             date: prev.date,
-            tasks: sortTasks(freshTasks.filter(t => t.task_date === format(prev.date, 'yyyy-MM-dd') && t.work_group_id === activeWorkGroup?.id))
+            tasks: sortTasks(selectScheduleTasksByWorkGroup(freshTasks,activeWorkGroup?.id,{members,users,memberships:groupMemberships,groupKey:activeWorkGroup?.key}).filter(t => t.task_date === format(prev.date, 'yyyy-MM-dd')))
           } : null);
         }
       } else if (dragType === 'todo') {
@@ -648,7 +652,7 @@ export default function SchedulePage() {
         const freshTasks = await dbAdapter.getScheduleTasks();
         setSelectedDayTasks(prev => prev ? {
           date: prev.date,
-          tasks: sortTasks(freshTasks.filter(t => t.task_date === format(prev.date, 'yyyy-MM-dd') && t.work_group_id === activeWorkGroup?.id))
+          tasks: sortTasks(selectScheduleTasksByWorkGroup(freshTasks,activeWorkGroup?.id,{members,users,memberships:groupMemberships,groupKey:activeWorkGroup?.key}).filter(t => t.task_date === format(prev.date, 'yyyy-MM-dd')))
         } : null);
       }
     } catch(err) {
