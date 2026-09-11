@@ -252,7 +252,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
   }
 
   return (
-    <div className="min-h-full bg-page px-4 py-5 text-primary md:px-6 md:py-7 xl:px-8">
+    <div className="min-h-full bg-page px-4 py-5 text-primary md:px-6 md:py-7 xl:px-8 min-[1100px]:h-[100dvh] min-[1100px]:overflow-hidden">
       <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-accent">Engineering overview</p>
@@ -272,7 +272,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
         <MobileTab active={mobilePage === 'todos'} onClick={() => setMobilePage('todos')}>TODO</MobileTab>
       </nav>
 
-      <div className="grid items-start gap-5 md:grid-cols-2 min-[1100px]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.25fr)_minmax(0,0.9fr)]">
+      <div className="grid items-start gap-5 md:grid-cols-2 min-[1100px]:h-[calc(100%-5rem)] min-[1100px]:min-h-0 min-[1100px]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.25fr)_minmax(0,0.9fr)] min-[1100px]:items-stretch">
         <DashboardSection icon={<CalendarDays size={18} />} title="今日排程" count={todayTasks.length} actionHref="/schedule" actionLabel="查看排程" className={`${mobilePage === 'schedule' ? 'block' : 'hidden'} md:block min-[1100px]:sticky min-[1100px]:top-6`}>
           {todayTasks.length === 0 ? <EmptyState text="今天暫時沒有排程" /> : (
             <div className="space-y-2.5">
@@ -375,7 +375,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
         </DashboardSection>
 
         }
-        <div className={`${mobilePage === 'todos' ? 'block' : 'hidden'} space-y-5 md:col-span-2 md:block min-[1100px]:col-span-1`}>
+        <div className={`${mobilePage === 'todos' ? 'block' : 'hidden'} space-y-5 md:col-span-2 md:block min-[1100px]:col-span-1 min-[1100px]:h-full min-[1100px]:min-h-0 min-[1100px]:overflow-y-auto`}>
           <nav className="grid grid-cols-2 rounded-xl border border-theme-border bg-card p-1 md:hidden" aria-label="TODO 類型" role="tablist">
             <MobileTab active={mobileTodoPage === 'private'} onClick={() => setMobileTodoPage('private')}>我的</MobileTab>
             <MobileTab active={mobileTodoPage === 'team'} onClick={() => setMobileTodoPage('team')}>團隊</MobileTab>
@@ -460,7 +460,7 @@ function DashboardSection({ icon, title, count, children, actionHref, actionLabe
   className?: string;
 }) {
   return (
-    <section className={`rounded-2xl border border-theme-border bg-card/70 p-4 shadow-sm backdrop-blur-sm md:p-5 ${className}`}>
+    <section className={`rounded-2xl border border-theme-border bg-card/70 p-4 shadow-sm backdrop-blur-sm md:p-5 min-[1100px]:h-full min-[1100px]:min-h-0 min-[1100px]:overflow-y-auto ${className}`}>
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/10 text-accent">{icon}</span>

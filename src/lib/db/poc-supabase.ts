@@ -94,7 +94,7 @@ const buildTeamTodoPayload = (
   const fields: Array<keyof Omit<Todo, 'id' | 'created_at' | 'updated_at' | 'scope'>> = [
     'title', 'content', 'project_id', 'task_type', 'status', 'created_by',
     'assigned_to', 'assigned_by', 'converted_task_id', 'rejected_by',
-    'rejected_at', 'rejection_reason', 'work_group_id',
+    'rejected_at', 'rejection_reason', 'work_group_id', 'received_at',
   ];
   fields.forEach(field => {
     if (todo[field] !== undefined) payload[field] = todo[field];
@@ -1802,6 +1802,7 @@ export const pocSupabaseAdapter = {
         rejected_by: null,
         rejected_at: null,
         rejection_reason: null,
+        received_at: input.received_at,
       })
       .select()
       .single();
@@ -1814,6 +1815,7 @@ export const pocSupabaseAdapter = {
     if (updates.title !== undefined) payload.title = updates.title.trim();
     if (updates.content !== undefined) payload.content = updates.content;
     if (updates.status !== undefined) payload.status = updates.status;
+    if (updates.received_at !== undefined) payload.received_at = updates.received_at;
     const { data, error } = await supabase
       .from('todos')
       .update(payload)

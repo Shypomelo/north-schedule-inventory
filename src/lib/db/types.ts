@@ -330,12 +330,14 @@ export interface Todo {
 export interface PrivateTodoInput {
   title: string;
   created_by: string;
+  received_at?: string;
 }
 
 export interface PrivateTodoUpdate {
   title?: string;
   content?: string | null;
   status?: Extract<TodoStatus, '待安排' | '已完成'>;
+  received_at?: string;
 }
 
 export interface InventoryItem {

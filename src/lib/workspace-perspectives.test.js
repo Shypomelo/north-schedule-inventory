@@ -83,7 +83,7 @@ test('inline internal focus does not save, external blur saves once',async()=>{c
 test('multiline Enter preserves newline while Ctrl+Enter saves',async()=>{const h=inlineHarness();h.find('textarea').props.onChange({target:{value:'line1\nline2'}});h.find('textarea').props.onKeyDown({key:'Enter',nativeEvent:{isComposing:false},ctrlKey:false,preventDefault(){}});assert.equal(h.writes.length,0);h.find('textarea').props.onKeyDown({key:'Enter',nativeEvent:{isComposing:false},ctrlKey:true,preventDefault(){}});await flush();assert.equal(h.writes[0].data.content,'line1\nline2');});
 for(const count of [0,2,3])test('Design SSR '+count+' zone configuration renders actual zone names only',()=>{
  const zones=Array.from({length:count},(_,i)=>({id:'z'+i,name:'Fixture zone '+i,is_active:true,sort_order:i}));let call=0;
- const seeds={0:zones,1:[],2:[],3:[],4:[],5:[],6:'',7:false,8:'work',9:'z0'};
+ const seeds={0:zones,1:[],2:[],3:[],4:[],5:[],6:[],7:'',8:false,9:'work',10:'z0'};
  const hooks={...React,useState(initial){const i=call++;return [i in seeds?seeds[i]:initial,()=>{}];}};
  const {DesignWorkbench}=load('../components/DesignWorkbench.tsx',{'react':hooks,'./UserContext':{useUser:()=>({currentUser:{id:'m',role:'ENGINEER'}})},'@/lib/db':{dbAdapter:{}},'@/lib/db/workbench-adapter':{workbenchAdapter:{}},'./ProjectDetailModal':{ProjectDetailModal:()=>null}});
  const markup=renderToStaticMarkup(React.createElement(DesignWorkbench));

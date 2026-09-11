@@ -504,11 +504,13 @@ export const mockDbAdapter = {
   // --- Todos ---
   getTodos: async () => [...db.todos].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
   createTodo: async (t: Omit<Todo, 'id'|'created_at'|'updated_at'>) => {
+    const now = new Date().toISOString();
     const newTodo: Todo = {
       ...t,
       id: crypto.randomUUID(),
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      received_at: t.received_at || now,
+      created_at: now,
+      updated_at: now
     };
     db.todos.push(newTodo);
     persist();
