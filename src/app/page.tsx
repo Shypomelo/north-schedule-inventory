@@ -22,6 +22,7 @@ import { presentBusinessDate } from '@/lib/date-presentation';
 import { formatScheduleTaskTime, selectTodayMemberSchedule } from '@/lib/schedule-selectors';
 import { getScheduleTaskPresentation } from '@/lib/schedule-presentation';
 import { isActiveProject, selectActiveProjects } from '@/lib/project-selectors';
+import { selectActiveTeamTodos } from '@/lib/todo-selectors';
 import { useScheduleWeather } from '@/hooks/useScheduleWeather';
 import {
   completeScheduleTaskWithActivity,
@@ -56,7 +57,6 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
   const [teamTitle, setTeamTitle] = useState('');
   const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
   const [hideCompletedPrivate, setHideCompletedPrivate] = useState(true);
-  const [hideCompletedTeam, setHideCompletedTeam] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -121,7 +121,10 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
     [responsibilities, today],
   );
   const visiblePrivateTodos = privateTodos.filter(todo => !hideCompletedPrivate || todo.status !== '已完成');
-  const visibleTeamTodos = teamTodos.filter(todo => !hideCompletedTeam || todo.status !== '已完成');
+  const visibleTeamTodos = selectActiveTeamTodos(
+    teamTodos,
+    workGroups.find(group => group.key === todoGroupKey)?.id ?? null,
+  );
 
   const createPrivateTodo = async (event: FormEvent) => {
     event.preventDefault();
@@ -390,13 +393,12 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
           </DashboardSection>
 
           <DashboardSection icon={<Users size={18} />} title="團隊 TODO" count={visibleTeamTodos.length} actionHref="/schedule" actionLabel="週排程待辦" className={`${mobileTodoPage === 'team' ? 'block' : 'hidden'} md:block`}>
-            <HideCompletedToggle checked={hideCompletedTeam} onChange={setHideCompletedTeam} />
             <TodoComposer value={teamTitle} onChange={setTeamTitle} onSubmit={createTeamTodo} placeholder="新增團隊待辦…" disabled={!canMutateTodos} isSaving={savingKey === 'team-new'} />
             <TodoList
               todos={visibleTeamTodos}
               onEdit={setEditingTodo}
               onSaved={loadDashboard}
-              emptyText={hideCompletedTeam ? '目前沒有未完成的團隊待辦' : '目前沒有團隊待辦'}
+              emptyText="目前沒有待安排的團隊待辦"
               savingKey={savingKey}
               onComplete={completeTeamTodo}
               disabled={!canMutateTodos}

@@ -162,6 +162,20 @@ for (const group of groups) {
     assert.equal(requireTodoWorkGroup(todo('TEAM', group.id)), group.id);
   });
 }
+test('TEAM conversion updates the canonical row without deleting it', async () => {
+  const source = { ...todo('TEAM', 'e'), converted_task_id: null };
+  const f = fixture('ADMIN', { todos: [source] });
+  const adapter = load('db/poc-supabase.ts', { './supabaseClient': { supabase: f.client } }).pocSupabaseAdapter;
+
+  await adapter.updateTodo(source.id, { status: '已排程', converted_task_id: 'schedule-1' });
+
+  const persistedRows = await adapter.getTodos('e');
+  assert.equal(persistedRows.length, 1);
+  assert.equal(persistedRows[0].id, source.id);
+  assert.equal(persistedRows[0].status, '已排程');
+  assert.equal(persistedRows[0].converted_task_id, 'schedule-1');
+  assert.deepEqual(f.writes.map(write => write.op), ['update']);
+});
 test('TEAM creation requires group, PRIVATE creation sends NULL', async () => {
   const f = fixture();
   const adapter = load('db/poc-supabase.ts', { './supabaseClient': { supabase: f.client } }).pocSupabaseAdapter;

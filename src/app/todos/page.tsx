@@ -11,6 +11,7 @@ import { useWorkGroups } from '@/hooks/useWorkGroups';
 import { requireTodoWorkGroup, selectActiveWorkGroups } from '@/lib/work-groups';
 import { TodoTextEditDialog } from '@/components/TodoTextEditDialog';
 import { TodoInlineText } from '@/components/TodoInlineText';
+import { selectActiveTeamTodos } from '@/lib/todo-selectors';
 
 export default function TodosPage() {
   const { currentUser } = useUser();
@@ -28,6 +29,7 @@ export default function TodosPage() {
   const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const activeTodos = selectActiveTeamTodos(todos, groupId || null);
 
   const fetchData = async () => {
     setIsLoading(true);
@@ -128,10 +130,10 @@ export default function TodosPage() {
           </div>
         ) : isLoading ? (
           <div className="text-secondary">載入中...</div>
-        ) : todos.length === 0 ? (
+        ) : activeTodos.length === 0 ? (
           <div className="text-secondary bg-card/30 border border-theme-border p-8 text-center rounded-xl">目前沒有待辦事項</div>
         ) : (
-          todos.map(todo => {
+          activeTodos.map(todo => {
             const proj = projects.find(p => p.id === todo.project_id);
             return (
               <div key={todo.id} className={`bg-card/50 border border-theme-border p-4 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${todo.status === '已排程' ? 'opacity-50' : 'hover:border-accent/50'}`}>

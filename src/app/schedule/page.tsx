@@ -19,6 +19,7 @@ import { useUser } from '@/components/UserContext';
 import { getDatabaseErrorMessage, isMissingCoreTablesError } from '@/lib/db/supabase-errors';
 import { supabase } from '@/lib/db/supabaseClient';
 import { formatScheduleTaskTime, selectScheduleTasksByWorkGroup, sortScheduleTasks } from '@/lib/schedule-selectors';
+import { selectActiveTeamTodos } from '@/lib/todo-selectors';
 import { type MemberWorkGroup, selectActiveWorkGroups } from '@/lib/work-groups';
 import { getScheduleTaskPresentation } from '@/lib/schedule-presentation';
 import { useScheduleWeather } from '@/hooks/useScheduleWeather';
@@ -294,6 +295,10 @@ export default function SchedulePage() {
   }, [fetchData]);
 
   const activeWorkGroup = workGroups.find(group => group.key === activeWorkGroupKey);
+  const activeTeamTodos = useMemo(
+    () => selectActiveTeamTodos(todos, activeWorkGroup?.id ?? null),
+    [activeWorkGroup?.id, todos],
+  );
   const groupTasks = useMemo(
     () => selectScheduleTasksByWorkGroup(tasks, activeWorkGroup?.id,{members,users,memberships:groupMemberships,groups:workGroups}),
     [activeWorkGroup?.id, tasks,members,users,groupMemberships,workGroups],
@@ -423,8 +428,10 @@ export default function SchedulePage() {
           });
 
           if (convertingTodoId) {
-            setTodos(prev => prev.filter(t => t.id !== convertingTodoId));
             await dbAdapter.updateTodo(convertingTodoId, { status: '已排程', converted_task_id: newTask.id });
+            setTodos(prev => prev.map(todo => todo.id === convertingTodoId
+              ? { ...todo, status: '已排程', converted_task_id: newTask.id }
+              : todo));
             await dbAdapter.logActivity({
               actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
               action_type: 'TODO_TO_TASK', target_type: 'Todo', target_id: convertingTodoId, target_label: data.title,
@@ -803,7 +810,7 @@ export default function SchedulePage() {
             <button onClick={() => setIsTodoFormOpen(true)} disabled={currentUser?.role === 'VIEWER'} className="hover:bg-[var(--surface-secondary)] p-1 rounded disabled:opacity-50 disabled:cursor-not-allowed" title="新增待辦"><Plus size={16}/></button>
           </div>
           <div className="flex-1 p-2 flex flex-col gap-2 overflow-y-auto">
-            {todos.filter(todo => todo.status === '待安排' && todo.work_group_id === activeWorkGroup?.id).map(todo => {
+            {activeTeamTodos.map(todo => {
               const project = projects.find(candidate => candidate.id === todo.project_id);
               const projectName = project?.short_name || project?.name || '未指定案場';
 
@@ -830,7 +837,7 @@ export default function SchedulePage() {
                 </div>
               );
             })}
-            {todos.filter(todo => todo.status === '待安排' && todo.work_group_id === activeWorkGroup?.id).length === 0 && (
+            {activeTeamTodos.length === 0 && (
               <div className="text-xs text-[var(--text-muted)] text-center mt-4">無待辦事項</div>
             )}
           </div>

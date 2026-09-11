@@ -95,7 +95,7 @@ test('Dashboard uses the shared Todo adapters and keeps the route responsive', (
   assert.match(dashboard, /useState\(true\)/);
   assert.match(dashboard, /隱藏已完成/);
   assert.match(dashboard, /!hideCompletedPrivate \|\| todo\.status !== '已完成'/);
-  assert.match(dashboard, /!hideCompletedTeam \|\| todo\.status !== '已完成'/);
+  assert.match(dashboard, /selectActiveTeamTodos\(/);
   assert.doesNotMatch(layout, /min-w-\[1400px\]/);
   assert.match(layout, /pt-14 md:pt-0/);
 });
