@@ -13,6 +13,8 @@ export type ActivityActionType =
   | 'UPDATE_TASK'
   | 'COMPLETE_TASK'
   | 'RESCHEDULE_TASK'
+  | 'DRAG_MOVE_TASK'
+  | 'ASSIGNEE_CHANGE_TASK'
   | 'DELETE_TASK'
   | 'CREATE_TODO'
   | 'ASSIGN_TODO'

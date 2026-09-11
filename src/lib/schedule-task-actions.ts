@@ -16,11 +16,15 @@ export async function updateScheduleTaskWithActivity({
   task,
   data,
   memberIds,
+  previousMemberIds = [],
+  actionType,
   actor,
 }: {
   task: ScheduleTask;
   data: ScheduleTaskInput;
   memberIds: string[];
+  previousMemberIds?: string[];
+  actionType?: 'DRAG_MOVE_TASK';
   actor: ScheduleActor;
 }) {
   const safeData = { ...data, work_group_id: task.work_group_id };
@@ -30,11 +34,13 @@ export async function updateScheduleTaskWithActivity({
     || task.start_time !== safeData.start_time
     || task.end_time !== safeData.end_time
     || task.is_all_day !== safeData.is_all_day;
+  const assigneesChanged = task.main_assignee_id !== safeData.main_assignee_id
+    || [...memberIds].sort().join('|') !== [...previousMemberIds].sort().join('|');
 
   await dbAdapter.logActivity({
     actor_user_id: actorId(actor),
     actor_name: actorName(actor),
-    action_type: timingChanged ? 'RESCHEDULE_TASK' : 'UPDATE_TASK',
+    action_type: actionType || (timingChanged ? 'RESCHEDULE_TASK' : assigneesChanged ? 'ASSIGNEE_CHANGE_TASK' : 'UPDATE_TASK'),
     target_type: 'ScheduleTask',
     target_id: task.id,
     target_label: safeData.title,

@@ -2,10 +2,11 @@
 
 import { useEffect } from 'react';
 import { CalendarClock, CalendarDays, CheckCircle2, Clock3, Loader2, MapPin, Trash2, Users, X } from 'lucide-react';
-import type { Project, ScheduleTask, ScheduleTaskMember, User, WorkGroup } from '@/lib/db/types';
+import type { ActivityLog, Project, ScheduleTask, ScheduleTaskMember, User, WorkGroup } from '@/lib/db/types';
 import type { WeatherDisplay } from '@/lib/weather';
 import { formatScheduleTaskTime } from '@/lib/schedule-selectors';
 import { getScheduleCreationSourceLabel, getScheduleTaskPresentation } from '@/lib/schedule-presentation';
+import { getScheduleAuditPresentation } from '@/lib/schedule-audit';
 
 export function ScheduleTaskDetail({
   task,
@@ -13,6 +14,7 @@ export function ScheduleTaskDetail({
   users,
   members,
   workGroups = [],
+  activityLogs = [],
   weather,
   canMutate = false,
   actionPending = false,
@@ -26,6 +28,7 @@ export function ScheduleTaskDetail({
   users: User[];
   members: ScheduleTaskMember[];
   workGroups?: WorkGroup[];
+  activityLogs?: ActivityLog[];
   weather: WeatherDisplay | null;
   canMutate?: boolean;
   actionPending?: boolean;
@@ -35,6 +38,8 @@ export function ScheduleTaskDetail({
   onClose: () => void;
 }) {
   const display = getScheduleTaskPresentation(task, projects, users, members, workGroups);
+  const audit = getScheduleAuditPresentation(task, activityLogs);
+  const formatAuditTime=(value:string)=>new Intl.DateTimeFormat('zh-TW',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(value));
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -84,11 +89,12 @@ export function ScheduleTaskDetail({
           </div>
 
           <details className="mt-4 rounded-xl border border-[var(--border)] px-4 py-3 text-xs text-[var(--modal-muted)]">
-            <summary className="cursor-pointer font-semibold text-[var(--modal-text)]">更多資訊</summary>
+            <summary className="cursor-pointer font-semibold text-[var(--modal-text)]">查看歷程</summary>
             <dl className="mt-3 grid gap-2 sm:grid-cols-2">
               <SecondaryRow label="暫定" value={task.is_tentative ? '是' : '否'} />
-              <SecondaryRow label="建立者" value={task.created_by_name?.trim() || '未知'} />
+              <SecondaryRow label="建立" value={`${audit.creatorName} · ${formatAuditTime(audit.createdAt)}`} />
               <SecondaryRow label="來源" value={getScheduleCreationSourceLabel(task.creation_source)} />
+              <SecondaryRow label="最後修改" value={audit.lastBusinessModifiedAt ? `${audit.lastBusinessModifiedBy} · ${formatAuditTime(audit.lastBusinessModifiedAt)} · ${audit.lastBusinessModifiedAction}` : '尚無建立後的業務異動'} />
               <SecondaryRow label="同步狀態" value={task.google_sync_status || '未設定'} />
             </dl>
           </details>

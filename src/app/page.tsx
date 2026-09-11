@@ -16,7 +16,7 @@ import { ProjectOverviewCards } from '@/components/ProjectOverviewCards';
 import { workbenchAdapter } from '@/lib/db/workbench-adapter';
 import type { ProjectMilestone } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
-import type { MemberProjectResponsibility, Project, ScheduleTask, ScheduleTaskMember, Todo, WorkGroup } from '@/lib/db/types';
+import type { ActivityLog, MemberProjectResponsibility, Project, ScheduleTask, ScheduleTaskMember, Todo, WorkGroup } from '@/lib/db/types';
 import { buildDashboardProjectCards } from '@/lib/engineering-dashboard';
 import { presentBusinessDate } from '@/lib/date-presentation';
 import { formatScheduleTaskTime, selectTodayMemberSchedule } from '@/lib/schedule-selectors';
@@ -48,6 +48,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
   const [taskMembers, setTaskMembers] = useState<ScheduleTaskMember[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]);
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [responsibilities, setResponsibilities] = useState<MemberProjectResponsibility[]>([]);
   const [privateTodos, setPrivateTodos] = useState<Todo[]>([]);
   const [teamTodos, setTeamTodos] = useState<Todo[]>([]);
@@ -76,7 +77,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
       const groups = await dbAdapter.getWorkGroups();
       const engineeringGroup = groups.find(group => group.is_active && group.key === todoGroupKey);
       if (!engineeringGroup) throw new Error('找不到工程工作群組');
-      const [taskRows, memberRows, projectRows, responsibilityRows, privateRows, teamRows, workGroupRows] = await Promise.all([
+      const [taskRows, memberRows, projectRows, responsibilityRows, privateRows, teamRows, workGroupRows, activityRows] = await Promise.all([
         dbAdapter.getScheduleTasks(),
         dbAdapter.getScheduleTaskMembers(),
         dbAdapter.getProjects(),
@@ -84,6 +85,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
         dbAdapter.getPrivateTodos(),
         dbAdapter.getTodos(engineeringGroup.id),
         Promise.resolve(groups),
+        dbAdapter.getActivityLogs(),
       ]);
       setTasks(taskRows);
       setTaskMembers(memberRows);
@@ -94,6 +96,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
       setPrivateTodos(privateRows);
       setTeamTodos(teamRows);
       setWorkGroups(workGroupRows.filter(group => group.is_active));
+      setActivityLogs(activityRows);
     } catch (loadError) {
       console.error('Dashboard load failed:', loadError);
       setError(loadError instanceof Error ? loadError.message : '工程儀表載入失敗');
@@ -427,6 +430,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
           users={allUsers}
           members={taskMembers}
           workGroups={workGroups}
+          activityLogs={activityLogs}
           weather={getTaskWeatherDisplay(selectedTask)}
           canMutate={canMutateTodos}
           actionPending={taskActionPending}

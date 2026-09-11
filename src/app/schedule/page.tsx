@@ -10,6 +10,7 @@ import {
   type GoogleCalendarSyncSummary,
 } from '@/components/GoogleCalendarSyncDialogs';
 import { TodoForm } from '@/components/TodoForm';
+import { TodoTextEditDialog } from '@/components/TodoTextEditDialog';
 import { useWorkGroups } from '@/hooks/useWorkGroups';
 import { requireTodoWorkGroup } from '@/lib/work-groups';
 import { startOfWeek, endOfWeek, addDays, subDays, format, isSameDay, startOfMonth, endOfMonth } from 'date-fns';
@@ -139,6 +140,7 @@ export default function SchedulePage() {
 
   // Todo Modal
   const [isTodoFormOpen, setIsTodoFormOpen] = useState(false);
+  const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
 
   // Context Menu
   const [contextMenu, setContextMenu] = useState<{taskId: string, x: number, y: number} | null>(null);
@@ -378,6 +380,7 @@ export default function SchedulePage() {
             task: originalTask,
             data: safeData,
             memberIds: newMemberIds,
+            previousMemberIds: editingTaskMembers,
             actor: { id: currentUser?.id, name: currentUser?.name },
           });
           replaceTaskMembers(editingTask.id, newMemberIds);
@@ -585,11 +588,14 @@ export default function SchedulePage() {
         setTasks(prev => prev.map(t => t.id === dragId ? { ...t, task_date: dateStr } : t));
         
         try {
-          await dbAdapter.updateScheduleTask(dragId, { task_date: dateStr });
-          await dbAdapter.logActivity({
-            actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
-            action_type: 'RESCHEDULE_TASK', target_type: 'ScheduleTask', target_id: task.id, target_label: task.title,
-            project_id: task.project_id, project_name: '', before_value: originalDate, after_value: dateStr, message: '拖曳改期'
+          const taskMemberIds = members.filter(member => member.task_id === task.id).map(member => member.user_id);
+          await updateScheduleTaskWithActivity({
+            task,
+            data: {...task,task_date:dateStr},
+            memberIds: taskMemberIds,
+            previousMemberIds: taskMemberIds,
+            actionType: 'DRAG_MOVE_TASK',
+            actor: {id:currentUser?.id,name:currentUser?.name},
           });
           // Optimistic update succeeded, we can fetch later silently
           fetchData(false);
@@ -820,6 +826,7 @@ export default function SchedulePage() {
                   <div className="text-xs font-semibold text-amber-300 truncate">{projectName}</div>
                   <div className="text-xs mt-1 font-bold text-[var(--accent)] truncate">[{todo.task_type || '未分類'}]</div>
                   <div className="text-xs mt-0.5 text-[var(--text-primary)] truncate">{todo.title}</div>
+                  <button type="button" aria-label={`編輯待辦：${todo.title}`} className="mt-1 ml-auto flex min-h-10 min-w-10 items-center justify-center rounded text-lg md:hidden" onClick={event=>{event.stopPropagation();setEditingTodo(todo);}}>⋯</button>
                 </div>
               );
             })}
@@ -1216,24 +1223,7 @@ export default function SchedulePage() {
           style={{ top: todoContextMenu.y, left: todoContextMenu.x }}
         >
           {todoContextMenu.todoId ? (
-            <button 
-              className="w-full text-left px-4 py-2 hover:bg-[var(--surface-secondary)] text-[var(--danger)] disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={currentUser?.role === 'VIEWER'}
-              onClick={async (e) => {
-                e.stopPropagation();
-                const id = todoContextMenu.todoId;
-                if (!id) return;
-                setTodoContextMenu(null);
-                setTodos(prev => prev.filter(t => t.id !== id));
-                await dbAdapter.deleteTodo(id);
-                await dbAdapter.logActivity({
-                  actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
-                  action_type: 'DELETE_TASK', target_type: 'Todo', target_id: id, target_label: '已刪除',
-                  project_id: null, project_name: '', before_value: null, after_value: '刪除', message: '刪除待辦'
-                });
-                await fetchData(false);
-              }}
-            >刪除待辦</button>
+            <button className="w-full text-left px-4 py-2 hover:bg-[var(--surface-secondary)] text-[var(--accent)] disabled:opacity-50 disabled:cursor-not-allowed" disabled={currentUser?.role === 'VIEWER'} onClick={event=>{event.stopPropagation();const todo=todos.find(item=>item.id===todoContextMenu.todoId);setTodoContextMenu(null);if(todo)setEditingTodo(todo);}}>編輯待辦</button>
           ) : (
             <button 
               className="w-full text-left px-4 py-2 hover:bg-[var(--surface-secondary)] text-[var(--accent)] disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1278,6 +1268,7 @@ export default function SchedulePage() {
           </div>
         </div>
       )}
+      {editingTodo && <TodoTextEditDialog todo={editingTodo} onClose={()=>setEditingTodo(null)} onSaved={async()=>{await fetchData(false);}} />}
     </div>
   );
 }
