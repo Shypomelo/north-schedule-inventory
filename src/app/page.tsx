@@ -9,9 +9,16 @@ import { ScheduleTaskDetail } from '@/components/ScheduleTaskDetail';
 import { ScheduleTaskFormDialog } from '@/components/ScheduleTaskFormDialog';
 import { useUser } from '@/components/UserContext';
 import { TodoTextEditDialog } from '@/components/TodoTextEditDialog';
+import { TodoInlineText } from '@/components/TodoInlineText';
+import { useDashboardView } from '@/components/DashboardViewContext';
+import { DesignWorkbench } from '@/components/DesignWorkbench';
+import { ProjectOverviewCards } from '@/components/ProjectOverviewCards';
+import { workbenchAdapter } from '@/lib/db/workbench-adapter';
+import type { ProjectMilestone } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import type { MemberProjectResponsibility, Project, ScheduleTask, ScheduleTaskMember, Todo, WorkGroup } from '@/lib/db/types';
 import { buildDashboardProjectCards } from '@/lib/engineering-dashboard';
+import { presentBusinessDate } from '@/lib/date-presentation';
 import { formatScheduleTaskTime, selectTodayMemberSchedule } from '@/lib/schedule-selectors';
 import { getScheduleTaskPresentation } from '@/lib/schedule-presentation';
 import { useScheduleWeather } from '@/hooks/useScheduleWeather';
@@ -25,7 +32,16 @@ import {
 type MobileDashboardPage = 'schedule' | 'projects' | 'todos';
 type MobileTodoPage = 'private' | 'team';
 
-export default function EngineeringDashboardPage() {
+export default function DashboardPage() {
+  const {selected,loading,error}=useDashboardView();
+  if(loading)return <p className="p-5">載入工作視角…</p>;
+  if(error||!selected)return <p role="alert" className="p-5">{error||'未指派啟用工作視角'}</p>;
+  return selected.key==='DESIGN'?<DesignWorkbench/>:<EngineeringDashboardPage key={selected.key} projectManagement={selected.key==='PROJECT_MANAGEMENT'}/>;
+}
+
+function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:boolean}) {
+  const todoGroupKey=projectManagement?'PROJECT':'ENGINEERING';
+  const [overviewMilestones,setOverviewMilestones]=useState<ProjectMilestone[]>([]);
   const { currentUser, allUsers } = useUser();
   const [tasks, setTasks] = useState<ScheduleTask[]>([]);
   const [taskMembers, setTaskMembers] = useState<ScheduleTaskMember[]>([]);
@@ -57,7 +73,7 @@ export default function EngineeringDashboardPage() {
     setError(null);
     try {
       const groups = await dbAdapter.getWorkGroups();
-      const engineeringGroup = groups.find(group => group.key === 'ENGINEERING');
+      const engineeringGroup = groups.find(group => group.key === todoGroupKey);
       if (!engineeringGroup) throw new Error('找不到工程工作群組');
       const [taskRows, memberRows, projectRows, responsibilityRows, privateRows, teamRows, workGroupRows] = await Promise.all([
         dbAdapter.getScheduleTasks(),
@@ -71,6 +87,7 @@ export default function EngineeringDashboardPage() {
       setTasks(taskRows);
       setTaskMembers(memberRows);
       setProjects(projectRows);
+      if(projectManagement)setOverviewMilestones(await workbenchAdapter.getMilestones(projectRows.map(project=>project.id)));
       setResponsibilities(responsibilityRows);
       setPrivateTodos(privateRows);
       setTeamTodos(teamRows);
@@ -81,7 +98,7 @@ export default function EngineeringDashboardPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [currentUser]);
+  }, [currentUser,projectManagement,todoGroupKey]);
 
   useEffect(() => {
     if (currentUser) void loadDashboard();
@@ -124,7 +141,7 @@ export default function EngineeringDashboardPage() {
     setSavingKey('team-new');
     try {
       await dbAdapter.createTodo({
-        work_group_id: workGroups.find(group => group.key === 'ENGINEERING')?.id || null,
+        work_group_id: workGroups.find(group => group.key === todoGroupKey)?.id || null,
         title,
         content: null,
         project_id: null,
@@ -237,7 +254,7 @@ export default function EngineeringDashboardPage() {
       <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-accent">Engineering overview</p>
-          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">工程儀表</h1>
+          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">{projectManagement?'專案管理儀表':'工程儀表'}</h1>
         </div>
         <div className="text-right">
           <div className="font-semibold">{format(new Date(), 'M月d日 EEEE', { locale: zhTW })}</div>
@@ -249,7 +266,7 @@ export default function EngineeringDashboardPage() {
 
       <nav className="mb-4 grid grid-cols-3 rounded-xl border border-theme-border bg-card p-1 md:hidden" aria-label="工程儀表頁面" role="tablist">
         <MobileTab active={mobilePage === 'schedule'} onClick={() => setMobilePage('schedule')}>今日排程</MobileTab>
-        <MobileTab active={mobilePage === 'projects'} onClick={() => setMobilePage('projects')}>專案進度</MobileTab>
+        <MobileTab active={mobilePage === 'projects'} onClick={() => setMobilePage('projects')}>{projectManagement?'案件進度':'專案進度'}</MobileTab>
         <MobileTab active={mobilePage === 'todos'} onClick={() => setMobilePage('todos')}>TODO</MobileTab>
       </nav>
 
@@ -315,7 +332,7 @@ export default function EngineeringDashboardPage() {
           )}
         </DashboardSection>
 
-        <DashboardSection icon={<BriefcaseBusiness size={18} />} title="我的專案進度" count={projectCards.length} className={`${mobilePage === 'projects' ? 'block' : 'hidden'} md:block`}>
+        {projectManagement?<DashboardSection icon={<BriefcaseBusiness size={18}/>} title="案件進度" count={projects.length} className={`${mobilePage==='projects'?'block':'hidden'} md:block`}><ProjectOverviewCards projects={projects} milestones={overviewMilestones} onOpen={(project,milestoneId)=>setSelectedProject({project,milestoneId})}/></DashboardSection>:<DashboardSection icon={<BriefcaseBusiness size={18} />} title="我的專案進度" count={projectCards.length} className={`${mobilePage === 'projects' ? 'block' : 'hidden'} md:block`}>
           {projectCards.length === 0 ? <EmptyState text="目前沒有指派中的專案" /> : (
             <div className="space-y-3">
               {projectCards.map(card => {
@@ -343,7 +360,7 @@ export default function EngineeringDashboardPage() {
                           <div className="min-w-0 text-sm">
                             <div className="flex gap-2 text-secondary"><span className="shrink-0">前項</span><span className="truncate text-primary/70">{group.previous?.label || '—'}</span></div>
                             <div className="mt-1 flex gap-2"><span className="shrink-0 font-semibold text-accent">目前</span><span className="truncate font-semibold">{group.current?.label || '已完成'}</span></div>
-                            <div className="mt-1 flex gap-2 text-secondary"><span className="shrink-0">預計</span><span className={group.current?.planned_date && group.current.planned_date < today ? 'font-semibold text-danger' : ''}>{group.current?.planned_date || '未設定'}</span></div>
+                            <div className="mt-1 text-secondary">{presentBusinessDate({planned:group.current?.planned_date,actual:group.current?.actual_date,completed:group.current?.status==='COMPLETED',today}).label}</div>
                           </div>
                         </div>
                       ))}
@@ -355,6 +372,7 @@ export default function EngineeringDashboardPage() {
           )}
         </DashboardSection>
 
+        }
         <div className={`${mobilePage === 'todos' ? 'block' : 'hidden'} space-y-5 md:col-span-2 md:block min-[1100px]:col-span-1`}>
           <nav className="grid grid-cols-2 rounded-xl border border-theme-border bg-card p-1 md:hidden" aria-label="TODO 類型" role="tablist">
             <MobileTab active={mobileTodoPage === 'private'} onClick={() => setMobileTodoPage('private')}>我的</MobileTab>
@@ -363,7 +381,7 @@ export default function EngineeringDashboardPage() {
           <DashboardSection icon={<ListTodo size={18} />} title="我的 TODO" count={visiblePrivateTodos.length} className={`${mobileTodoPage === 'private' ? 'block' : 'hidden'} md:block`}>
             <HideCompletedToggle checked={hideCompletedPrivate} onChange={setHideCompletedPrivate} />
             <TodoComposer value={privateTitle} onChange={setPrivateTitle} onSubmit={createPrivateTodo} placeholder="新增私人記事…" disabled={!canMutateTodos} isSaving={savingKey === 'private-new'} />
-            <TodoList todos={visiblePrivateTodos} emptyText={hideCompletedPrivate ? '沒有未完成的私人記事' : '目前沒有私人記事'} savingKey={savingKey} onComplete={completePrivateTodo} onEdit={setEditingTodo} disabled={!canMutateTodos} />
+            <TodoList todos={visiblePrivateTodos} emptyText={hideCompletedPrivate ? '沒有未完成的私人記事' : '目前沒有私人記事'} savingKey={savingKey} onComplete={completePrivateTodo} onEdit={setEditingTodo} onSaved={loadDashboard} disabled={!canMutateTodos} />
           </DashboardSection>
 
           <DashboardSection icon={<Users size={18} />} title="團隊 TODO" count={visibleTeamTodos.length} actionHref="/schedule" actionLabel="週排程待辦" className={`${mobileTodoPage === 'team' ? 'block' : 'hidden'} md:block`}>
@@ -372,6 +390,7 @@ export default function EngineeringDashboardPage() {
             <TodoList
               todos={visibleTeamTodos}
               onEdit={setEditingTodo}
+              onSaved={loadDashboard}
               emptyText={hideCompletedTeam ? '目前沒有未完成的團隊待辦' : '目前沒有團隊待辦'}
               savingKey={savingKey}
               onComplete={completeTeamTodo}
@@ -493,7 +512,8 @@ function TodoComposer({ value, onChange, onSubmit, placeholder, disabled, isSavi
   );
 }
 
-function TodoList({ todos, emptyText, savingKey, onComplete, onEdit, disabled, secondary }: {
+function TodoList({ todos, emptyText, savingKey, onComplete, onEdit, onSaved, disabled, secondary }: {
+  onSaved: () => Promise<void>;
   todos: Todo[];
   emptyText: string;
   savingKey: string | null;
@@ -510,15 +530,13 @@ function TodoList({ todos, emptyText, savingKey, onComplete, onEdit, disabled, s
         const isCompleted = todo.status === '已完成';
         return (
           <div key={todo.id} className="flex items-start gap-3 py-3 first:pt-1 last:pb-0">
-            <button type="button" onClick={() => void onComplete(todo)} disabled={disabled || isCompleted || savingKey === todo.id} aria-label={isCompleted ? `${todo.title} 已完成` : `完成 ${todo.title}`} className="mt-0.5 shrink-0 rounded-full text-secondary transition hover:text-accent disabled:opacity-60">
+            <button type="button" onClick={() => void onComplete(todo)} disabled={disabled || isCompleted || todo.status === '已收納' || savingKey === todo.id} aria-label={isCompleted ? `${todo.title} 已完成` : `完成 ${todo.title}`} className="mt-0.5 shrink-0 rounded-full text-secondary transition hover:text-accent disabled:opacity-60">
               {savingKey === todo.id ? <Loader2 className="animate-spin" size={20} /> : isCompleted ? <CheckCircle2 className="text-accent" size={20} /> : <Circle size={20} />}
             </button>
             <div className="min-w-0 flex-1">
-              <div className={`break-words text-sm font-medium leading-5 ${isCompleted ? 'text-secondary line-through' : ''}`}>{todo.title}</div>
+              <TodoInlineText todo={todo} onSaved={onSaved}/>
               {detail ? <div className="mt-1 truncate text-xs text-secondary">{detail}</div> : null}
-              {todo.content && <p className="mt-1 break-words text-xs text-secondary">{todo.content}</p>}
             </div>
-            <button type="button" onClick={() => onEdit(todo)} disabled={disabled} aria-label={`編輯 ${todo.title}`} className="min-h-11 shrink-0 rounded px-2 text-sm text-accent disabled:opacity-50">編輯</button>
           </div>
         );
       })}

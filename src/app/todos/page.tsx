@@ -10,6 +10,7 @@ import { useUser } from '@/components/UserContext';
 import { useWorkGroups } from '@/hooks/useWorkGroups';
 import { requireTodoWorkGroup } from '@/lib/work-groups';
 import { TodoTextEditDialog } from '@/components/TodoTextEditDialog';
+import { TodoInlineText } from '@/components/TodoInlineText';
 
 export default function TodosPage() {
   const { currentUser } = useUser();
@@ -132,14 +133,13 @@ export default function TodosPage() {
               <div key={todo.id} className={`bg-card/50 border border-theme-border p-4 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${todo.status === '已排程' ? 'opacity-50' : 'hover:border-accent/50'}`}>
                 <div className="min-w-0 flex-1">
                   <div className="mb-1 flex flex-wrap items-center gap-3">
-                    <h3 className="break-words font-semibold text-lg text-primary">{todo.title}</h3>
+                    <TodoInlineText todo={todo} onSaved={fetchData}/>
                     <span className={`text-xs px-2 py-0.5 rounded-full ${todo.status === '待安排' ? 'bg-warning/20 text-warning' : 'bg-secondary/20 text-secondary'}`}>
                       {todo.status}
                     </span>
                     {todo.task_type && <span className="text-xs bg-accent/20 text-accent px-2 py-0.5 rounded-full">{todo.task_type}</span>}
                   </div>
                   {proj && <div className="text-sm text-accent mb-2">📍 {proj.name}</div>}
-                  {todo.content && <p className="text-secondary text-sm whitespace-pre-wrap">{todo.content}</p>}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   {todo.status === '待安排' && (

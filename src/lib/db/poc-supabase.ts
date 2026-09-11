@@ -67,6 +67,7 @@ const mapUser = (row: any): User => ({
 });
 
 const mapTodo = (row: any): Todo => ({
+  received_at: row.received_at || null,
   id: row.id,
   work_group_id: row.work_group_id || null,
   title: row.title || '',
