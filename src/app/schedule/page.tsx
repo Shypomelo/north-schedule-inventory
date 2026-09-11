@@ -23,6 +23,7 @@ import { selectActiveTeamTodos } from '@/lib/todo-selectors';
 import { type MemberWorkGroup, selectActiveWorkGroups } from '@/lib/work-groups';
 import { getScheduleTaskPresentation } from '@/lib/schedule-presentation';
 import { useScheduleWeather } from '@/hooks/useScheduleWeather';
+import { TEAM_TODO_CARD_CLASS } from '@/lib/todo-presentation';
 import {
   completeScheduleTaskWithActivity,
   confirmScheduleTaskDeletion,
@@ -552,6 +553,18 @@ export default function SchedulePage() {
     }
   };
 
+  const handleDeleteTodo = async (todo: Todo) => {
+    if (currentUser?.role === 'VIEWER' || !window.confirm(`確定要刪除「${todo.title}」嗎？`)) return;
+    setIsSubmitting(true);
+    try {
+      await dbAdapter.deleteTodo(todo.id);
+      await fetchData(false);
+    } catch (deleteError) {
+      console.error('刪除待辦失敗', deleteError);
+      setError('待辦刪除失敗，請重新整理後重試');
+    } finally { setIsSubmitting(false); }
+  };
+
   const handleDragStart = (e: React.DragEvent, id: string, type: 'task' | 'todo') => {
     const data = JSON.stringify({ dragId: id, dragType: type });
     e.dataTransfer.setData('application/x-schedule-item', data);
@@ -828,12 +841,12 @@ export default function SchedulePage() {
                     setDayContextMenu(null);
                     setTodoContextMenu({ todoId: todo.id, x: event.clientX, y: event.clientY });
                   }}
-                  className="p-2 rounded border border-[var(--warning)] bg-[var(--surface)] shadow-sm cursor-pointer hover:border-[var(--accent)] transition"
+                  className={`${TEAM_TODO_CARD_CLASS} cursor-pointer p-2`}
                 >
                   <div className="text-xs font-semibold text-amber-300 truncate">{projectName}</div>
                   <div className="text-xs mt-1 font-bold text-[var(--accent)] truncate">[{todo.task_type || '未分類'}]</div>
                   <div className="text-xs mt-0.5 text-[var(--text-primary)] truncate">{todo.title}</div>
-                  <button type="button" aria-label={`編輯待辦：${todo.title}`} className="mt-1 ml-auto flex min-h-10 min-w-10 items-center justify-center rounded text-lg md:hidden" onClick={event=>{event.stopPropagation();setEditingTodo(todo);}}>⋯</button>
+                  <button type="button" aria-label={`待辦操作：${todo.title}`} className="mt-1 ml-auto flex min-h-10 min-w-10 items-center justify-center rounded text-lg md:hidden" onClick={event=>{event.stopPropagation();const rect=event.currentTarget.getBoundingClientRect();setTodoContextMenu({todoId:todo.id,x:rect.right-120,y:rect.bottom});}}>⋯</button>
                 </div>
               );
             })}
@@ -1230,7 +1243,10 @@ export default function SchedulePage() {
           style={{ top: todoContextMenu.y, left: todoContextMenu.x }}
         >
           {todoContextMenu.todoId ? (
-            <button className="w-full text-left px-4 py-2 hover:bg-[var(--surface-secondary)] text-[var(--accent)] disabled:opacity-50 disabled:cursor-not-allowed" disabled={currentUser?.role === 'VIEWER'} onClick={event=>{event.stopPropagation();const todo=todos.find(item=>item.id===todoContextMenu.todoId);setTodoContextMenu(null);if(todo)setEditingTodo(todo);}}>編輯待辦</button>
+            <>
+              <button className="w-full text-left px-4 py-2 hover:bg-[var(--surface-secondary)] text-[var(--accent)] disabled:opacity-50 disabled:cursor-not-allowed" disabled={currentUser?.role === 'VIEWER'} onClick={event=>{event.stopPropagation();const todo=todos.find(item=>item.id===todoContextMenu.todoId);setTodoContextMenu(null);if(todo)setEditingTodo(todo);}}>編輯待辦</button>
+              <button className="w-full text-left px-4 py-2 hover:bg-[var(--surface-secondary)] text-[var(--danger)] disabled:opacity-50 disabled:cursor-not-allowed" disabled={currentUser?.role === 'VIEWER'} onClick={event=>{event.stopPropagation();const todo=todos.find(item=>item.id===todoContextMenu.todoId);setTodoContextMenu(null);if(todo)void handleDeleteTodo(todo);}}>刪除待辦</button>
+            </>
           ) : (
             <button 
               className="w-full text-left px-4 py-2 hover:bg-[var(--surface-secondary)] text-[var(--accent)] disabled:opacity-50 disabled:cursor-not-allowed"

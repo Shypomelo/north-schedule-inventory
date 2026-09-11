@@ -24,6 +24,7 @@ import { getScheduleTaskPresentation } from '@/lib/schedule-presentation';
 import { isActiveProject, selectActiveProjects } from '@/lib/project-selectors';
 import { selectActiveTeamTodos } from '@/lib/todo-selectors';
 import { useScheduleWeather } from '@/hooks/useScheduleWeather';
+import { TEAM_TODO_CARD_CLASS } from '@/lib/todo-presentation';
 import {
   completeScheduleTaskWithActivity,
   confirmScheduleTaskDeletion,
@@ -195,6 +196,18 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
     } finally {
       setSavingKey(null);
     }
+  };
+
+  const deleteTodo = async (todo: Todo) => {
+    if (!canMutateTodos || !window.confirm(`確定要刪除「${todo.title}」嗎？`)) return;
+    setSavingKey(todo.id);
+    try {
+      if (todo.scope === 'PRIVATE') await dbAdapter.deletePrivateTodo(todo.id);
+      else await dbAdapter.deleteTodo(todo.id);
+      await loadDashboard();
+    } catch (mutationError) {
+      setError(mutationError instanceof Error ? mutationError.message : '待辦刪除失敗');
+    } finally { setSavingKey(null); }
   };
 
   const scheduleActor = { id: currentUser?.id, name: currentUser?.name };
@@ -381,22 +394,23 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
         </DashboardSection>
 
         }
-        <div className={`${mobilePage === 'todos' ? 'block' : 'hidden'} space-y-5 md:col-span-2 md:block min-[1100px]:col-span-1 min-[1100px]:h-full min-[1100px]:min-h-0 min-[1100px]:overflow-y-auto`}>
+        <div className={`${mobilePage === 'todos' ? 'block' : 'hidden'} space-y-5 md:col-span-2 md:block min-[1100px]:col-span-1 min-[1100px]:grid min-[1100px]:h-full min-[1100px]:min-h-0 min-[1100px]:grid-rows-2 min-[1100px]:gap-5 min-[1100px]:space-y-0 min-[1100px]:overflow-hidden`}>
           <nav className="grid grid-cols-2 rounded-xl border border-theme-border bg-card p-1 md:hidden" aria-label="TODO 類型" role="tablist">
             <MobileTab active={mobileTodoPage === 'private'} onClick={() => setMobileTodoPage('private')}>我的</MobileTab>
             <MobileTab active={mobileTodoPage === 'team'} onClick={() => setMobileTodoPage('team')}>團隊</MobileTab>
           </nav>
-          <DashboardSection icon={<ListTodo size={18} />} title="我的 TODO" count={visiblePrivateTodos.length} className={`${mobileTodoPage === 'private' ? 'block' : 'hidden'} md:block`}>
+          <DashboardSection icon={<ListTodo size={18} />} title="我的 TODO" count={visiblePrivateTodos.length} className={`${mobileTodoPage === 'private' ? 'block' : 'hidden'} md:block min-[1100px]:min-h-0 min-[1100px]:overflow-y-auto`}>
             <HideCompletedToggle checked={hideCompletedPrivate} onChange={setHideCompletedPrivate} />
             <TodoComposer value={privateTitle} onChange={setPrivateTitle} onSubmit={createPrivateTodo} placeholder="新增私人記事…" disabled={!canMutateTodos} isSaving={savingKey === 'private-new'} />
-            <TodoList todos={visiblePrivateTodos} emptyText={hideCompletedPrivate ? '沒有未完成的私人記事' : '目前沒有私人記事'} savingKey={savingKey} onComplete={completePrivateTodo} onEdit={setEditingTodo} onSaved={loadDashboard} disabled={!canMutateTodos} />
+            <TodoList todos={visiblePrivateTodos} emptyText={hideCompletedPrivate ? '沒有未完成的私人記事' : '目前沒有私人記事'} savingKey={savingKey} onComplete={completePrivateTodo} onEdit={setEditingTodo} onDelete={deleteTodo} onSaved={loadDashboard} disabled={!canMutateTodos} />
           </DashboardSection>
 
-          <DashboardSection icon={<Users size={18} />} title="團隊 TODO" count={visibleTeamTodos.length} actionHref="/schedule" actionLabel="週排程待辦" className={`${mobileTodoPage === 'team' ? 'block' : 'hidden'} md:block`}>
+          <DashboardSection icon={<Users size={18} />} title="團隊 TODO" count={visibleTeamTodos.length} actionHref="/schedule" actionLabel="週排程待辦" className={`${mobileTodoPage === 'team' ? 'block' : 'hidden'} md:block min-[1100px]:min-h-0 min-[1100px]:overflow-y-auto`}>
             <TodoComposer value={teamTitle} onChange={setTeamTitle} onSubmit={createTeamTodo} placeholder="新增團隊待辦…" disabled={!canMutateTodos} isSaving={savingKey === 'team-new'} />
             <TodoList
               todos={visibleTeamTodos}
               onEdit={setEditingTodo}
+              onDelete={deleteTodo}
               onSaved={loadDashboard}
               emptyText="目前沒有待安排的團隊待辦"
               savingKey={savingKey}
@@ -520,16 +534,24 @@ function TodoComposer({ value, onChange, onSubmit, placeholder, disabled, isSavi
   );
 }
 
-function TodoList({ todos, emptyText, savingKey, onComplete, onEdit, onSaved, disabled, secondary }: {
+function TodoList({ todos, emptyText, savingKey, onComplete, onEdit, onDelete, onSaved, disabled, secondary }: {
   onSaved: () => Promise<void>;
   todos: Todo[];
   emptyText: string;
   savingKey: string | null;
   onComplete: (todo: Todo) => Promise<void>;
   onEdit: (todo: Todo) => void;
+  onDelete: (todo: Todo) => Promise<void>;
   disabled?: boolean;
   secondary?: (todo: Todo) => string;
 }) {
+  const [menu, setMenu] = useState<{ todo: Todo; x: number; y: number } | null>(null);
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [menu]);
   if (todos.length === 0) return <p className="py-4 text-center text-sm text-secondary">{emptyText}</p>;
   return (
     <div className="divide-y divide-theme-border/70">
@@ -537,7 +559,7 @@ function TodoList({ todos, emptyText, savingKey, onComplete, onEdit, onSaved, di
         const detail = secondary?.(todo);
         const isCompleted = todo.status === '已完成';
         return (
-          <div key={todo.id} className="flex items-start gap-3 py-3 first:pt-1 last:pb-0">
+          <div key={todo.id} onContextMenu={event => { event.preventDefault(); if (!disabled) setMenu({ todo, x: event.clientX, y: event.clientY }); }} className={`${TEAM_TODO_CARD_CLASS} my-2 flex items-start gap-3 p-3`}>
             <button type="button" onClick={() => void onComplete(todo)} disabled={disabled || isCompleted || todo.status === '已收納' || savingKey === todo.id} aria-label={isCompleted ? `${todo.title} 已完成` : `完成 ${todo.title}`} className="mt-0.5 shrink-0 rounded-full text-secondary transition hover:text-accent disabled:opacity-60">
               {savingKey === todo.id ? <Loader2 className="animate-spin" size={20} /> : isCompleted ? <CheckCircle2 className="text-accent" size={20} /> : <Circle size={20} />}
             </button>
@@ -545,9 +567,14 @@ function TodoList({ todos, emptyText, savingKey, onComplete, onEdit, onSaved, di
               <TodoInlineText todo={todo} onSaved={onSaved}/>
               {detail ? <div className="mt-1 truncate text-xs text-secondary">{detail}</div> : null}
             </div>
+            <button type="button" disabled={disabled} aria-label={`${todo.title} 更多操作`} onClick={event => { event.stopPropagation(); const rect=event.currentTarget.getBoundingClientRect(); setMenu({todo,x:rect.right-128,y:rect.bottom}); }} className="flex min-h-10 min-w-10 items-center justify-center rounded text-lg disabled:opacity-50 md:hidden">⋯</button>
           </div>
         );
       })}
+      {menu && <div role="menu" className="fixed z-[90] min-w-32 rounded-lg border border-theme-border bg-card p-1 text-sm shadow-xl" style={{left:menu.x,top:menu.y}} onClick={event=>event.stopPropagation()}>
+        {menu.todo.scope === 'TEAM' && <button role="menuitem" type="button" onClick={()=>{onEdit(menu.todo);setMenu(null);}} className="min-h-10 w-full rounded px-3 text-left hover:bg-page">編輯</button>}
+        <button role="menuitem" type="button" onClick={()=>{const todo=menu.todo;setMenu(null);void onDelete(todo);}} className="min-h-10 w-full rounded px-3 text-left text-danger hover:bg-danger/10">刪除</button>
+      </div>}
     </div>
   );
 }
