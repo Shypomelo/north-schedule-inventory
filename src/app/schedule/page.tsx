@@ -18,7 +18,7 @@ import { useUser } from '@/components/UserContext';
 import { getDatabaseErrorMessage, isMissingCoreTablesError } from '@/lib/db/supabase-errors';
 import { supabase } from '@/lib/db/supabaseClient';
 import { formatScheduleTaskTime, selectScheduleTasksByWorkGroup, sortScheduleTasks } from '@/lib/schedule-selectors';
-import type { MemberWorkGroup } from '@/lib/work-groups';
+import { type MemberWorkGroup, selectActiveWorkGroups } from '@/lib/work-groups';
 import { getScheduleTaskPresentation } from '@/lib/schedule-presentation';
 import { useScheduleWeather } from '@/hooks/useScheduleWeather';
 import {
@@ -119,10 +119,10 @@ export default function SchedulePage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]);
-  const [activeWorkGroupKey, setActiveWorkGroupKey] = useState<WorkGroupKey>('ENGINEERING');
+  const [activeWorkGroupKey, setActiveWorkGroupKey] = useState<WorkGroupKey | null>('ENGINEERING');
   useEffect(() => {
-    if (workspace.ready && workspace.defaultGroup && currentUser?.id !== initializedMember) {
-      setActiveWorkGroupKey(workspace.defaultGroup.key);
+    if (workspace.ready && currentUser?.id !== initializedMember) {
+      setActiveWorkGroupKey(workspace.defaultGroup?.key ?? null);
       setInitializedMember(currentUser?.id);
     }
   }, [workspace.ready, workspace.defaultGroup, currentUser?.id, initializedMember]);
@@ -256,7 +256,7 @@ export default function SchedulePage() {
             return [];
           }),
           dbAdapter.getUsers().catch(e => { console.error('Users error:', e); return []; }),
-          dbAdapter.getWorkGroups().then(groups => Promise.all(groups.map(group => dbAdapter.getTodos(group.id)))).then(rows => rows.flat()).catch(e => { console.error('Todos error:', e); return []; }),
+          dbAdapter.getWorkGroups().then(groups => Promise.all(selectActiveWorkGroups(groups).map(group => dbAdapter.getTodos(group.id)))).then(rows => rows.flat()).catch(e => { console.error('Todos error:', e); return []; }),
           dbAdapter.getWorkGroups(),
           dbAdapter.getMemberWorkGroups()
         ]),
@@ -268,7 +268,7 @@ export default function SchedulePage() {
       setProjects(p);
       setUsers(u);
       setTodos(td);
-      setWorkGroups(wg);
+      setWorkGroups(selectActiveWorkGroups(wg));
       setGroupMemberships(memberships);
 
       if (showLoading) setIsLoading(false);
@@ -293,8 +293,8 @@ export default function SchedulePage() {
 
   const activeWorkGroup = workGroups.find(group => group.key === activeWorkGroupKey);
   const groupTasks = useMemo(
-    () => selectScheduleTasksByWorkGroup(tasks, activeWorkGroup?.id,{members,users,memberships:groupMemberships,groupKey:activeWorkGroup?.key}),
-    [activeWorkGroup?.id, activeWorkGroup?.key, tasks,members,users,groupMemberships],
+    () => selectScheduleTasksByWorkGroup(tasks, activeWorkGroup?.id,{members,users,memberships:groupMemberships,groups:workGroups}),
+    [activeWorkGroup?.id, tasks,members,users,groupMemberships,workGroups],
   );
 
   useEffect(() => {
@@ -453,7 +453,7 @@ export default function SchedulePage() {
         const dateStr = format(selectedDayTasks.date, 'yyyy-MM-dd');
         setSelectedDayTasks({
           date: selectedDayTasks.date,
-          tasks: sortTasks(selectScheduleTasksByWorkGroup(freshTasks,activeWorkGroup?.id,{members,users,memberships:groupMemberships,groupKey:activeWorkGroup?.key}).filter(t => t.task_date === dateStr))
+            tasks: sortTasks(selectScheduleTasksByWorkGroup(freshTasks,activeWorkGroup?.id,{members,users,memberships:groupMemberships,groups:workGroups}).filter(t => t.task_date === dateStr))
         });
       }
 
@@ -604,7 +604,7 @@ export default function SchedulePage() {
           const freshTasks = await dbAdapter.getScheduleTasks();
           setSelectedDayTasks(prev => prev ? {
             date: prev.date,
-            tasks: sortTasks(selectScheduleTasksByWorkGroup(freshTasks,activeWorkGroup?.id,{members,users,memberships:groupMemberships,groupKey:activeWorkGroup?.key}).filter(t => t.task_date === format(prev.date, 'yyyy-MM-dd')))
+            tasks: sortTasks(selectScheduleTasksByWorkGroup(freshTasks,activeWorkGroup?.id,{members,users,memberships:groupMemberships,groups:workGroups}).filter(t => t.task_date === format(prev.date, 'yyyy-MM-dd')))
           } : null);
         }
       } else if (dragType === 'todo') {
@@ -652,7 +652,7 @@ export default function SchedulePage() {
         const freshTasks = await dbAdapter.getScheduleTasks();
         setSelectedDayTasks(prev => prev ? {
           date: prev.date,
-          tasks: sortTasks(selectScheduleTasksByWorkGroup(freshTasks,activeWorkGroup?.id,{members,users,memberships:groupMemberships,groupKey:activeWorkGroup?.key}).filter(t => t.task_date === format(prev.date, 'yyyy-MM-dd')))
+          tasks: sortTasks(selectScheduleTasksByWorkGroup(freshTasks,activeWorkGroup?.id,{members,users,memberships:groupMemberships,groups:workGroups}).filter(t => t.task_date === format(prev.date, 'yyyy-MM-dd')))
         } : null);
       }
     } catch(err) {
@@ -838,7 +838,7 @@ export default function SchedulePage() {
         <div className="flex flex-wrap items-center gap-3 lg:gap-6">
           <h1 className="w-full text-2xl font-bold text-[var(--text-primary)] sm:w-auto sm:text-3xl">排程管理</h1>
 
-          <div className="flex rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1" role="tablist" aria-label="排程群組">
+          {!workspace.configurationRequired && <div className="flex rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1" role="tablist" aria-label="排程群組">
             {workGroups.filter(group => group.key === 'ENGINEERING' || group.key === 'PROJECT').map(group => (
               <button
                 key={group.id}
@@ -851,7 +851,7 @@ export default function SchedulePage() {
                 {group.key === 'ENGINEERING' ? '工程排程' : '專案排程'}
               </button>
             ))}
-          </div>
+          </div>}
           
           <div className="flex bg-[var(--surface)] rounded-lg p-1 border border-[var(--border)]">
             <button 
@@ -948,6 +948,10 @@ export default function SchedulePage() {
         </div>
       ) : isLoading || !workspace.ready ? (
         <div className="flex-1 flex items-center justify-center text-[var(--text-secondary)]">載入中...</div>
+      ) : workspace.configurationRequired ? (
+        <div role="status" className="flex-1 rounded-xl border border-amber-500/40 bg-amber-500/10 p-6 text-center text-[var(--text-secondary)]">
+          {currentUser?.role === 'ADMIN' ? '目前沒有有效工作群組，請至人員管理設定。' : '目前沒有可用的工作群組，請聯絡管理員完成設定。'}
+        </div>
       ) : groupTasks.length === 0 && viewMode === 'week' ? (
         <div className="flex-1 flex items-center justify-center text-[var(--text-secondary)]">目前沒有{activeWorkGroupKey === 'ENGINEERING' ? '工程' : '專案'}排程，點擊右上角「新增任務」開始排程。</div>
       ) : (

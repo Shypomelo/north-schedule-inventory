@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { dbAdapter } from '@/lib/db';
 import { useUser } from '@/components/UserContext';
 import type { WorkGroup } from '@/lib/db/types';
-import { MemberWorkGroup, resolveMemberDefaultWorkGroup } from '@/lib/work-groups';
+import { MemberWorkGroup, resolveMemberDefaultWorkGroup, selectActiveWorkGroups } from '@/lib/work-groups';
 
 export function useWorkGroups() {
   const { currentUser } = useUser();
@@ -22,5 +22,14 @@ export function useWorkGroups() {
       .catch(() => { if (!cancelled) setError('工作群組載入失敗，請重新整理'); });
     return () => { cancelled = true; };
   }, [memberId]);
-  return { groups, memberships, error, ready: Boolean(currentUser && loadedMember === currentUser.id), defaultGroup: resolveMemberDefaultWorkGroup(currentUser?.id, memberships, groups) };
+  const resolution = resolveMemberDefaultWorkGroup(currentUser?.id, memberships, groups);
+  return {
+    groups: selectActiveWorkGroups(groups),
+    memberships,
+    error,
+    ready: Boolean(currentUser && loadedMember === currentUser.id),
+    resolution,
+    defaultGroup: resolution.activeGroup,
+    configurationRequired: resolution.status === 'configuration-required',
+  };
 }

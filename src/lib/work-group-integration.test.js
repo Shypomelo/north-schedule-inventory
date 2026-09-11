@@ -14,7 +14,7 @@ function load(file, imports = {}) {
   m._compile(ts.transpileModule(read(file), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText, filename);
   return m.exports;
 }
-const { resolveMemberDefaultWorkGroup: resolve, requireTodoWorkGroup } = load('work-groups.ts');
+const { resolveMemberDefaultWorkGroup: resolve, requireTodoWorkGroup, selectActiveWorkGroups } = load('work-groups.ts');
 const { saveTodoText, canEditTodoText } = load('todo-text-actions.ts');
 const { createWorkGroupAdapter } = load('db/work-group-adapter.ts');
 const groups = [
@@ -73,24 +73,46 @@ function fixture(role = 'ADMIN', seed = {}) {
 }
 test('no membership resolves ENGINEERING without mutating inputs', () => {
   const memberships = [];
-  assert.equal(resolve('member', memberships, groups).id, 'e');
+  const result = resolve('member', memberships, groups);
+  assert.equal(result.status, 'resolved');
+  assert.equal(result.activeGroup.id, 'e');
+  assert.equal(result.source, 'legacy-engineering');
   assert.deepEqual(memberships, []);
 });
-test('PROJECT default wins among multiple memberships', () => {
-  assert.equal(resolve('member', [link('e'), link('p', true)], groups).key, 'PROJECT');
+test('active ENGINEERING only resolves ENGINEERING', () => {
+  assert.equal(resolve('member', [link('e', true)], groups).activeGroup.key, 'ENGINEERING');
 });
-test('no default uses deterministic sort_order regardless of input order', () => {
-  assert.equal(resolve('member', [link('p'), link('e')], [...groups].reverse()).id, 'e');
+test('active PROJECT only resolves PROJECT', () => {
+  assert.equal(resolve('member', [link('p', true)], groups).activeGroup.key, 'PROJECT');
 });
-test('inactive/missing default safely falls back', () => {
-  assert.equal(resolve('member', [link('missing', true)], groups).id, 'e');
-  assert.equal(resolve('member', [link('p', true)], groups.map(g => ({ ...g, is_active: g.id !== 'p' }))).id, 'e');
+for (const groupId of ['p', 'e']) test('inactive-only ' + groupId + ' requires configuration without legacy fallback', () => {
+  const inactiveGroups = groups.map(group => ({ ...group, is_active: group.id !== groupId }));
+  const result = resolve('member', [link(groupId, true)], inactiveGroups);
+  assert.equal(result.status, 'configuration-required');
+  assert.equal(result.activeGroup, null);
+  assert.equal(result.source, null);
+});
+test('active PROJECT plus inactive ENGINEERING resolves PROJECT', () => {
+  const result = resolve('member', [link('p'), link('e', true)], groups.map(group => ({ ...group, is_active: group.id === 'p' })));
+  assert.equal(result.activeGroup.key, 'PROJECT');
+  assert.deepEqual(result.activeGroups.map(group => group.id), ['p']);
+});
+test('inactive default uses deterministic active membership fallback', () => {
+  const result = resolve('member', [link('p'), link('e', true)], groups.map(group => ({ ...group, is_active: group.id === 'p' })));
+  assert.equal(result.activeGroup.id, 'p');
+  assert.equal(result.source, 'membership');
+});
+test('inactive default without another active membership requires configuration', () => {
+  assert.equal(resolve('member', [link('p', true)], groups.map(group => ({ ...group, is_active: group.id !== 'p' }))).status, 'configuration-required');
+});
+test('general selector includes active groups only', () => {
+  assert.deepEqual(selectActiveWorkGroups(groups.map(group => ({ ...group, is_active: group.id === 'p' }))).map(group => group.id), ['p']);
 });
 test('same position permits different Schedule defaults', () => {
   const members = [{ id: 'a', position: '電力設計' }, { id: 'b', position: '電力設計' }];
   const links = [link('e', true, 'a'), link('p', true, 'b')];
-  assert.deepEqual(members.map(m => resolve(m.id, links, groups).key), ['ENGINEERING', 'PROJECT']);
-  assert.doesNotMatch(read('work-groups.ts').split('export function resolve')[1].split('export function require')[0], /\.position|\.category|\.role/);
+  assert.deepEqual(members.map(m => resolve(m.id, links, groups).activeGroup.key), ['ENGINEERING', 'PROJECT']);
+  assert.doesNotMatch(read('work-groups.ts').split('export function resolveMemberDefaultWorkGroup')[1].split('export function resolveParticipantWorkGroups')[0], /\.position|\.category|\.role/);
 });
 test('membership adapter loads member-scoped rows without writes', async () => {
   const f = fixture('ADMIN', { member_work_groups: [link('p', true), link('e', true, 'other')] });
@@ -112,7 +134,7 @@ test('ADMIN can remove all memberships', async () => {
   const f = fixture('ADMIN', { member_work_groups: [link('p', true)] });
   const saved = await createWorkGroupAdapter(f.client).setMemberWorkGroups('member', [], null);
   assert.deepEqual(saved, []);
-  assert.equal(resolve('member', saved, groups).id, 'e');
+  assert.equal(resolve('member', saved, groups).activeGroup.id, 'e');
 });
 test('invalid default blocked before writes', async () => {
   const f = fixture();
@@ -192,6 +214,18 @@ test('Dashboard TEAM uses ENGINEERING; Today Schedule and My TODO stay cross-gro
   const source = read('../app/page.tsx');
   assert.match(source, /getTodos\(engineeringGroup.id\)/); assert.match(source, /getPrivateTodos\(\)/);
   assert.match(source, /selectTodayMemberSchedule/); assert.match(source, /display.workGroupName/);
+});
+test('configuration-required UI is non-mutating and role-safe', () => {
+  const hook = read('../hooks/useWorkGroups.ts');
+  const schedule = read('../app/schedule/page.tsx');
+  const todos = read('../app/todos/page.tsx');
+  assert.match(hook, /configurationRequired: resolution\.status === 'configuration-required'/);
+  for (const source of [schedule, todos]) {
+    assert.match(source, /workspace\.configurationRequired/);
+    assert.match(source, /目前沒有有效工作群組，請至人員管理設定。/);
+    assert.match(source, /目前沒有可用的工作群組，請聯絡管理員完成設定。/);
+  }
+  assert.doesNotMatch(hook, /\.insert\(|\.update\(|\.rpc\(/);
 });
 test('shared touch text editor fits viewport and does not mutate Schedule', () => {
   for (const file of ['../app/page.tsx', '../app/todos/page.tsx']) assert.match(read(file), /TodoTextEditDialog/);

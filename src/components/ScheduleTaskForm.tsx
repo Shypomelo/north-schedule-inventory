@@ -7,6 +7,7 @@ import { getProjectLocationLabel, getProjectSearchScore } from '@/lib/project-lo
 import { useUser } from './UserContext';
 import { addHours, format, parse } from 'date-fns';
 import { useScheduleTaskTypes } from '@/hooks/useScheduleTaskTypes';
+import { selectActiveWorkGroups } from '@/lib/work-groups';
 import { selectSchedulePrimaryCandidates } from '@/lib/schedule-selectors';
 
 const PRIMARY_TIME_HOURS = [
@@ -96,7 +97,7 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
       setProjects(pData.filter(p => p.is_active));
       const activeUsers = uData.filter(u => u.is_active);
       setUsers(activeUsers);
-      setWorkGroups(groupData);
+      setWorkGroups(selectActiveWorkGroups(groupData));
       
       if (initialData?.project_id && !initialData?.project_name) {
         const p = pData.find(x => x.id === initialData.project_id);

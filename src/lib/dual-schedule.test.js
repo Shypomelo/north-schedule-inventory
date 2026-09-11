@@ -1,21 +1,9 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const Module = require('node:module');
 const path = require('node:path');
 const test = require('node:test');
-const ts = require('typescript');
 
-const loadTsModule = relativePath => {
-  const filename = path.join(__dirname, relativePath);
-  const transpiled = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
-  }).outputText;
-  const loaded = new Module(filename);
-  loaded.filename = filename;
-  loaded.paths = module.paths;
-  loaded._compile(transpiled, filename);
-  return loaded.exports;
-};
+const loadTsModule = relativePath => require('./test-load-ts.cjs')(path.join(__dirname, relativePath));
 
 const {
   selectSchedulePrimaryCandidates,

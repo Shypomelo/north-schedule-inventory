@@ -34,13 +34,20 @@ test('archived meter no longer provides outer active date',()=>assert.equal(getP
 test('project overview renders arbitrary phase and +N without name matching',()=>{const {ProjectOverviewCards}=load('../components/ProjectOverviewCards.tsx');const markup=renderToStaticMarkup(React.createElement(ProjectOverviewCards,{projects:[{id:'p',name:'案件'}],milestones:[1,2,3,4].map(i=>node('m'+i,1,'IN_PROGRESS')),onOpen:()=>{}}));assert.match(markup,/任意階段/);assert.match(markup,/\+1/);assert.equal((markup.match(/<button /g)||[]).length,1);});
 test('project card opens existing project and first current node',()=>{const {ProjectOverviewCards}=load('../components/ProjectOverviewCards.tsx');let selection;const tree=ProjectOverviewCards({projects:[{id:'p',name:'案'}],milestones:[node('n',1)],onOpen:(...v)=>selection=v});tree.props.children[0].props.onClick();assert.equal(selection[0].id,'p');assert.equal(selection[1],'n');});
 test('project TEAM source uses PROJECT while My TODO remains global',()=>{const src=read('../app/page.tsx');assert.match(src,/todoGroupKey=projectManagement\?'PROJECT':'ENGINEERING'/);assert.match(src,/getPrivateTodos\(\)/);assert.match(src,/selectTodayMemberSchedule/);});
-const context={users:[{id:'e',category:'ENGINEERING'},{id:'p',category:'OTHER'},{id:'other',category:'OTHER'}],members:[{task_id:'project',user_id:'e'}],memberships:[{member_id:'p',work_group_id:'P'}],groupKey:'ENGINEERING'};
+const scheduleGroups=[{id:'E',key:'ENGINEERING',is_active:true,sort_order:10},{id:'P',key:'PROJECT',is_active:true,sort_order:20}];
+const context={users:[{id:'e',category:'ENGINEERING'},{id:'p',category:'OTHER'},{id:'other',category:'OTHER'}],members:[{task_id:'project',user_id:'e'}],memberships:[{member_id:'p',work_group_id:'P'}],groups:scheduleGroups};
 const tasks=[{id:'engineering',work_group_id:'E',main_assignee_id:'p'},{id:'project',work_group_id:'P',main_assignee_id:'other'}];
 test('PROJECT owner plus engineering assistant appears in engineering',()=>assert.deepEqual(ids(select(tasks,'E',context)),['engineering','project']));
-test('ENGINEERING owner plus project primary appears in project',()=>assert.deepEqual(ids(select(tasks,'P',{...context,groupKey:'PROJECT'})),['engineering','project']));
+test('ENGINEERING owner plus project primary appears in project',()=>assert.deepEqual(ids(select(tasks,'P',context)),['engineering','project']));
 test('same task id deduplicated and owner never altered',()=>{const clone=JSON.stringify(tasks);assert.equal(select([...tasks,tasks[1]],'E',context).length,2);assert.equal(JSON.stringify(tasks),clone);assert.equal(select(tasks,'E',context)[1].work_group_id,'P');});
 test('explicit membership overrides legacy engineering category',()=>assert.deepEqual(ids(select(tasks,'E',{...context,memberships:[...context.memberships,{member_id:'e',work_group_id:'P'}]})),['engineering']));
-test('OTHER and MANAGEMENT do not imply PROJECT membership',()=>assert.deepEqual(ids(select(tasks,'P',{...context,groupKey:'PROJECT',memberships:[]})),['project']));
+test('OTHER and MANAGEMENT do not imply PROJECT membership',()=>assert.deepEqual(ids(select(tasks,'P',{...context,memberships:[]})),['project']));
+test('participant zero membership plus ENGINEERING category uses legacy ENGINEERING',()=>assert.deepEqual(ids(select(tasks,'E',context)),['engineering','project']));
+test('participant inactive-only membership never falls back to ENGINEERING',()=>{
+ const groups=scheduleGroups.map(group=>({...group,is_active:group.id!=='P'}));
+ const memberships=[...context.memberships,{member_id:'e',work_group_id:'P'}];
+ assert.deepEqual(ids(select(tasks,'E',{...context,groups,memberships})),['engineering']);
+});
 test('visibility never calls Google or changes eligibility',()=>{const src=read('schedule-selectors.ts');assert.doesNotMatch(src,/syncToGoogle|google_calendar_sync_enabled|fetch\(/);});
 for(const [planned,label] of [['2026-09-12','預計 2026/09/12'],['2026-09-11','預計 2026/09/11'],['2026-09-10','預計 2026/09/10 · 逾期']])test('date incomplete '+planned,()=>{const p=date({planned,today:'2026-09-11'});assert.equal(p.label,label);assert.notEqual(p.kind,'actual');});
 test('actual field is explicit actual even after today',()=>assert.equal(date({planned:'2026-01-01',actual:'2026-09-12',today:'2026-09-11'}).label,'實際 2026/09/12'));

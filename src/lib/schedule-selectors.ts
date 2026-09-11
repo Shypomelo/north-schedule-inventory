@@ -1,15 +1,15 @@
-import type { ScheduleTask, ScheduleTaskMember, User, WorkGroupKey } from './db/types';
-import type { MemberWorkGroup } from './work-groups';
+import type { ScheduleTask, ScheduleTaskMember, User, WorkGroup, WorkGroupKey } from './db/types';
+import { type MemberWorkGroup, resolveParticipantWorkGroups } from './work-groups';
 
 export function selectScheduleTasksByWorkGroup(
   tasks: ScheduleTask[],
   workGroupId: string | null | undefined,
-  participants?: { members: ScheduleTaskMember[]; users: User[]; memberships: MemberWorkGroup[]; groupKey?: WorkGroupKey },
+  participants?: { members: ScheduleTaskMember[]; users: User[]; memberships: MemberWorkGroup[]; groups: WorkGroup[] },
 ): ScheduleTask[] {
   if (!workGroupId) return [];
   const participantIds=new Set((participants?.users||[]).filter(user=>{
-    const rows=participants!.memberships.filter(row=>row.member_id===user.id);
-    return rows.length?rows.some(row=>row.work_group_id===workGroupId):participants!.groupKey==='ENGINEERING'&&user.category==='ENGINEERING';
+    const resolution=resolveParticipantWorkGroups(user,participants!.memberships,participants!.groups);
+    return resolution.activeGroups.some(group=>group.id===workGroupId);
   }).map(user=>user.id));
   const sharedTaskIds=new Set((participants?.members||[]).filter(member=>participantIds.has(member.user_id)).map(member=>member.task_id));
   const seen=new Set<string>();

@@ -8,7 +8,7 @@ import { ScheduleTaskForm } from '@/components/ScheduleTaskForm';
 import { Plus, Edit2, CalendarPlus, Trash2 } from 'lucide-react';
 import { useUser } from '@/components/UserContext';
 import { useWorkGroups } from '@/hooks/useWorkGroups';
-import { requireTodoWorkGroup } from '@/lib/work-groups';
+import { requireTodoWorkGroup, selectActiveWorkGroups } from '@/lib/work-groups';
 import { TodoTextEditDialog } from '@/components/TodoTextEditDialog';
 import { TodoInlineText } from '@/components/TodoInlineText';
 
@@ -19,7 +19,7 @@ export default function TodosPage() {
   const [textTodo, setTextTodo] = useState<Todo | null>(null);
   const [error, setError] = useState('');
   const defaultGroupId = workspace.defaultGroup?.id;
-  useEffect(() => { if (workspace.ready && defaultGroupId) setGroupId(defaultGroupId); }, [workspace.ready, defaultGroupId]);
+  useEffect(() => { if (workspace.ready) setGroupId(defaultGroupId || ''); }, [workspace.ready, defaultGroupId]);
   const [todos, setTodos] = useState<Todo[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]);
@@ -38,7 +38,7 @@ export default function TodosPage() {
     ]);
     setTodos(tData);
     setProjects(pData);
-    setWorkGroups(groupData);
+    setWorkGroups(selectActiveWorkGroups(groupData));
     setIsLoading(false);
   };
 
@@ -46,7 +46,7 @@ export default function TodosPage() {
     let cancelled = false;
     setIsLoading(true); setError('');
     Promise.all([groupId ? dbAdapter.getTodos(groupId) : Promise.resolve([]), dbAdapter.getProjects(), dbAdapter.getWorkGroups()])
-      .then(([t, p, g]) => { if (!cancelled) { setTodos(t); setProjects(p); setWorkGroups(g); } })
+      .then(([t, p, g]) => { if (!cancelled) { setTodos(t); setProjects(p); setWorkGroups(selectActiveWorkGroups(g)); } })
       .catch(() => { if (!cancelled) setError('待辦載入失敗，請重新整理'); })
       .finally(() => { if (!cancelled) setIsLoading(false); });
     return () => { cancelled = true; };
@@ -116,13 +116,17 @@ export default function TodosPage() {
 
       <div className="mb-4 space-y-2">
         <p className="text-sm text-secondary">團隊 TODO 工作群組（不影響 Dashboard 的全域私人 My TODO）</p>
-        <div role="tablist" aria-label="團隊待辦工作群組" className="flex flex-wrap gap-2">
+        {!workspace.configurationRequired && <div role="tablist" aria-label="團隊待辦工作群組" className="flex flex-wrap gap-2">
           {workGroups.map(group => <button role="tab" aria-selected={groupId === group.id} key={group.id} onClick={() => setGroupId(group.id)} className={`min-h-11 rounded px-3 ${groupId === group.id ? 'bg-accent text-[var(--accent-text)]' : 'bg-card'}`}>{group.name}</button>)}
-        </div>
+        </div>}
         {(error || workspace.error) && <p role="alert" className="text-danger">{error || workspace.error}</p>}
       </div>
       <div className="flex flex-col gap-4">
-        {isLoading ? (
+        {workspace.ready && workspace.configurationRequired ? (
+          <div role="status" className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-6 text-center text-secondary">
+            {currentUser?.role === 'ADMIN' ? '目前沒有有效工作群組，請至人員管理設定。' : '目前沒有可用的工作群組，請聯絡管理員完成設定。'}
+          </div>
+        ) : isLoading ? (
           <div className="text-secondary">載入中...</div>
         ) : todos.length === 0 ? (
           <div className="text-secondary bg-card/30 border border-theme-border p-8 text-center rounded-xl">目前沒有待辦事項</div>

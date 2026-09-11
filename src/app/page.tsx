@@ -73,7 +73,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
     setError(null);
     try {
       const groups = await dbAdapter.getWorkGroups();
-      const engineeringGroup = groups.find(group => group.key === todoGroupKey);
+      const engineeringGroup = groups.find(group => group.is_active && group.key === todoGroupKey);
       if (!engineeringGroup) throw new Error('找不到工程工作群組');
       const [taskRows, memberRows, projectRows, responsibilityRows, privateRows, teamRows, workGroupRows] = await Promise.all([
         dbAdapter.getScheduleTasks(),
@@ -91,7 +91,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
       setResponsibilities(responsibilityRows);
       setPrivateTodos(privateRows);
       setTeamTodos(teamRows);
-      setWorkGroups(workGroupRows);
+      setWorkGroups(workGroupRows.filter(group => group.is_active));
     } catch (loadError) {
       console.error('Dashboard load failed:', loadError);
       setError(loadError instanceof Error ? loadError.message : '工程儀表載入失敗');
@@ -141,7 +141,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
     setSavingKey('team-new');
     try {
       await dbAdapter.createTodo({
-        work_group_id: workGroups.find(group => group.key === todoGroupKey)?.id || null,
+        work_group_id: workGroups.find(group => group.is_active && group.key === todoGroupKey)?.id || null,
         title,
         content: null,
         project_id: null,

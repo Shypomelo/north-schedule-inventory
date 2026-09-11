@@ -1,4 +1,9 @@
 -- Candidate only. Dashboard perspectives are presentation preferences, not data permissions.
+-- Membership-row existence must remain observable even when the referenced group is inactive.
+-- Group selectability is still enforced by work_groups_active_read; mutation stays ADMIN-only.
+ALTER POLICY member_work_groups_active_read ON public.member_work_groups
+USING ((SELECT app_private.is_active_member()));
+
 CREATE TABLE public.dashboard_views (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), key text NOT NULL UNIQUE,
   name text NOT NULL CHECK (btrim(name) <> ''), is_active boolean NOT NULL DEFAULT true,
