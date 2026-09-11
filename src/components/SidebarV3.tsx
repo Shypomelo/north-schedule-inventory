@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useUser } from '@/components/UserContext';
 import { useTheme } from '@/components/ThemeContext';
 import { UserSelector } from '@/components/UserSelector';
+import { DashboardViewSelector } from './DashboardViewContext';
 import { Building2, Calendar, ChevronLeft, ChevronRight, Home, ListChecks, Menu, Package, Palette, Settings, Truck, Users, Wrench, X } from 'lucide-react';
 import { isMobileNavigationEdgeSwipe, type SwipePoint } from '@/lib/mobile-navigation-gesture';
 
@@ -74,7 +75,8 @@ export function Sidebar() {
             <div className="min-w-0 break-words text-sm font-bold text-[var(--text-primary)]">{currentUser.name}</div>
             <button type="button" onClick={() => setShowTheme(value => !value)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded text-[var(--text-secondary)] hover:bg-[var(--sidebar-hover)]" aria-label="切換主題"><Palette size={16} /></button>
           </div>
-          <div className="mb-2 mt-1 text-xs text-[var(--text-secondary)]">角色: {currentRole === 'admin' ? 'Admin' : currentUser.role === 'ENGINEER' ? 'Engineer' : 'Viewer'}</div>
+          <div className="mb-2 mt-1 text-xs text-[var(--text-secondary)]">權限: {currentRole === 'admin' ? 'Admin' : currentUser.role === 'ENGINEER' ? 'Engineer' : 'Viewer'}</div>
+          <DashboardViewSelector />
           {showTheme && (
             <div className="theme-popover absolute right-3 top-11 z-50 flex min-w-32 flex-col gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2 shadow-xl [--text-primary:var(--modal-text)]">
               {(['dark', 'light', 'orange'] as const).map(value => (

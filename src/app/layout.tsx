@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { UserProvider } from "@/components/UserContext";
+import { DashboardViewProvider } from '@/components/DashboardViewContext';
 import { AuthGuard } from "@/components/AuthGuard";
 import { LayoutContent } from "@/components/LayoutContentV3";
 import { ThemeProvider } from "@/components/ThemeContext";
@@ -39,7 +40,7 @@ export default function RootLayout({
         <ThemeProvider>
           <UserProvider>
             <AuthGuard>
-              <LayoutContent>{children}</LayoutContent>
+              <DashboardViewProvider><LayoutContent>{children}</LayoutContent></DashboardViewProvider>
             </AuthGuard>
           </UserProvider>
         </ThemeProvider>

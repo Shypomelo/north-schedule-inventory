@@ -9,6 +9,7 @@ import { Plus, Edit2, ShieldAlert } from 'lucide-react';
 import { WorkGroup } from '@/lib/db/types';
 import { MemberWorkGroup } from '@/lib/work-groups';
 import { MemberWorkGroupEditor } from '@/components/MemberWorkGroupEditor';
+import { DashboardViewAssignments } from '@/components/MemberDashboardViewEditor';
 
 const OWNER_TEAM_MEMBER_ID = '65916798-f0ec-4d41-8b17-785c4189bd83';
 const isOwnerUser = (user?: Pick<User, 'id'> | null) => user?.id === OWNER_TEAM_MEMBER_ID;
@@ -309,6 +310,7 @@ export default function AdminUsersPage() {
       {!isLoading && !error && <section className="min-w-0 space-y-3 rounded-xl border border-theme-border bg-card p-3 sm:p-6">
         <h2 className="text-lg font-bold">工作群組 / 預設工作空間</h2>
         <p className="text-sm text-secondary">與系統權限、既有分類、專案職位分開設定。未加入群組仍可查看兩邊排程。</p>
+        <DashboardViewAssignments members={users} />
         {users.filter(user => user.is_active).map(member => <MemberWorkGroupEditor
           key={`${member.id}:${JSON.stringify(memberships.filter(row => row.member_id === member.id))}`}
           member={member} groups={workGroups} memberships={memberships.filter(row => row.member_id === member.id)}
