@@ -68,6 +68,7 @@ const mapUser = (row: any): User => ({
 
 const mapTodo = (row: any): Todo => ({
   id: row.id,
+  work_group_id: row.work_group_id || null,
   title: row.title || '',
   content: row.content || null,
   project_id: row.project_id || null,
@@ -92,7 +93,7 @@ const buildTeamTodoPayload = (
   const fields: Array<keyof Omit<Todo, 'id' | 'created_at' | 'updated_at' | 'scope'>> = [
     'title', 'content', 'project_id', 'task_type', 'status', 'created_by',
     'assigned_to', 'assigned_by', 'converted_task_id', 'rejected_by',
-    'rejected_at', 'rejection_reason',
+    'rejected_at', 'rejection_reason', 'work_group_id',
   ];
   fields.forEach(field => {
     if (todo[field] !== undefined) payload[field] = todo[field];
@@ -1713,11 +1714,13 @@ export const pocSupabaseAdapter = {
   },
 
   // --- Todos ---
-  getTodos: async (): Promise<Todo[]> => {
-    const { data, error } = await supabase
+  getTodos: async (workGroupId?: string): Promise<Todo[]> => {
+    let query = supabase
       .from('todos')
       .select('*')
-      .eq('scope', 'TEAM')
+      .eq('scope', 'TEAM');
+    if (workGroupId) query = query.eq('work_group_id', workGroupId);
+    const { data, error } = await query
       .order('created_at', { ascending: false })
       .limit(50);
     if (error) throw error;
@@ -1727,6 +1730,7 @@ export const pocSupabaseAdapter = {
   createTodo: async (
     todo: Omit<Todo, 'id' | 'created_at' | 'updated_at'>,
   ): Promise<Todo> => {
+    if (!todo.work_group_id) throw new Error('新增團隊待辦必須指定工作群組');
     const { data, error } = await supabase
       .from('todos')
       .insert(buildTeamTodoPayload(todo))
@@ -1786,6 +1790,7 @@ export const pocSupabaseAdapter = {
         title: input.title.trim(),
         status: '待安排',
         scope: 'PRIVATE',
+        work_group_id: null,
         created_by: input.created_by,
         content: null,
         project_id: null,
@@ -1806,6 +1811,7 @@ export const pocSupabaseAdapter = {
   updatePrivateTodo: async (id: string, updates: PrivateTodoUpdate): Promise<Todo> => {
     const payload: PrivateTodoUpdate = {};
     if (updates.title !== undefined) payload.title = updates.title.trim();
+    if (updates.content !== undefined) payload.content = updates.content;
     if (updates.status !== undefined) payload.status = updates.status;
     const { data, error } = await supabase
       .from('todos')

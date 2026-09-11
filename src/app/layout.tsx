@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { UserProvider } from "@/components/UserContext";
 import { AuthGuard } from "@/components/AuthGuard";
 import { LayoutContent } from "@/components/LayoutContentV3";
@@ -9,6 +9,8 @@ export const metadata: Metadata = {
   title: "北部工程排程與庫存管理系統",
   description: "Schedule and Inventory Management System",
 };
+
+export const viewport: Viewport = { width: 'device-width', initialScale: 1 };
 
 export default function RootLayout({
   children,

@@ -82,7 +82,7 @@ test('app adapters persist explicit groups and ordinary edits cannot change a gr
   assert.match(mockAdapter, /work_group_id: _ignoredWorkGroupId/);
   assert.match(actions, /work_group_id: task\.work_group_id/);
   assert.match(schedulePage, /work_group_id: targetWorkGroup\.id/);
-  assert.match(todoPage, /work_group_id: engineeringWorkGroup\.id/);
+  assert.match(todoPage, /work_group_id: requireTodoWorkGroup\(editingTodo\)/);
 });
 
 test('schedule UI uses compact group tabs and keeps collaborators cross-group', () => {

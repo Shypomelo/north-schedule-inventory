@@ -97,7 +97,7 @@ test('Dashboard uses the shared Todo adapters and keeps the route responsive', (
   const dashboard = fs.readFileSync(path.join(__dirname, '..', 'app', 'page.tsx'), 'utf8');
   const layout = fs.readFileSync(path.join(__dirname, '..', 'components', 'LayoutContentV3.tsx'), 'utf8');
   assert.match(dashboard, /dbAdapter\.getPrivateTodos\(\)/);
-  assert.match(dashboard, /dbAdapter\.getTodos\(\)/);
+  assert.match(dashboard, /dbAdapter\.getTodos\(engineeringGroup.id\)/);
   assert.match(dashboard, /dbAdapter\.updatePrivateTodo\(todo\.id, \{ status: '已完成' \}\)/);
   assert.match(dashboard, /dbAdapter\.updateTodo\(todo\.id, \{ status: '已完成' \}\)/);
   assert.match(dashboard, /initialMilestoneId=\{selectedProject\.milestoneId\}/);

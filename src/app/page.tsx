@@ -8,6 +8,7 @@ import { ProjectDetailModal } from '@/components/ProjectDetailModal';
 import { ScheduleTaskDetail } from '@/components/ScheduleTaskDetail';
 import { ScheduleTaskFormDialog } from '@/components/ScheduleTaskFormDialog';
 import { useUser } from '@/components/UserContext';
+import { TodoTextEditDialog } from '@/components/TodoTextEditDialog';
 import { dbAdapter } from '@/lib/db';
 import type { MemberProjectResponsibility, Project, ScheduleTask, ScheduleTaskMember, Todo, WorkGroup } from '@/lib/db/types';
 import { buildDashboardProjectCards } from '@/lib/engineering-dashboard';
@@ -35,6 +36,7 @@ export default function EngineeringDashboardPage() {
   const [teamTodos, setTeamTodos] = useState<Todo[]>([]);
   const [privateTitle, setPrivateTitle] = useState('');
   const [teamTitle, setTeamTitle] = useState('');
+  const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
   const [hideCompletedPrivate, setHideCompletedPrivate] = useState(true);
   const [hideCompletedTeam, setHideCompletedTeam] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
@@ -54,14 +56,17 @@ export default function EngineeringDashboardPage() {
     if (!currentUser) return;
     setError(null);
     try {
+      const groups = await dbAdapter.getWorkGroups();
+      const engineeringGroup = groups.find(group => group.key === 'ENGINEERING');
+      if (!engineeringGroup) throw new Error('找不到工程工作群組');
       const [taskRows, memberRows, projectRows, responsibilityRows, privateRows, teamRows, workGroupRows] = await Promise.all([
         dbAdapter.getScheduleTasks(),
         dbAdapter.getScheduleTaskMembers(),
         dbAdapter.getProjects(),
         dbAdapter.getMemberProjectResponsibilities(currentUser.id),
         dbAdapter.getPrivateTodos(),
-        dbAdapter.getTodos(),
-        dbAdapter.getWorkGroups(),
+        dbAdapter.getTodos(engineeringGroup.id),
+        Promise.resolve(groups),
       ]);
       setTasks(taskRows);
       setTaskMembers(memberRows);
@@ -119,6 +124,7 @@ export default function EngineeringDashboardPage() {
     setSavingKey('team-new');
     try {
       await dbAdapter.createTodo({
+        work_group_id: workGroups.find(group => group.key === 'ENGINEERING')?.id || null,
         title,
         content: null,
         project_id: null,
@@ -357,7 +363,7 @@ export default function EngineeringDashboardPage() {
           <DashboardSection icon={<ListTodo size={18} />} title="我的 TODO" count={visiblePrivateTodos.length} className={`${mobileTodoPage === 'private' ? 'block' : 'hidden'} md:block`}>
             <HideCompletedToggle checked={hideCompletedPrivate} onChange={setHideCompletedPrivate} />
             <TodoComposer value={privateTitle} onChange={setPrivateTitle} onSubmit={createPrivateTodo} placeholder="新增私人記事…" disabled={!canMutateTodos} isSaving={savingKey === 'private-new'} />
-            <TodoList todos={visiblePrivateTodos} emptyText={hideCompletedPrivate ? '沒有未完成的私人記事' : '目前沒有私人記事'} savingKey={savingKey} onComplete={completePrivateTodo} disabled={!canMutateTodos} />
+            <TodoList todos={visiblePrivateTodos} emptyText={hideCompletedPrivate ? '沒有未完成的私人記事' : '目前沒有私人記事'} savingKey={savingKey} onComplete={completePrivateTodo} onEdit={setEditingTodo} disabled={!canMutateTodos} />
           </DashboardSection>
 
           <DashboardSection icon={<Users size={18} />} title="團隊 TODO" count={visibleTeamTodos.length} actionHref="/schedule" actionLabel="週排程待辦" className={`${mobileTodoPage === 'team' ? 'block' : 'hidden'} md:block`}>
@@ -365,6 +371,7 @@ export default function EngineeringDashboardPage() {
             <TodoComposer value={teamTitle} onChange={setTeamTitle} onSubmit={createTeamTodo} placeholder="新增團隊待辦…" disabled={!canMutateTodos} isSaving={savingKey === 'team-new'} />
             <TodoList
               todos={visibleTeamTodos}
+              onEdit={setEditingTodo}
               emptyText={hideCompletedTeam ? '目前沒有未完成的團隊待辦' : '目前沒有團隊待辦'}
               savingKey={savingKey}
               onComplete={completeTeamTodo}
@@ -379,6 +386,7 @@ export default function EngineeringDashboardPage() {
         </div>
       </div>
 
+      {editingTodo && <TodoTextEditDialog todo={editingTodo} onClose={() => setEditingTodo(null)} onSaved={loadDashboard} />}
       {selectedProject ? (
         <ProjectDetailModal
           key={`${selectedProject.project.id}:${selectedProject.milestoneId || ''}`}
@@ -485,11 +493,12 @@ function TodoComposer({ value, onChange, onSubmit, placeholder, disabled, isSavi
   );
 }
 
-function TodoList({ todos, emptyText, savingKey, onComplete, disabled, secondary }: {
+function TodoList({ todos, emptyText, savingKey, onComplete, onEdit, disabled, secondary }: {
   todos: Todo[];
   emptyText: string;
   savingKey: string | null;
   onComplete: (todo: Todo) => Promise<void>;
+  onEdit: (todo: Todo) => void;
   disabled?: boolean;
   secondary?: (todo: Todo) => string;
 }) {
@@ -507,7 +516,9 @@ function TodoList({ todos, emptyText, savingKey, onComplete, disabled, secondary
             <div className="min-w-0 flex-1">
               <div className={`break-words text-sm font-medium leading-5 ${isCompleted ? 'text-secondary line-through' : ''}`}>{todo.title}</div>
               {detail ? <div className="mt-1 truncate text-xs text-secondary">{detail}</div> : null}
+              {todo.content && <p className="mt-1 break-words text-xs text-secondary">{todo.content}</p>}
             </div>
+            <button type="button" onClick={() => onEdit(todo)} disabled={disabled} aria-label={`編輯 ${todo.title}`} className="min-h-11 shrink-0 rounded px-2 text-sm text-accent disabled:opacity-50">編輯</button>
           </div>
         );
       })}

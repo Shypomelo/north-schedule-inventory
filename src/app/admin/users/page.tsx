@@ -6,6 +6,9 @@ import { useUser } from '@/components/UserContext';
 import { MemberPosition, Position, User, UserRole } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { Plus, Edit2, ShieldAlert } from 'lucide-react';
+import { WorkGroup } from '@/lib/db/types';
+import { MemberWorkGroup } from '@/lib/work-groups';
+import { MemberWorkGroupEditor } from '@/components/MemberWorkGroupEditor';
 
 const OWNER_TEAM_MEMBER_ID = '65916798-f0ec-4d41-8b17-785c4189bd83';
 const isOwnerUser = (user?: Pick<User, 'id'> | null) => user?.id === OWNER_TEAM_MEMBER_ID;
@@ -15,6 +18,8 @@ export default function AdminUsersPage() {
   const { currentUser, isLoading: contextLoading } = useUser();
   const isAdmin = currentUser?.role?.toLowerCase() === 'admin';
   const [users, setUsers] = useState<User[]>([]);
+  const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]);
+  const [memberships, setMemberships] = useState<MemberWorkGroup[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
   const [memberPositions, setMemberPositions] = useState<MemberPosition[]>([]);
   const [selectedPositionIds, setSelectedPositionIds] = useState<string[]>([]);
@@ -56,16 +61,20 @@ export default function AdminUsersPage() {
         setTimeout(() => reject(new Error('讀取超時，請重試')), 10000)
       );
       
-      const [data, positionRows, memberPositionRows] = await Promise.race([
+      const [data, positionRows, memberPositionRows, groupRows, membershipRows] = await Promise.race([
         Promise.all([
           dbAdapter.getUsers(),
           dbAdapter.getPositions(true),
           dbAdapter.getMemberPositions(),
+          dbAdapter.getWorkGroups(),
+          dbAdapter.getMemberWorkGroups(),
         ]),
         timeoutPromise
-      ]) as [User[], Position[], MemberPosition[]];
+      ]) as [User[], Position[], MemberPosition[], WorkGroup[], MemberWorkGroup[]];
       
       setUsers(data);
+      setWorkGroups(groupRows);
+      setMemberships(membershipRows);
       setPositions(positionRows);
       setMemberPositions(memberPositionRows);
     } catch (err: any) {
@@ -297,6 +306,15 @@ export default function AdminUsersPage() {
         )}
       </div>
 
+      {!isLoading && !error && <section className="min-w-0 space-y-3 rounded-xl border border-theme-border bg-card p-3 sm:p-6">
+        <h2 className="text-lg font-bold">工作群組 / 預設工作空間</h2>
+        <p className="text-sm text-secondary">與系統權限、既有分類、專案職位分開設定。未加入群組仍可查看兩邊排程。</p>
+        {users.filter(user => user.is_active).map(member => <MemberWorkGroupEditor
+          key={`${member.id}:${JSON.stringify(memberships.filter(row => row.member_id === member.id))}`}
+          member={member} groups={workGroups} memberships={memberships.filter(row => row.member_id === member.id)}
+          isAdmin={isAdmin} onSaved={loadUsers}
+        />)}
+      </section>}
       <section className="rounded-xl border border-theme-border bg-card p-6 shadow-sm">
         <div className="mb-4">
           <h2 className="text-lg font-bold text-primary">職位管理</h2>
@@ -315,7 +333,7 @@ export default function AdminUsersPage() {
         </form>
         <div className="space-y-2">
           {[...positions].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)).map(position => (
-            <div key={position.id} className={`grid grid-cols-[minmax(12rem,1fr)_7rem_6rem_auto] items-end gap-3 rounded-lg border border-theme-border p-3 ${position.is_active ? '' : 'opacity-60'}`}>
+            <div key={position.id} className={`grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_7rem_6rem_auto] items-end gap-3 rounded-lg border border-theme-border p-3 ${position.is_active ? '' : 'opacity-60'}`}>
               <label className="text-xs text-secondary">名稱
                 <input value={position.name} onChange={event => updatePositionLocal(position.id, { name: event.target.value })} className="mt-1 w-full rounded-lg border border-theme-border bg-page px-3 py-2 text-sm text-primary outline-none focus:border-accent" />
               </label>

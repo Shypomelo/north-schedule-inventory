@@ -21,10 +21,10 @@ test('application shell exposes mobile navigation without a global desktop minim
 test('login card fits mobile dynamic viewport without changing the auth flow', () => {
   const login = read('app/login/page.tsx');
   assert.match(login, /min-h-\[100dvh\]/);
-  assert.match(login, /overflow-x-hidden/);
+  assert.match(login, /min-w-0 w-full max-w-full/);
   assert.match(login, /max-w-md/);
   assert.match(login, /text-xl[\s\S]*sm:text-2xl/);
-  assert.match(login, /min-h-12 w-full/);
+  assert.match(login, /min-h-12 min-w-0 w-full/);
   assert.match(login, /loginWithGoogle\(snapshot\.redirectTo\)/);
 });
 

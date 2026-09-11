@@ -10,6 +10,8 @@ import {
   type GoogleCalendarSyncSummary,
 } from '@/components/GoogleCalendarSyncDialogs';
 import { TodoForm } from '@/components/TodoForm';
+import { useWorkGroups } from '@/hooks/useWorkGroups';
+import { requireTodoWorkGroup } from '@/lib/work-groups';
 import { startOfWeek, endOfWeek, addDays, subDays, format, isSameDay, startOfMonth, endOfMonth } from 'date-fns';
 import { ChevronLeft, ChevronRight, Plus, X, ArrowLeft, RefreshCw } from 'lucide-react';
 import { useUser } from '@/components/UserContext';
@@ -97,6 +99,8 @@ const formatTaskTime = formatScheduleTaskTime;
 
 export default function SchedulePage() {
   const { currentUser } = useUser();
+  const workspace = useWorkGroups();
+  const [initializedMember, setInitializedMember] = useState<string>();
   const [viewMode, setViewMode] = useState<ViewMode>('week');
   const [scheduleFontSize, setScheduleFontSize] = useState<ScheduleFontSize>('medium');
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -114,6 +118,12 @@ export default function SchedulePage() {
   const [users, setUsers] = useState<User[]>([]);
   const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]);
   const [activeWorkGroupKey, setActiveWorkGroupKey] = useState<WorkGroupKey>('ENGINEERING');
+  useEffect(() => {
+    if (workspace.ready && workspace.defaultGroup && currentUser?.id !== initializedMember) {
+      setActiveWorkGroupKey(workspace.defaultGroup.key);
+      setInitializedMember(currentUser?.id);
+    }
+  }, [workspace.ready, workspace.defaultGroup, currentUser?.id, initializedMember]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Task Modal & Drawer State
@@ -244,7 +254,7 @@ export default function SchedulePage() {
             return [];
           }),
           dbAdapter.getUsers().catch(e => { console.error('Users error:', e); return []; }),
-          dbAdapter.getTodos().catch(e => { console.error('Todos error:', e); return []; }),
+          dbAdapter.getWorkGroups().then(groups => Promise.all(groups.map(group => dbAdapter.getTodos(group.id)))).then(rows => rows.flat()).catch(e => { console.error('Todos error:', e); return []; }),
           dbAdapter.getWorkGroups()
         ]),
         timeoutPromise
@@ -378,7 +388,7 @@ export default function SchedulePage() {
         }
       } else {
         const targetWorkGroup = convertingTodoId
-          ? workGroups.find(group => group.key === 'ENGINEERING')
+          ? workGroups.find(group => group.id === requireTodoWorkGroup(todos.find(todo => todo.id === convertingTodoId)!))
           : activeWorkGroup;
         if (!targetWorkGroup) throw new Error('找不到排程群組');
         const payload = {
@@ -465,6 +475,7 @@ export default function SchedulePage() {
            task_type: task.task_type,
            status: '待安排',
            scope: 'TEAM',
+           work_group_id: task.work_group_id,
            converted_task_id: null,
            created_by: currentUser?.id || null,
            assigned_to: null,
@@ -535,11 +546,11 @@ export default function SchedulePage() {
   };
 
   const openTodoConvertForm = (todo: Todo, dateStr: string) => {
-    const engineeringWorkGroup = workGroups.find(group => group.key === 'ENGINEERING');
-    if (!engineeringWorkGroup) return;
+    const sourceWorkGroup = workGroups.find(group => group.id === todo.work_group_id);
+    if (!sourceWorkGroup) return;
     setConvertingTodoId(todo.id);
     setEditingTask({
-      work_group_id: engineeringWorkGroup.id,
+      work_group_id: requireTodoWorkGroup(todo),
       title: todo.title,
       description: todo.content,
       project_id: todo.project_id,
@@ -782,7 +793,7 @@ export default function SchedulePage() {
             <button onClick={() => setIsTodoFormOpen(true)} disabled={currentUser?.role === 'VIEWER'} className="hover:bg-[var(--surface-secondary)] p-1 rounded disabled:opacity-50 disabled:cursor-not-allowed" title="新增待辦"><Plus size={16}/></button>
           </div>
           <div className="flex-1 p-2 flex flex-col gap-2 overflow-y-auto">
-            {todos.filter(todo => todo.status === '待安排').map(todo => {
+            {todos.filter(todo => todo.status === '待安排' && todo.work_group_id === activeWorkGroup?.id).map(todo => {
               const project = projects.find(candidate => candidate.id === todo.project_id);
               const projectName = project?.short_name || project?.name || '未指定案場';
 
@@ -808,7 +819,7 @@ export default function SchedulePage() {
                 </div>
               );
             })}
-            {todos.filter(todo => todo.status === '待安排').length === 0 && (
+            {todos.filter(todo => todo.status === '待安排' && todo.work_group_id === activeWorkGroup?.id).length === 0 && (
               <div className="text-xs text-[var(--text-muted)] text-center mt-4">無待辦事項</div>
             )}
           </div>
@@ -916,7 +927,7 @@ export default function SchedulePage() {
           </button>
           <button
             onClick={() => { setEditingTask({ work_group_id: activeWorkGroup?.id || '' }); setConvertingTodoId(null); setEditingTaskMembers([]); setIsFormOpen(true); }}
-            disabled={currentUser?.role === 'VIEWER' || !activeWorkGroup}
+            disabled={currentUser?.role === 'VIEWER' || !activeWorkGroup || !workspace.ready}
             className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded bg-[var(--accent)] px-4 py-2 text-[var(--accent-text)] shadow transition hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
           >
             <Plus size={20} />
@@ -925,13 +936,13 @@ export default function SchedulePage() {
         </div>
       </div>
 
-      {error ? (
+      {error || workspace.error ? (
         <div className="flex-1 flex flex-col items-center justify-center text-[var(--danger)]">
           <p className="mb-2 text-xl font-bold">載入失敗</p>
-          <p>{error}</p>
+          <p>{error || workspace.error}</p>
           <button onClick={() => fetchData(true)} className="mt-4 px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-[var(--accent-text)] rounded">重試</button>
         </div>
-      ) : isLoading ? (
+      ) : isLoading || !workspace.ready ? (
         <div className="flex-1 flex items-center justify-center text-[var(--text-secondary)]">載入中...</div>
       ) : groupTasks.length === 0 && viewMode === 'week' ? (
         <div className="flex-1 flex items-center justify-center text-[var(--text-secondary)]">目前沒有{activeWorkGroupKey === 'ENGINEERING' ? '工程' : '專案'}排程，點擊右上角「新增任務」開始排程。</div>
@@ -1251,6 +1262,7 @@ export default function SchedulePage() {
           <div className="bg-[var(--modal-bg)] text-[var(--modal-text)] border border-[var(--border)] p-5 rounded-2xl w-full max-w-md shadow-2xl">
             <h2 className="text-xl font-bold text-[var(--modal-text)] mb-4">新增待辦事項</h2>
             <TodoForm 
+              initialData={{ work_group_id: activeWorkGroup?.id || null }}
               onSubmit={handleCreateTodo}
               onCancel={() => setIsTodoFormOpen(false)}
               isSubmitting={isSubmitting}

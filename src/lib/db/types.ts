@@ -308,6 +308,7 @@ export interface ScheduleTaskType {
 
 export interface Todo {
   id: string;
+  work_group_id: string | null;
   title: string;
   content: string | null;
   project_id: string | null;
@@ -332,6 +333,7 @@ export interface PrivateTodoInput {
 
 export interface PrivateTodoUpdate {
   title?: string;
+  content?: string | null;
   status?: Extract<TodoStatus, '待安排' | '已完成'>;
 }
 
