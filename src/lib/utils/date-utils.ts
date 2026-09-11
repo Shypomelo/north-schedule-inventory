@@ -1,3 +1,5 @@
+import { presentBusinessDate } from '../date-presentation';
+
 export function parseDateField(value: string, baseDateStr: string): Date | null {
   if (!value || typeof value !== 'string') return null;
 
@@ -56,34 +58,12 @@ export function parseDateField(value: string, baseDateStr: string): Date | null 
   return null;
 }
 
-export function formatDateForDisplay(value: string, baseDateStr: string): string {
-  if (!value || typeof value !== 'string') return '';
-  
-  const parsedDate = parseDateField(value, baseDateStr);
-  
-  if (!parsedDate) {
-    // Cannot parse to date, just return original string (e.g. "施工中")
-    return value;
-  }
-
-  // It's a date! Compare it to baseDate
-  const baseDate = new Date(baseDateStr);
-  if (isNaN(baseDate.getTime())) return value; // Invalid base date
-
-  // Normalize times to midnight for comparison
-  const parsedTime = new Date(parsedDate.getFullYear(), parsedDate.getMonth(), parsedDate.getDate()).getTime();
-  const baseTime = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate()).getTime();
-
-  // If the parsed date is strictly AFTER the base date, add "預計"
-  if (parsedTime > baseTime) {
-    // formatting to MM/DD
-    const m = (parsedDate.getMonth() + 1).toString().padStart(2, '0');
-    const d = parsedDate.getDate().toString().padStart(2, '0');
-    return `預計${m}/${d}`;
-  }
-
-  // Else, just show MM/DD
-  const m = (parsedDate.getMonth() + 1).toString().padStart(2, '0');
-  const d = parsedDate.getDate().toString().padStart(2, '0');
-  return `${m}/${d}`;
+export function formatDateForDisplay(value: string, baseDateStr: string, actual = false, completed = false): string {
+  if (!value) return '';
+  const parsed = parseDateField(value, baseDateStr);
+  if (!parsed) return value;
+  const date = [parsed.getFullYear(),String(parsed.getMonth()+1).padStart(2,'0'),String(parsed.getDate()).padStart(2,'0')].join('-');
+  const now = new Date();
+  const today = [now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-');
+  return presentBusinessDate({planned:actual?null:date,actual:actual?date:null,completed,today}).label;
 }

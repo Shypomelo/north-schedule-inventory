@@ -27,6 +27,8 @@ import {
 } from '@/lib/project-workflow';
 import { logWorkflowActivitySafely } from '@/lib/workflow-activity';
 import { getConstructionToday } from '@/lib/construction-progress';
+import { WorkflowRebuild } from './WorkflowRebuild';
+import { presentBusinessDate } from '@/lib/date-presentation';
 
 const STATUS_OPTIONS: { value: ProjectMilestoneStatus; label: string }[] = [
   { value: 'NOT_STARTED', label: '未開始' },
@@ -120,11 +122,11 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
   }, [menuId]);
 
   const orderedMilestones = useMemo(
-    () => sortWorkflowMilestones(workflow.milestones),
+    () => sortWorkflowMilestones(workflow.milestones.filter(m=>!m.archived_at&&!m.deleted_at)),
     [workflow.milestones],
   );
   const visibleMilestones = useMemo(
-    () => getVisibleWorkflowMilestones(orderedMilestones, hideCompleted),
+    () => getVisibleWorkflowMilestones(orderedMilestones, hideCompleted).sort((a,b)=>(a.phase_sort_order_snapshot??0)-(b.phase_sort_order_snapshot??0)||a.phase_key_snapshot.localeCompare(b.phase_key_snapshot)||a.sort_order-b.sort_order||a.created_at.localeCompare(b.created_at)||a.id.localeCompare(b.id)),
     [hideCompleted, orderedMilestones],
   );
   const summary = useMemo(
@@ -197,7 +199,7 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
       }
       setRefreshPreview(preview);
     } catch (previewError) {
-      setError(getDatabaseErrorMessage(previewError, '無法預覽重製流程'));
+      setError(getDatabaseErrorMessage(previewError, '無法預覽同步模板新增項目'));
     } finally {
       setIsRefreshing(false);
     }
@@ -216,7 +218,7 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
       await loadWorkflow();
       await onUpdate?.();
     } catch (refreshError) {
-      setError(getDatabaseErrorMessage(refreshError, '重製流程失敗'));
+      setError(getDatabaseErrorMessage(refreshError, '同步模板新增項目失敗'));
     } finally {
       setIsRefreshing(false);
     }
@@ -426,9 +428,10 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
           ) : null}
           {canRefresh ? (
             <button type="button" onClick={() => void previewRefresh()} disabled={isRefreshing} className="flex min-h-10 items-center gap-1.5 rounded-lg border border-theme-border px-3 py-2 text-sm font-semibold text-primary hover:bg-card disabled:opacity-50">
-              <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />重製流程
+              <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />同步模板新增項目
             </button>
           ) : null}
+          {canRefresh&&<WorkflowRebuild projectId={projectId} onRebuilt={async()=>{await loadWorkflow();await onUpdate?.();}}/>}
         </div>
       </div>
 
@@ -445,7 +448,7 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
             </div>
             {visibleMilestones.map((milestone, index) => {
               const previous = visibleMilestones[index - 1];
-              const showPhase = !previous || previous.phase_key_snapshot !== milestone.phase_key_snapshot;
+              const showPhase = !previous || previous.phase_key_snapshot !== milestone.phase_key_snapshot || previous.phase_name_snapshot !== milestone.phase_name_snapshot;
               const showConstruction = showPhase && milestone.phase_key_snapshot === 'CONSTRUCTION';
               const isSaving = savingId === milestone.id;
               const capabilities = getMilestoneCapabilities(milestone.origin);
@@ -525,6 +528,8 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
         )}
       </div>
 
+      {!visibleMilestones.some(m=>m.phase_key_snapshot==='CONSTRUCTION')&&construction}
+      {workflow.milestones.some(m=>m.archived_at)&&<details className="rounded border border-theme-border p-3"><summary className="min-h-11 cursor-pointer">封存流程歷史</summary><div className="space-y-3">{workflow.milestones.filter(m=>m.archived_at).map(m=><article key={m.id} className="break-words border-t border-theme-border pt-2"><h3>{m.phase_name_snapshot} · {m.label}</h3><p>{STATUS_LABEL[m.status]} · {presentBusinessDate({planned:m.planned_date,actual:m.actual_date,completed:m.status==='COMPLETED',today:getConstructionToday()}).label}</p><p className="whitespace-pre-wrap">{m.notes}</p></article>)}</div></details>}
       {showCreate ? (
         <CreateCustomMilestoneDialog projectId={projectId} milestones={orderedMilestones} phases={phases} types={types} onClose={() => setShowCreate(false)} onCreated={async created => {
           setShowCreate(false);
@@ -553,10 +558,10 @@ function RefreshWorkflowDialog({ preview, isSaving, onClose, onConfirm }: {
     <div className="fixed inset-0 z-[80] flex items-center justify-center overflow-y-auto bg-page/80 p-2 backdrop-blur-sm sm:p-4">
       <div role="dialog" aria-modal="true" aria-labelledby="refresh-workflow-title" className="max-h-[calc(100dvh-1rem)] w-full max-w-lg overflow-y-auto rounded-2xl border border-theme-border bg-card p-4 shadow-2xl sm:p-6">
         <div className="mb-5 flex items-center justify-between">
-          <h3 id="refresh-workflow-title" className="text-lg font-bold text-primary">重製流程</h3>
+          <h3 id="refresh-workflow-title" className="text-lg font-bold text-primary">同步模板新增項目</h3>
           <button type="button" onClick={onClose} disabled={isSaving} aria-label="關閉" className="rounded-full p-2 text-secondary hover:bg-page disabled:opacity-50"><X size={20} /></button>
         </div>
-        <p className="text-sm leading-6 text-secondary">將依目前最新流程模板更新此案件流程。</p>
+        <p className="text-sm leading-6 text-secondary">只補上新增項目並同步排序，保留原框架名稱與快照；完整框架更新請使用「重建流程框架」。</p>
         <p className="mt-4 text-sm font-semibold text-primary">將新增：</p>
         <ul className="mt-2 max-h-60 space-y-1 overflow-y-auto rounded-lg border border-theme-border bg-page/40 p-3 text-sm text-primary">
           {preview.missing_steps.map(step => <li key={step.id}>・{step.label}</li>)}
@@ -564,7 +569,7 @@ function RefreshWorkflowDialog({ preview, isSaving, onClose, onConfirm }: {
         <p className="mt-4 text-sm leading-6 text-secondary">既有流程狀態、日期、備註、自訂項目及歷史工項不會被刪除。</p>
         <div className="mt-5 flex justify-end gap-3 border-t border-theme-border pt-4">
           <button type="button" onClick={onClose} disabled={isSaving} className="rounded-lg border border-theme-border px-4 py-2 text-sm text-secondary hover:bg-page disabled:opacity-50">取消</button>
-          <button type="button" onClick={() => void onConfirm()} disabled={isSaving} className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-hover disabled:opacity-50">{isSaving ? '重製中...' : '重製流程'}</button>
+          <button type="button" onClick={() => void onConfirm()} disabled={isSaving} className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-hover disabled:opacity-50">{isSaving ? '同步中...' : '同步模板新增項目'}</button>
         </div>
       </div>
     </div>

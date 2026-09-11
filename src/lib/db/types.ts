@@ -1,6 +1,6 @@
 export type UserRole = 'ADMIN' | 'ENGINEER' | 'VIEWER';
 export type TaskStatus = '未開始' | '進行中' | '已完成' | '取消' | '' | '改期' | '完成';
-export type TodoStatus = '待安排' | '已排程' | '已完成' | '取消' | '已退件';
+export type TodoStatus = '待安排' | '已排程' | '已完成' | '取消' | '已退件' | '已收納';
 export type TodoScope = 'TEAM' | 'PRIVATE';
 export type ScheduleCreationSource = 'APP' | 'GOOGLE_IMPORT' | 'SYSTEM' | 'LEGACY';
 export type WorkGroupKey = 'ENGINEERING' | 'PROJECT';
@@ -307,6 +307,7 @@ export interface ScheduleTaskType {
 }
 
 export interface Todo {
+  received_at?: string | null;
   id: string;
   work_group_id: string | null;
   title: string;
@@ -534,6 +535,8 @@ export interface ProjectWorkflowInstance {
 }
 
 export interface ProjectMilestone {
+  archived_at?: string | null;
+  phase_sort_order_snapshot?: number;
   id: string;
   workflow_instance_id: string;
   project_id: string;

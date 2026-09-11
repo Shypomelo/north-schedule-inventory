@@ -5,6 +5,7 @@ import type {
   ProjectMilestoneOrigin,
   ProjectMilestoneStatus,
 } from './db/types';
+import { presentBusinessDate } from './date-presentation';
 
 export function getMissingWorkflowTemplateSteps<
   T extends { id: string; is_active: boolean },
@@ -23,7 +24,7 @@ type MilestoneOrderFields = Pick<ProjectMilestone, 'id' | 'sort_order' | 'create
 type SummaryFields = Pick<
   ProjectMilestone,
   'id' | 'sort_order' | 'created_at' | 'is_applicable' | 'status' | 'deleted_at'
->;
+> & { archived_at?: string | null };
 type PhaseOrderFields = MilestoneOrderFields & Pick<ProjectMilestone, 'phase_key_snapshot'>;
 type WorkflowActivityAction = Extract<ActivityActionType, `WORKFLOW_${string}`>;
 
@@ -51,8 +52,6 @@ export interface ProjectOuterWorkflowFields {
   meter_completion_date: string | null;
 }
 
-const formatOuterDate = (date: string) => date.slice(5).replace('-', '/');
-
 export function getWorkflowOuterDisplay(
   kind: WorkflowOuterKind,
   status: string | null | undefined,
@@ -60,15 +59,18 @@ export function getWorkflowOuterDisplay(
   actualDate: string | null | undefined,
 ): WorkflowOuterDisplay {
   const noun = kind === 'ACCEPTANCE' ? '驗收' : '掛表';
+  const now=new Date();
+  const today=[now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-');
+  const presentation=presentBusinessDate({planned:plannedDate,actual:actualDate,completed:status==='COMPLETED',today});
   if (actualDate || status === 'COMPLETED') {
     return {
-      label: actualDate ? `已${noun} ${formatOuterDate(actualDate)}` : `已${noun}`,
+      label: `${noun} · ${presentation.label}`,
       date: actualDate ?? null,
       isCompleted: true,
     };
   }
   return {
-    label: plannedDate ? `預計${noun} ${formatOuterDate(plannedDate)}` : '未排程',
+    label: plannedDate ? `${noun} · ${presentation.label}` : '未排程',
     date: plannedDate ?? null,
     isCompleted: false,
   };
@@ -78,7 +80,7 @@ export function getProjectOuterWorkflowFields(
   milestones: readonly OuterMilestoneFields[],
   legacyMeterDate: string | null,
 ): ProjectOuterWorkflowFields {
-  const active = milestones.filter(milestone => milestone.deleted_at === null && milestone.is_applicable);
+  const active = milestones.filter(milestone => milestone.deleted_at === null && !(milestone as OuterMilestoneFields & {archived_at?:string|null}).archived_at && milestone.is_applicable);
   const acceptance = active.find(milestone => milestone.milestone_key === 'INTERNAL_ACCEPTANCE');
   const meter = active.find(milestone => milestone.milestone_key === 'METER_INSTALLATION');
   const hasAnyMeterMilestone = milestones.some(milestone => milestone.milestone_key === 'METER_INSTALLATION');
@@ -154,7 +156,7 @@ export function getCurrentAndNextMilestones<T extends SummaryFields>(milestones:
   next: T | null;
 } {
   const active = sortWorkflowMilestones(
-    milestones.filter(milestone => milestone.deleted_at === null && milestone.is_applicable),
+    milestones.filter(milestone => milestone.deleted_at === null && !milestone.archived_at && milestone.is_applicable),
   );
   const current = active.find(milestone => (
     milestone.status === 'IN_PROGRESS' || milestone.status === 'BLOCKED'
@@ -166,11 +168,21 @@ export function getCurrentAndNextMilestones<T extends SummaryFields>(milestones:
   return { current, next };
 }
 
+export function getCurrentAndNextNodeBatches<T extends SummaryFields>(milestones:T[]) {
+ const incomplete=sortWorkflowMilestones(milestones.filter(m=>!m.deleted_at&&!m.archived_at&&m.is_applicable&&m.status!=='COMPLETED'));
+ const active=incomplete.filter(m=>m.status==='IN_PROGRESS'||m.status==='BLOCKED');
+ const current_nodes=active.length?active:incomplete.filter(m=>m.sort_order===incomplete[0]?.sort_order);
+ const maxCurrent=current_nodes.length?Math.max(...current_nodes.map(m=>m.sort_order)):Infinity;
+ const after=incomplete.filter(m=>m.sort_order>maxCurrent);
+ const next_nodes=after.filter(m=>m.sort_order===after[0]?.sort_order);
+ return {current_nodes,next_nodes};
+}
+
 export function getVisibleWorkflowMilestones<T extends SummaryFields>(
   milestones: T[],
   hideCompleted: boolean,
 ): T[] {
-  const ordered = sortWorkflowMilestones(milestones);
+  const ordered = sortWorkflowMilestones(milestones.filter(m=>!m.archived_at&&!m.deleted_at));
   return hideCompleted
     ? ordered.filter(milestone => milestone.status !== 'COMPLETED')
     : ordered;

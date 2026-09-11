@@ -210,7 +210,8 @@ test('completed construction date renders without zero and commits through norma
     model: model([row({ work_name: '防水', is_completed: true, actual_completed_date: '2026-09-05' })]),
   }));
   assert.match(valid, /aria-label="實際完工日期"/);
-  assert.match(valid, /value="09\/05"/);
+  assert.match(valid, /value="實際 2026\/09\/05"/);
+  assert.doesNotMatch(valid, /value="預計 2026\/09\/05/);
   assert.doesNotMatch(valid, /value="0"/);
 
   const invalidLegacy = renderToStaticMarkup(React.createElement(ConstructionProgressSection, {
