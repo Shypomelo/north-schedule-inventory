@@ -1,0 +1,38 @@
+{
+  "phase": "post_bootstrap_verification",
+  "candidate_project_ref": "fssogssryeunkjkdgewx",
+  "production_project_ref": "dghozkqvxlwpjmgleekw",
+  "production_access": "read_only",
+  "comparison": {
+    "enums": { "production": 0, "candidate": 0, "missing": 0, "mismatch": 0, "extra": 0 },
+    "relations": { "production": 35, "candidate": 35, "missing": 0, "mismatch": 0, "extra": 0 },
+    "columns": { "production": 398, "candidate": 398, "missing": 0, "mismatch": 0, "extra": 0 },
+    "constraints": { "production": 165, "candidate": 165, "missing": 0, "mismatch": 0, "extra": 0 },
+    "indexes": { "production": 132, "candidate": 132, "missing": 0, "mismatch": 0, "extra": 0 },
+    "policies": { "production": 115, "candidate": 115, "missing": 0, "mismatch": 0, "extra": 0 },
+    "triggers": { "production": 41, "candidate": 41, "missing": 0, "mismatch": 0, "extra": 0 },
+    "functions": { "production": 52, "candidate": 52, "missing": 0, "mismatch": 0, "extra": 0, "normalization": "CRLF and LF are semantically equivalent" },
+    "function_grants": { "production": 117, "candidate": 117, "missing": 0, "mismatch": 0, "extra": 0 },
+    "extensions": { "production": 7, "candidate": 7, "missing": 0, "mismatch": 1, "extra": 0 },
+    "table_grants": { "production": 89, "candidate": 70, "missing": 19, "mismatch": 65, "extra": 0 }
+  },
+  "accepted_deltas": {
+    "extensions": {
+      "pg_net": "Same installed version 0.20.3 and objects; non-relocatable extension namespace metadata is extensions in Production and public in Candidate."
+    },
+    "table_grants": {
+      "missing_anon_grants": 19,
+      "reduced_authenticated_and_service_role_grants": 65,
+      "reason": "Candidate deliberately omits Production legacy anon and TRUNCATE/TRIGGER/REFERENCES privileges; authenticated and service_role retain application CRUD, with RLS and exact function grants."
+    }
+  },
+  "application_contract_drift": {
+    "missing_relation": 0,
+    "missing_column": 0,
+    "missing_function": 0,
+    "missing_trigger": 0,
+    "missing_policy": 0,
+    "missing_constraint": 0
+  },
+  "verdict": "REVIEW_READY_WITH_INTENTIONAL_SECURITY_DELTA"
+}
