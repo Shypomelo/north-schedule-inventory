@@ -1,9 +1,19 @@
 #!/usr/bin/env node
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 const CANDIDATE_REF = 'fssogssryeunkjkdgewx';
 const PRODUCTION_REF = 'dghozkqvxlwpjmgleekw';
+const FORMAL_REVIEW_MEMBER = Object.freeze({
+  id: '65916798-f0ec-4d41-8b17-785c4189bd83',
+  name: '柚子',
+  email: 'shypomelo@gmail.com',
+  role: 'admin',
+  category: 'engineering',
+});
+const CANDIDATE_REVIEWER_EMAIL = 'candidate-review@local.invalid';
+const PRESERVED_MEMBER_EMAILS = new Set([FORMAL_REVIEW_MEMBER.email]);
 const action = process.argv[2] ?? 'verify';
 const targetRef = process.env.SUPABASE_PROJECT_REF ?? '';
 const accessToken = process.env.SUPABASE_ACCESS_TOKEN ?? '';
@@ -72,6 +82,64 @@ function quoteIdentifier(value) {
 
 function sqlString(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
+}
+
+function stableDigest(identity, purpose) {
+  return createHash('sha256').update(`${purpose}:${identity}`).digest('hex');
+}
+
+function deterministicEmail(identity, purpose = 'member') {
+  return `candidate+${stableDigest(identity, purpose).slice(0, 16)}@example.invalid`;
+}
+
+function maskedPhone(identity) {
+  const suffix = [...stableDigest(identity, 'phone').slice(0, 3)]
+    .map(value => Number.parseInt(value, 16) % 10)
+    .join('');
+  return `09**-***-${suffix}`;
+}
+
+function sanitizeNotes(value) {
+  if (typeof value !== 'string' || !value) return value;
+  return value
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email masked]')
+    .replace(/(?:\+?886[-\s]?)?0?9\d{2}[-\s]?\d{3}[-\s]?\d{3}/g, '[phone masked]')
+    .replace(/0\d{1,2}[-\s]?\d{6,8}/g, '[phone masked]');
+}
+
+function sanitizeAddress(value) {
+  if (typeof value !== 'string' || !value.trim()) return value;
+  const normalized = value.trim();
+  const match = normalized.match(/((?:臺|台)?[^縣市\s,，]{1,4}[縣市])([^區鄉鎮市\s,，]{1,4}[區鄉鎮市])?/);
+  return match ? `${match[1]}${match[2] ?? ''}` : '地址已去敏';
+}
+
+function sanitizeRows(table, rows, preservedMemberEmails) {
+  return rows.map(row => {
+    const sanitized = { ...row };
+    if (Object.hasOwn(sanitized, 'notes')) sanitized.notes = sanitizeNotes(sanitized.notes);
+
+    if (table === 'team_members') {
+      const normalizedEmail = typeof row.email === 'string' ? row.email.trim().toLowerCase() : '';
+      sanitized.email = preservedMemberEmails.has(normalizedEmail)
+        ? row.email
+        : deterministicEmail(row.id, 'team-member');
+      sanitized.google_calendar_email = row.google_calendar_email
+        ? deterministicEmail(row.id, 'google-calendar')
+        : row.google_calendar_email;
+    }
+    if (table === 'contractors' && row.phone) sanitized.phone = maskedPhone(row.id);
+    if (table === 'projects') sanitized.address = sanitizeAddress(row.address);
+    if (table === 'schedule_tasks') {
+      sanitized.address = sanitizeAddress(row.address);
+      sanitized.google_maps_url = null;
+      sanitized.google_calendar_id = null;
+      sanitized.google_event_id = null;
+      sanitized.google_sync_error = null;
+    }
+    if (table === 'work_groups') sanitized.google_calendar_sync_enabled = false;
+    return sanitized;
+  });
 }
 
 async function query(projectRef, sql, { readOnly = true } = {}) {
@@ -171,17 +239,67 @@ async function exportSnapshot(projectRef) {
   return new Map(BUSINESS_TABLES.map((table, index) => [table, rows[index]]));
 }
 
-function applyCandidateSafetyShape(snapshot) {
-  const workGroups = snapshot.get('work_groups') ?? [];
-  snapshot.set('work_groups', workGroups.map(row => ({ ...row, google_calendar_sync_enabled: false })));
+function applyCandidateSafetyShape(snapshot, preservedMemberEmails = new Set()) {
+  for (const table of BUSINESS_TABLES) {
+    snapshot.set(table, sanitizeRows(table, snapshot.get(table) ?? [], preservedMemberEmails));
+  }
   return snapshot;
+}
+
+async function candidateAuthState() {
+  const result = await query(CANDIDATE_REF, `
+    select
+      count(*) filter (where lower(btrim(email))=${sqlString(FORMAL_REVIEW_MEMBER.email)})::bigint
+        as formal_auth_users,
+      count(*) filter (where lower(btrim(email))=${sqlString(CANDIDATE_REVIEWER_EMAIL)})::bigint
+        as candidate_reviewer_auth_users
+    from auth.users
+  `);
+  return result?.[0] ?? null;
+}
+
+function assertIdentityPreflight(snapshot, authState) {
+  const member = (snapshot.get('team_members') ?? []).find(row => row.id === FORMAL_REVIEW_MEMBER.id);
+  const exactFormalMember = member
+    && member.name === FORMAL_REVIEW_MEMBER.name
+    && member.email?.trim().toLowerCase() === FORMAL_REVIEW_MEMBER.email
+    && member.role?.trim().toLowerCase() === FORMAL_REVIEW_MEMBER.role
+    && member.category?.trim().toLowerCase() === FORMAL_REVIEW_MEMBER.category
+    && member.is_active === true
+    && member.deleted_at == null;
+  if (!exactFormalMember) fail('formal review member identity differs from the approved Production identity');
+  if (Number(authState?.formal_auth_users ?? 0) !== 1) {
+    fail('formal review login is missing or duplicated in Candidate auth.users');
+  }
+  if (Number(authState?.candidate_reviewer_auth_users ?? 0) !== 1) {
+    fail('Candidate Reviewer auth identity differs from the approved preflight state');
+  }
 }
 
 async function authFingerprint() {
   const result = await query(CANDIDATE_REF, `
     select count(*)::bigint as user_count,
-      md5(coalesce(string_agg(id::text, ',' order by id),'')) as id_fingerprint
+      md5(coalesce(string_agg(id::text || ':' || coalesce(email,''), ',' order by id),'')) as id_email_fingerprint
     from auth.users
+  `);
+  return result?.[0] ?? null;
+}
+
+async function authLinkStatus() {
+  const result = await query(CANDIDATE_REF, `
+    select
+      count(*) filter (where lower(btrim(auth_user.email))=${sqlString(FORMAL_REVIEW_MEMBER.email)})::bigint
+        as formal_auth_users,
+      count(member.id) filter (where lower(btrim(auth_user.email))=${sqlString(FORMAL_REVIEW_MEMBER.email)})::bigint
+        as formal_member_matches,
+      count(*) filter (where lower(btrim(auth_user.email))=${sqlString(CANDIDATE_REVIEWER_EMAIL)})::bigint
+        as candidate_reviewer_auth_users,
+      count(member.id) filter (where lower(btrim(auth_user.email))=${sqlString(CANDIDATE_REVIEWER_EMAIL)})::bigint
+        as candidate_reviewer_member_matches
+    from auth.users auth_user
+    left join public.team_members member
+      on lower(btrim(member.email))=lower(btrim(auth_user.email))
+     and member.deleted_at is null
   `);
   return result?.[0] ?? null;
 }
@@ -217,6 +335,32 @@ async function fixtureCount() {
     ) fixture_rows
   `);
   return Number(result?.[0]?.fixture_count ?? 0);
+}
+
+async function fixtureMarkerCount(projectRef = CANDIDATE_REF) {
+  const tables = ['activity_logs', ...BUSINESS_TABLES];
+  const counts = await mapWithConcurrency(tables, 4, async table => {
+    const result = await query(projectRef, `
+      select count(*)::bigint as marker_count
+      from public.${quoteIdentifier(table)} row_data
+      where to_jsonb(row_data)::text ~*
+        '(CANDIDATE_|REVIEW_FIXTURE|Candidate Reviewer|協作測試員|c0000000-0000-4000-8000-)'
+    `);
+    return Number(result?.[0]?.marker_count ?? 0);
+  });
+  return counts.reduce((sum, count) => sum + count, 0);
+}
+
+async function reviewOpinionCount(projectRef) {
+  const result = await query(projectRef, `
+    select
+      (select count(*)::bigint from public.project_milestones
+       where milestone_key='REVIEW_OPINION_RECEIVED')
+      +
+      (select count(*)::bigint from public.project_workflow_template_steps
+       where step_key='REVIEW_OPINION_RECEIVED') as row_count
+  `);
+  return Number(result?.[0]?.row_count ?? 0);
 }
 
 function dollarQuote(value, index) {
@@ -281,36 +425,142 @@ async function verifyCandidateSafety() {
       (select count(*)::bigint
        from pg_proc routine join pg_namespace namespace on namespace.oid=routine.pronamespace
        where namespace.nspname in ('public','app_private') and routine.prokind='f'
-         and pg_get_functiondef(routine.oid) ~* '(net\\.http|http_post|http_get|webhook|https?://)') as external_network_routines
+         and pg_get_functiondef(routine.oid) ~* '(net\\.http|http_post|http_get|webhook|https?://)') as external_network_routines,
+      (select count(*)::bigint
+       from pg_trigger trigger
+       join pg_class relation on relation.oid=trigger.tgrelid
+       join pg_namespace namespace on namespace.oid=relation.relnamespace
+       join pg_proc routine on routine.oid=trigger.tgfoid
+       where not trigger.tgisinternal and namespace.nspname='public'
+         and (pg_get_triggerdef(trigger.oid) || pg_get_functiondef(routine.oid))
+           ~* '(net\\.http|http_post|http_get|webhook|https?://)') as external_mutation_triggers
   `);
   return result?.[0] ?? null;
 }
 
+async function loadForeignKeys(projectRef) {
+  return query(projectRef, `
+    select constraint_def.conname as constraint_name,
+      child.relname as child_table,
+      parent.relname as parent_table,
+      jsonb_agg(child_column.attname order by key_pair.ordinality) as child_columns,
+      jsonb_agg(parent_column.attname order by key_pair.ordinality) as parent_columns
+    from pg_constraint constraint_def
+    join pg_class child on child.oid=constraint_def.conrelid
+    join pg_namespace child_namespace on child_namespace.oid=child.relnamespace
+    join pg_class parent on parent.oid=constraint_def.confrelid
+    join pg_namespace parent_namespace on parent_namespace.oid=parent.relnamespace
+    cross join lateral unnest(constraint_def.conkey, constraint_def.confkey)
+      with ordinality as key_pair(child_attnum,parent_attnum,ordinality)
+    join pg_attribute child_column
+      on child_column.attrelid=child.oid and child_column.attnum=key_pair.child_attnum
+    join pg_attribute parent_column
+      on parent_column.attrelid=parent.oid and parent_column.attnum=key_pair.parent_attnum
+    where constraint_def.contype='f'
+      and child_namespace.nspname='public'
+      and parent_namespace.nspname='public'
+      and child.relname in (${tableListSql})
+    group by constraint_def.conname, child.relname, parent.relname
+    order by child.relname, constraint_def.conname
+  `);
+}
+
+function assertForeignKeyPreflight(sourceForeignKeys, targetForeignKeys) {
+  if (JSON.stringify(sourceForeignKeys) !== JSON.stringify(targetForeignKeys)) {
+    fail('Production and Candidate foreign-key graphs differ for the business allowlist');
+  }
+  const outsideAllowlist = sourceForeignKeys.filter(foreignKey =>
+    !BUSINESS_TABLES.includes(foreignKey.child_table)
+    || !BUSINESS_TABLES.includes(foreignKey.parent_table)
+  );
+  if (outsideAllowlist.length) {
+    fail(`business foreign-key graph requires ${outsideAllowlist.length} table(s) outside the allowlist`);
+  }
+}
+
+async function verifyOrphanRelations(projectRef = CANDIDATE_REF) {
+  const foreignKeys = await loadForeignKeys(projectRef);
+  if (!foreignKeys.length) return [];
+  const checks = foreignKeys.map(foreignKey => {
+    const joins = foreignKey.child_columns.map((column, index) =>
+      `child.${quoteIdentifier(column)} = parent.${quoteIdentifier(foreignKey.parent_columns[index])}`
+    ).join(' and ');
+    const nonNull = foreignKey.child_columns
+      .map(column => `child.${quoteIdentifier(column)} is not null`).join(' and ');
+    const missingParent = `parent.${quoteIdentifier(foreignKey.parent_columns[0])} is null`;
+    const label = sqlString(`${foreignKey.child_table}.${foreignKey.constraint_name}`);
+    return `select ${label} as relation, count(*)::bigint as orphan_count
+      from public.${quoteIdentifier(foreignKey.child_table)} child
+      left join public.${quoteIdentifier(foreignKey.parent_table)} parent on ${joins}
+      where ${nonNull} and ${missingParent}`;
+  });
+  const result = await query(projectRef, checks.join('\nunion all\n'));
+  return result.filter(row => Number(row.orphan_count) > 0);
+}
+
 async function verifyData() {
-  const [sourceMetadata, targetMetadata] = await Promise.all([
+  const [sourceMetadata, targetMetadata, authState, sourceForeignKeys, targetForeignKeys] = await Promise.all([
     loadMetadata(PRODUCTION_REF),
     loadMetadata(CANDIDATE_REF),
+    candidateAuthState(),
+    loadForeignKeys(PRODUCTION_REF),
+    loadForeignKeys(CANDIDATE_REF),
   ]);
   assertMetadataParity(sourceMetadata, targetMetadata);
-  const [source, target] = await Promise.all([
-    exportSnapshot(PRODUCTION_REF).then(applyCandidateSafetyShape),
+  assertForeignKeyPreflight(sourceForeignKeys, targetForeignKeys);
+  const [source, target, sourceReviewOpinions, targetReviewOpinions] = await Promise.all([
+    exportSnapshot(PRODUCTION_REF).then(snapshot => applyCandidateSafetyShape(snapshot, PRESERVED_MEMBER_EMAILS)),
     exportSnapshot(CANDIDATE_REF),
+    reviewOpinionCount(PRODUCTION_REF),
+    reviewOpinionCount(CANDIDATE_REF),
   ]);
+  assertIdentityPreflight(source, authState);
   const comparison = compareSnapshots(source, target);
-  const safety = await verifyCandidateSafety();
-  return { comparison, safety };
+  const [safety, authLinks, orphanRelations, fixtureMarkers] = await Promise.all([
+    verifyCandidateSafety(),
+    authLinkStatus(),
+    verifyOrphanRelations(),
+    fixtureMarkerCount(),
+  ]);
+  return {
+    comparison,
+    safety,
+    authLinks,
+    orphanRelations,
+    fixtureMarkers,
+    reviewOpinions: { source: sourceReviewOpinions, target: targetReviewOpinions },
+  };
 }
 
 async function refresh() {
-  const [sourceMetadata, targetMetadata, authBefore, fixturesBefore] = await Promise.all([
+  const [
+    sourceMetadata,
+    targetMetadata,
+    authBefore,
+    authState,
+    fixtureRowsBefore,
+    sourceForeignKeys,
+    targetForeignKeys,
+    sourceOrphans,
+  ] = await Promise.all([
     loadMetadata(PRODUCTION_REF),
     loadMetadata(CANDIDATE_REF),
     authFingerprint(),
-    fixtureCount(),
+    candidateAuthState(),
+    fixtureMarkerCount(),
+    loadForeignKeys(PRODUCTION_REF),
+    loadForeignKeys(CANDIDATE_REF),
+    verifyOrphanRelations(PRODUCTION_REF),
   ]);
   assertMetadataParity(sourceMetadata, targetMetadata);
+  assertForeignKeyPreflight(sourceForeignKeys, targetForeignKeys);
+  if (sourceOrphans.length) fail('Production business snapshot contains orphan foreign-key relations');
 
-  const snapshot = applyCandidateSafetyShape(await exportSnapshot(PRODUCTION_REF));
+  const snapshot = applyCandidateSafetyShape(
+    await exportSnapshot(PRODUCTION_REF),
+    PRESERVED_MEMBER_EMAILS,
+  );
+  assertIdentityPreflight(snapshot, authState);
   const refreshSql = await buildRefreshSql(snapshot, targetMetadata);
   await query(CANDIDATE_REF, refreshSql, { readOnly: false });
 
@@ -322,21 +572,39 @@ async function refresh() {
   if (!verification.comparison.exact) fail('Candidate data differs from the safety-shaped Production snapshot');
   if (JSON.stringify(authBefore) !== JSON.stringify(authAfter)) fail('Candidate auth.users changed during refresh');
   if (fixturesAfter !== 0) fail(`Candidate fixture rows remain after refresh: ${fixturesAfter}`);
+  if (verification.fixtureMarkers !== 0) fail(`Candidate fixture markers remain after refresh: ${verification.fixtureMarkers}`);
   if (Number(verification.safety?.active_cron_jobs ?? -1) !== 0) fail('Candidate has active cron jobs');
   if (Number(verification.safety?.google_enabled_work_groups ?? -1) !== 0) fail('Candidate has Google-enabled work groups');
   if (Number(verification.safety?.external_network_routines ?? -1) !== 0) fail('Candidate has an external network database routine');
+  if (Number(verification.safety?.external_mutation_triggers ?? -1) !== 0) fail('Candidate has an external mutation trigger');
+  if (Number(verification.authLinks?.formal_auth_users ?? 0) !== 1
+    || Number(verification.authLinks?.formal_member_matches ?? 0) !== 1) {
+    fail('formal review login no longer maps to the approved Production member');
+  }
+  if (Number(verification.authLinks?.candidate_reviewer_auth_users ?? 0) !== 1
+    || Number(verification.authLinks?.candidate_reviewer_member_matches ?? -1) !== 0) {
+    fail('Candidate Reviewer auth/business entitlement state is not the approved state');
+  }
+  if (verification.orphanRelations.length !== 0) fail('Candidate has orphan business relations');
+  if (verification.reviewOpinions.source !== verification.reviewOpinions.target) {
+    fail('REVIEW_OPINION_RECEIVED canonical workflow rows were not preserved');
+  }
 
   return {
     action: 'refresh',
     sourceProjectRef: PRODUCTION_REF,
     targetProjectRef: CANDIDATE_REF,
     productionReadOnly: true,
-    fixturesRemoved: fixturesBefore,
+    fixturesRemoved: fixtureRowsBefore,
+    fixtureMarkersRemaining: verification.fixtureMarkers,
     authUsersCopied: false,
     authUsersUnchanged: true,
     tables: Object.fromEntries(BUSINESS_TABLES.map(table => [table, snapshot.get(table).length])),
     exactDataMatch: true,
     uuidAndForeignKeysPreserved: true,
+    deterministicSanitization: true,
+    authLinks: verification.authLinks,
+    orphanRelations: verification.orphanRelations,
     safety: verification.safety,
   };
 }

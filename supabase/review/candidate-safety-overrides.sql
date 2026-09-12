@@ -32,3 +32,23 @@ BEGIN
   END IF;
 END
 $network_safety$;
+
+-- Database Webhooks are trigger-backed. Reject any public trigger whose
+-- implementation can reach an external endpoint.
+DO $webhook_safety$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_trigger trigger
+    JOIN pg_class relation ON relation.oid=trigger.tgrelid
+    JOIN pg_namespace namespace ON namespace.oid=relation.relnamespace
+    JOIN pg_proc routine ON routine.oid=trigger.tgfoid
+    WHERE NOT trigger.tgisinternal
+      AND namespace.nspname='public'
+      AND (pg_get_triggerdef(trigger.oid) || pg_get_functiondef(routine.oid))
+        ~* '(net\.http|http_post|http_get|webhook|https?://)'
+  ) THEN
+    RAISE EXCEPTION 'candidate safety guard failed: external mutation trigger exists';
+  END IF;
+END
+$webhook_safety$;
