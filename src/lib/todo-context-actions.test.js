@@ -1,7 +1,58 @@
-const assert=require('node:assert/strict'),test=require('node:test'),fs=require('node:fs'),path=require('node:path');
-const read=file=>fs.readFileSync(path.join(__dirname,file),'utf8');
-test('Dashboard My and Team Todo share desktop context and mobile action menu',()=>{const source=read('../app/page.tsx');assert.match(source,/onContextMenu=\{event =>/);assert.match(source,/aria-label=\{`\$\{todo\.title\} 更多操作`\}/);assert.match(source,/role="menu"/);assert.match(source,/deletePrivateTodo/);assert.match(source,/deleteTodo/);assert.match(source,/menu\.todo\.scope === 'TEAM'/);});
-test('Todo actions remain permission gated for VIEWER',()=>{const dashboard=read('../app/page.tsx'),schedule=read('../app/schedule/page.tsx');assert.match(dashboard,/disabled=\{disabled\}/);assert.match(schedule,/currentUser\?\.role === 'VIEWER'/);assert.match(schedule,/handleDeleteTodo/);});
-test('Schedule pending Todo right click menu edits and deletes without conversion',()=>{const source=read('../app/schedule/page.tsx');assert.match(source,/setTodoContextMenu\(\{ todoId: todo\.id/);assert.match(source,/>編輯待辦<\/button>/);assert.match(source,/>刪除待辦<\/button>/);assert.match(source,/event\.preventDefault\(\);[\s\S]{0,100}event\.stopPropagation\(\)/);});
-test('Dashboard Todo columns use equal independent desktop rows and mobile flow',()=>{const source=read('../app/page.tsx');assert.match(source,/min-\[1100px\]:grid-rows-2/);assert.match(source,/min-\[1100px\]:overflow-hidden/);assert.match(source,/min-\[1100px\]:overflow-y-auto/);assert.match(source,/md:hidden/);});
-test('Schedule and Dashboard use shared Team Todo surface styling',()=>{for(const file of ['../app/page.tsx','../app/schedule/page.tsx'])assert.match(read(file),/TEAM_TODO_CARD_CLASS/);});
+const assert = require('node:assert/strict');
+const test = require('node:test');
+const fs = require('node:fs');
+const path = require('node:path');
+const loadTypeScript = require('./test-load-ts.cjs');
+
+const read = file => fs.readFileSync(path.join(__dirname, file), 'utf8');
+const { canDeleteTodo } = loadTypeScript(path.join(__dirname, 'todo-text-actions.ts'));
+const editor = { id: 'member-1', role: 'ENGINEER', is_active: true };
+const viewer = { id: 'viewer-1', role: 'VIEWER', is_active: true };
+
+test('PRIVATE delete is creator-only and VIEWER cannot mutate', () => {
+  const todo = { scope: 'PRIVATE', created_by: 'member-1' };
+  assert.equal(canDeleteTodo(todo, editor), true);
+  assert.equal(canDeleteTodo(todo, { ...editor, id: 'member-2' }), false);
+  assert.equal(canDeleteTodo(todo, viewer), false);
+});
+
+test('TEAM delete retains active editor permission and rejects VIEWER', () => {
+  const todo = { scope: 'TEAM', created_by: 'member-2' };
+  assert.equal(canDeleteTodo(todo, editor), true);
+  assert.equal(canDeleteTodo(todo, viewer), false);
+});
+
+test('Engineering and Project dashboards use canonical delete paths', () => {
+  const source = read('../app/page.tsx');
+  assert.match(source, /projectManagement\?'PROJECT':'ENGINEERING'/);
+  assert.match(source, /deletePrivateTodo\(todo\.id\)/);
+  assert.match(source, /else await dbAdapter\.deleteTodo\(todo\.id\)/);
+  assert.match(source, /canDeleteTodo\(todo, currentUser\)/);
+});
+
+test('Design dashboard exposes private and team delete through the shared menu', () => {
+  const source = read('../components/DesignWorkbench.tsx');
+  assert.match(source, /deletePrivateTodo\(todo\.id\)/);
+  assert.match(source, /else await dbAdapter\.deleteTodo\(todo\.id\)/);
+  assert.match(source, /<TodoContextMenu/);
+  assert.match(source, /label:'刪除待辦'/);
+});
+
+test('Dashboard and Schedule use shared TodoRow and TodoContextMenu presentation', () => {
+  for (const file of ['../app/page.tsx', '../app/schedule/page.tsx']) {
+    const source = read(file);
+    assert.match(source, /<TodoRow/);
+    assert.match(source, /<TodoContextMenu/);
+  }
+  const row = read('../components/TodoRow.tsx');
+  assert.match(row, /TEAM_TODO_CARD_CLASS/);
+  assert.match(row, /gap-3/);
+  assert.match(row, /md:hidden/);
+});
+
+test('Dashboard Todo columns use equal independent desktop rows and mobile flow', () => {
+  const source = read('../app/page.tsx');
+  assert.match(source, /min-\[1100px\]:grid-rows-2/);
+  assert.match(source, /min-\[1100px\]:overflow-hidden/);
+  assert.match(source, /min-\[1100px\]:overflow-y-auto/);
+});

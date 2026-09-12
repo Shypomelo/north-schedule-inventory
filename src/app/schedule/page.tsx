@@ -11,10 +11,12 @@ import {
 } from '@/components/GoogleCalendarSyncDialogs';
 import { TodoForm } from '@/components/TodoForm';
 import { TodoTextEditDialog } from '@/components/TodoTextEditDialog';
+import { TodoContextMenu } from '@/components/TodoContextMenu';
+import { TodoRow } from '@/components/TodoRow';
 import { useWorkGroups } from '@/hooks/useWorkGroups';
 import { requireTodoWorkGroup } from '@/lib/work-groups';
 import { startOfWeek, endOfWeek, addDays, subDays, format, isSameDay, startOfMonth, endOfMonth } from 'date-fns';
-import { ChevronLeft, ChevronRight, Plus, X, ArrowLeft, RefreshCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, X, ArrowLeft, RefreshCw, Circle } from 'lucide-react';
 import { useUser } from '@/components/UserContext';
 import { getDatabaseErrorMessage, isMissingCoreTablesError } from '@/lib/db/supabase-errors';
 import { supabase } from '@/lib/db/supabaseClient';
@@ -23,7 +25,7 @@ import { selectActiveTeamTodos } from '@/lib/todo-selectors';
 import { type MemberWorkGroup, selectActiveWorkGroups } from '@/lib/work-groups';
 import { getScheduleTaskPresentation } from '@/lib/schedule-presentation';
 import { useScheduleWeather } from '@/hooks/useScheduleWeather';
-import { TEAM_TODO_CARD_CLASS } from '@/lib/todo-presentation';
+import { canDeleteTodo } from '@/lib/todo-text-actions';
 import {
   completeScheduleTaskWithActivity,
   confirmScheduleTaskDeletion,
@@ -152,7 +154,6 @@ export default function SchedulePage() {
     const handleClick = () => {
       setContextMenu(null);
       setDayContextMenu(null);
-      setTodoContextMenu(null);
     };
     document.addEventListener('click', handleClick);
     return () => document.removeEventListener('click', handleClick);
@@ -554,7 +555,7 @@ export default function SchedulePage() {
   };
 
   const handleDeleteTodo = async (todo: Todo) => {
-    if (currentUser?.role === 'VIEWER' || !window.confirm(`確定要刪除「${todo.title}」嗎？`)) return;
+    if (!canDeleteTodo(todo, currentUser) || !window.confirm(`確定要刪除「${todo.title}」嗎？`)) return;
     setIsSubmitting(true);
     try {
       await dbAdapter.deleteTodo(todo.id);
@@ -828,26 +829,21 @@ export default function SchedulePage() {
               const projectName = project?.short_name || project?.name || '未指定案場';
 
               return (
-                <div
+                <TodoRow
                   key={todo.id}
+                  todo={todo}
                   draggable={currentUser?.role !== 'VIEWER'}
                   onDragStart={event => handleDragStart(event, todo.id, 'todo')}
-                  onClick={() => openTodoConvertForm(todo, format(new Date(), 'yyyy-MM-dd'))}
-                  onContextMenu={event => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    if (currentUser?.role === 'VIEWER') return;
+                  onActivate={() => setEditingTodo(todo)}
+                  menuDisabled={currentUser?.role === 'VIEWER'}
+                  onOpenMenu={point => {
                     setContextMenu(null);
                     setDayContextMenu(null);
-                    setTodoContextMenu({ todoId: todo.id, x: event.clientX, y: event.clientY });
+                    setTodoContextMenu({ todoId: todo.id, ...point });
                   }}
-                  className={`${TEAM_TODO_CARD_CLASS} cursor-pointer p-2`}
-                >
-                  <div className="text-xs font-semibold text-amber-300 truncate">{projectName}</div>
-                  <div className="text-xs mt-1 font-bold text-[var(--accent)] truncate">[{todo.task_type || '未分類'}]</div>
-                  <div className="text-xs mt-0.5 text-[var(--text-primary)] truncate">{todo.title}</div>
-                  <button type="button" aria-label={`待辦操作：${todo.title}`} className="mt-1 ml-auto flex min-h-10 min-w-10 items-center justify-center rounded text-lg md:hidden" onClick={event=>{event.stopPropagation();const rect=event.currentTarget.getBoundingClientRect();setTodoContextMenu({todoId:todo.id,x:rect.right-120,y:rect.bottom});}}>⋯</button>
-                </div>
+                  statusControl={<Circle size={20} className="text-secondary" />}
+                  secondary={<><span className="font-semibold text-amber-300">{projectName}</span><span className="mx-1">·</span><span className="font-semibold text-accent">{todo.task_type || '未分類'}</span></>}
+                />
               );
             })}
             {activeTeamTodos.length === 0 && (
@@ -1237,29 +1233,21 @@ export default function SchedulePage() {
         </div>
       )}
 
-      {todoContextMenu && (
-        <div 
-          className="fixed bg-[var(--surface)] border border-[var(--border)] rounded shadow-xl py-1 z-50 text-sm min-w-[120px]"
-          style={{ top: todoContextMenu.y, left: todoContextMenu.x }}
-        >
-          {todoContextMenu.todoId ? (
-            <>
-              <button className="w-full text-left px-4 py-2 hover:bg-[var(--surface-secondary)] text-[var(--accent)] disabled:opacity-50 disabled:cursor-not-allowed" disabled={currentUser?.role === 'VIEWER'} onClick={event=>{event.stopPropagation();const todo=todos.find(item=>item.id===todoContextMenu.todoId);setTodoContextMenu(null);if(todo)setEditingTodo(todo);}}>編輯待辦</button>
-              <button className="w-full text-left px-4 py-2 hover:bg-[var(--surface-secondary)] text-[var(--danger)] disabled:opacity-50 disabled:cursor-not-allowed" disabled={currentUser?.role === 'VIEWER'} onClick={event=>{event.stopPropagation();const todo=todos.find(item=>item.id===todoContextMenu.todoId);setTodoContextMenu(null);if(todo)void handleDeleteTodo(todo);}}>刪除待辦</button>
-            </>
-          ) : (
-            <button 
-              className="w-full text-left px-4 py-2 hover:bg-[var(--surface-secondary)] text-[var(--accent)] disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={currentUser?.role === 'VIEWER'}
-              onClick={(e) => {
-                e.stopPropagation();
-                setTodoContextMenu(null);
-                setIsTodoFormOpen(true);
-              }}
-            >新增待辦</button>
-          )}
-        </div>
-      )}
+      {todoContextMenu ? (
+        <TodoContextMenu
+          point={{ x: todoContextMenu.x, y: todoContextMenu.y }}
+          onClose={() => setTodoContextMenu(null)}
+          actions={(() => {
+            if (!todoContextMenu.todoId) return [{ label: '新增待辦', tone: 'accent' as const, onSelect: () => setIsTodoFormOpen(true) }];
+            const todo = todos.find(item => item.id === todoContextMenu.todoId);
+            if (!todo) return [];
+            return [
+              { label: '加入排程', tone: 'accent' as const, onSelect: () => openTodoConvertForm(todo, format(new Date(), 'yyyy-MM-dd')) },
+              { label: '刪除待辦', tone: 'danger' as const, onSelect: () => void handleDeleteTodo(todo) },
+            ];
+          })()}
+        />
+      ) : null}
 
       {isFormOpen && (
         <ScheduleTaskFormDialog

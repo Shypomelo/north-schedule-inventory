@@ -10,13 +10,15 @@ import { ScheduleTaskFormDialog } from '@/components/ScheduleTaskFormDialog';
 import { useUser } from '@/components/UserContext';
 import { TodoTextEditDialog } from '@/components/TodoTextEditDialog';
 import { TodoInlineText } from '@/components/TodoInlineText';
+import { TodoContextMenu } from '@/components/TodoContextMenu';
+import { TodoRow } from '@/components/TodoRow';
 import { useDashboardView } from '@/components/DashboardViewContext';
 import { DesignWorkbench } from '@/components/DesignWorkbench';
 import { ProjectOverviewCards } from '@/components/ProjectOverviewCards';
 import { workbenchAdapter } from '@/lib/db/workbench-adapter';
 import type { ProjectMilestone } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
-import type { ActivityLog, MemberProjectResponsibility, Project, ScheduleTask, ScheduleTaskMember, Todo, WorkGroup } from '@/lib/db/types';
+import type { ActivityLog, MemberProjectResponsibility, Project, ScheduleTask, ScheduleTaskMember, Todo, User, WorkGroup } from '@/lib/db/types';
 import { buildDashboardProjectCards } from '@/lib/engineering-dashboard';
 import { presentBusinessDate } from '@/lib/date-presentation';
 import { formatScheduleTaskTime, selectTodayMemberSchedule } from '@/lib/schedule-selectors';
@@ -24,7 +26,7 @@ import { getScheduleTaskPresentation } from '@/lib/schedule-presentation';
 import { isActiveProject, selectActiveProjects } from '@/lib/project-selectors';
 import { selectActiveTeamTodos } from '@/lib/todo-selectors';
 import { useScheduleWeather } from '@/hooks/useScheduleWeather';
-import { TEAM_TODO_CARD_CLASS } from '@/lib/todo-presentation';
+import { canDeleteTodo } from '@/lib/todo-text-actions';
 import {
   completeScheduleTaskWithActivity,
   confirmScheduleTaskDeletion,
@@ -199,7 +201,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
   };
 
   const deleteTodo = async (todo: Todo) => {
-    if (!canMutateTodos || !window.confirm(`確定要刪除「${todo.title}」嗎？`)) return;
+    if (!canDeleteTodo(todo, currentUser) || !window.confirm(`確定要刪除「${todo.title}」嗎？`)) return;
     setSavingKey(todo.id);
     try {
       if (todo.scope === 'PRIVATE') await dbAdapter.deletePrivateTodo(todo.id);
@@ -402,12 +404,13 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
           <DashboardSection icon={<ListTodo size={18} />} title="我的 TODO" count={visiblePrivateTodos.length} className={`${mobileTodoPage === 'private' ? 'block' : 'hidden'} md:block min-[1100px]:min-h-0 min-[1100px]:overflow-y-auto`}>
             <HideCompletedToggle checked={hideCompletedPrivate} onChange={setHideCompletedPrivate} />
             <TodoComposer value={privateTitle} onChange={setPrivateTitle} onSubmit={createPrivateTodo} placeholder="新增私人記事…" disabled={!canMutateTodos} isSaving={savingKey === 'private-new'} />
-            <TodoList todos={visiblePrivateTodos} emptyText={hideCompletedPrivate ? '沒有未完成的私人記事' : '目前沒有私人記事'} savingKey={savingKey} onComplete={completePrivateTodo} onEdit={setEditingTodo} onDelete={deleteTodo} onSaved={loadDashboard} disabled={!canMutateTodos} />
+            <TodoList actor={currentUser} todos={visiblePrivateTodos} emptyText={hideCompletedPrivate ? '沒有未完成的私人記事' : '目前沒有私人記事'} savingKey={savingKey} onComplete={completePrivateTodo} onEdit={setEditingTodo} onDelete={deleteTodo} onSaved={loadDashboard} disabled={!canMutateTodos} />
           </DashboardSection>
 
           <DashboardSection icon={<Users size={18} />} title="團隊 TODO" count={visibleTeamTodos.length} actionHref="/schedule" actionLabel="週排程待辦" className={`${mobileTodoPage === 'team' ? 'block' : 'hidden'} md:block min-[1100px]:min-h-0 min-[1100px]:overflow-y-auto`}>
             <TodoComposer value={teamTitle} onChange={setTeamTitle} onSubmit={createTeamTodo} placeholder="新增團隊待辦…" disabled={!canMutateTodos} isSaving={savingKey === 'team-new'} />
             <TodoList
+              actor={currentUser}
               todos={visibleTeamTodos}
               onEdit={setEditingTodo}
               onDelete={deleteTodo}
@@ -534,7 +537,8 @@ function TodoComposer({ value, onChange, onSubmit, placeholder, disabled, isSavi
   );
 }
 
-function TodoList({ todos, emptyText, savingKey, onComplete, onEdit, onDelete, onSaved, disabled, secondary }: {
+function TodoList({ actor, todos, emptyText, savingKey, onComplete, onEdit, onDelete, onSaved, disabled, secondary }: {
+  actor: User | null;
   onSaved: () => Promise<void>;
   todos: Todo[];
   emptyText: string;
@@ -546,12 +550,6 @@ function TodoList({ todos, emptyText, savingKey, onComplete, onEdit, onDelete, o
   secondary?: (todo: Todo) => string;
 }) {
   const [menu, setMenu] = useState<{ todo: Todo; x: number; y: number } | null>(null);
-  useEffect(() => {
-    if (!menu) return;
-    const close = () => setMenu(null);
-    document.addEventListener('click', close);
-    return () => document.removeEventListener('click', close);
-  }, [menu]);
   if (todos.length === 0) return <p className="py-4 text-center text-sm text-secondary">{emptyText}</p>;
   return (
     <div className="divide-y divide-theme-border/70">
@@ -559,22 +557,30 @@ function TodoList({ todos, emptyText, savingKey, onComplete, onEdit, onDelete, o
         const detail = secondary?.(todo);
         const isCompleted = todo.status === '已完成';
         return (
-          <div key={todo.id} onContextMenu={event => { event.preventDefault(); if (!disabled) setMenu({ todo, x: event.clientX, y: event.clientY }); }} className={`${TEAM_TODO_CARD_CLASS} my-2 flex items-start gap-3 p-3`}>
-            <button type="button" onClick={() => void onComplete(todo)} disabled={disabled || isCompleted || todo.status === '已收納' || savingKey === todo.id} aria-label={isCompleted ? `${todo.title} 已完成` : `完成 ${todo.title}`} className="mt-0.5 shrink-0 rounded-full text-secondary transition hover:text-accent disabled:opacity-60">
+          <TodoRow
+            key={todo.id}
+            todo={todo}
+            menuDisabled={disabled || !canDeleteTodo(todo, actor)}
+            onOpenMenu={point => setMenu({ todo, ...point })}
+            statusControl={<button type="button" onClick={() => void onComplete(todo)} disabled={disabled || isCompleted || todo.status === '已收納' || savingKey === todo.id} aria-label={isCompleted ? `${todo.title} 已完成` : `完成 ${todo.title}`} className="shrink-0 rounded-full text-secondary transition hover:text-accent disabled:opacity-60">
               {savingKey === todo.id ? <Loader2 className="animate-spin" size={20} /> : isCompleted ? <CheckCircle2 className="text-accent" size={20} /> : <Circle size={20} />}
-            </button>
-            <div className="min-w-0 flex-1">
+            </button>}
+            title={
               <TodoInlineText todo={todo} onSaved={onSaved}/>
-              {detail ? <div className="mt-1 truncate text-xs text-secondary">{detail}</div> : null}
-            </div>
-            <button type="button" disabled={disabled} aria-label={`${todo.title} 更多操作`} onClick={event => { event.stopPropagation(); const rect=event.currentTarget.getBoundingClientRect(); setMenu({todo,x:rect.right-128,y:rect.bottom}); }} className="flex min-h-10 min-w-10 items-center justify-center rounded text-lg disabled:opacity-50 md:hidden">⋯</button>
-          </div>
+            }
+            secondary={detail ? <span className="truncate">{detail}</span> : null}
+            className="my-2"
+          />
         );
       })}
-      {menu && <div role="menu" className="fixed z-[90] min-w-32 rounded-lg border border-theme-border bg-card p-1 text-sm shadow-xl" style={{left:menu.x,top:menu.y}} onClick={event=>event.stopPropagation()}>
-        {menu.todo.scope === 'TEAM' && <button role="menuitem" type="button" onClick={()=>{onEdit(menu.todo);setMenu(null);}} className="min-h-10 w-full rounded px-3 text-left hover:bg-page">編輯</button>}
-        <button role="menuitem" type="button" onClick={()=>{const todo=menu.todo;setMenu(null);void onDelete(todo);}} className="min-h-10 w-full rounded px-3 text-left text-danger hover:bg-danger/10">刪除</button>
-      </div>}
+      <TodoContextMenu
+        point={menu ? { x: menu.x, y: menu.y } : null}
+        onClose={() => setMenu(null)}
+        actions={menu ? [
+          { label: '編輯待辦', tone: 'accent', onSelect: () => onEdit(menu.todo) },
+          { label: '刪除待辦', tone: 'danger', onSelect: () => void onDelete(menu.todo) },
+        ] : []}
+      />
     </div>
   );
 }

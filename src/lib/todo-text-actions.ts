@@ -4,6 +4,8 @@ export function canEditTodoText(todo: Todo, actor: User | null): boolean {
   return Boolean(actor?.is_active && actor.role !== 'VIEWER' && (todo.scope === 'TEAM' || todo.created_by === actor.id));
 }
 
+export const canDeleteTodo = canEditTodoText;
+
 export async function saveTodoText(adapter: { updateTodo: (id: string, data: any) => Promise<any>; updatePrivateTodo: (id: string, data: any) => Promise<any> }, todo: Todo, actor: User | null, input: { title: string; content: string | null }) {
   if (!canEditTodoText(todo, actor)) throw new Error('沒有編輯此待辦的權限');
   const payload = { title: input.title.trim(), content: input.content?.trim() || null };

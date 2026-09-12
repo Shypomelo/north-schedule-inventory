@@ -18,6 +18,7 @@ import { buildWorkflowActivityLog, getWorkflowMilestoneProjectPatch } from '@/li
 import { logWorkflowActivitySafely } from '@/lib/workflow-activity';
 import { supabase } from '@/lib/db/supabaseClient';
 import { getConstructionOuterDisplay, getConstructionProjectPatch, getConstructionToday, validateActualCompletionDate } from '@/lib/construction-progress';
+import { getActiveProjectColumns } from '@/lib/active-project-columns';
 import { MapPin, Plus, Search, Filter, Maximize2 } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { selectActiveProjectsForEngineeringMember, selectEngineeringMembers } from '@/lib/personnel-workspace';
@@ -515,12 +516,25 @@ export default function ProjectsPage() {
     const showMeter = isSec1 || isSec2 || isSec3;
     const showRoof = isSec1 || isSec3;
     const showStartDate = isSec1;
+    const columns = getActiveProjectColumns({
+      showBracket,
+      showPower,
+      showInspection,
+      showMeter,
+      showRoof,
+      showStartDate,
+      showComplete: isSec4,
+    });
+    const tableWidth = columns.reduce((total, column) => total + column.width, 0);
 
     return (
       <div className="mb-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
         <h2 className="text-xl font-bold text-primary mb-4 px-2 border-l-4 border-accent">{title} <span className="text-secondary text-sm font-normal ml-2">({projectsList.length})</span></h2>
         <div className="bg-card/40 border border-theme-border rounded-xl overflow-auto shadow-xl backdrop-blur-sm">
-          <table className="w-full text-left border-collapse min-w-[1500px]">
+          <table className="w-full table-fixed border-collapse text-left" style={{ minWidth: tableWidth }}>
+            <colgroup>
+              {columns.map(column => <col key={column.key} style={{ width: column.width }} />)}
+            </colgroup>
             <thead className="bg-[var(--surface-secondary)] text-secondary text-sm border-b border-theme-border">
                 <tr>
                   <th className="p-3 font-semibold whitespace-nowrap w-[60px] text-center"></th>
