@@ -1,6 +1,7 @@
 node_modules
 .next
 .next-verify
+.next-candidate-review
 .next-dev.lock
 out
 .env
