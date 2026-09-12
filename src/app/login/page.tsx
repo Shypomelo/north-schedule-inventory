@@ -4,21 +4,15 @@ import React, { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/components/UserContext';
 import { LogIn, AlertCircle } from 'lucide-react';
+import { getSafeNextPath, selectLoginNextPath } from '@/lib/auth-lifecycle';
 
 const INTENDED_PATH_STORAGE_KEY = 'north-schedule-intended-path';
-
-const getSafeNextPath = (value?: string | null) => {
-  if (!value) return '/';
-  if (!value.startsWith('/') || value.startsWith('//')) return '/';
-  if (value === '/login' || value.startsWith('/login?')) return '/';
-  return value;
-};
 
 const getLoginRedirectSnapshot = () => {
   const params = new URLSearchParams(window.location.search);
   const queryNext = getSafeNextPath(params.get('next'));
   const storedNext = getSafeNextPath(sessionStorage.getItem(INTENDED_PATH_STORAGE_KEY));
-  const redirectTo = queryNext !== '/' ? queryNext : storedNext;
+  const redirectTo = selectLoginNextPath(queryNext, storedNext);
 
   return {
     href: window.location.href,
@@ -58,8 +52,8 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-[100dvh] w-full items-start justify-center overflow-x-hidden bg-page px-4 py-8 text-primary sm:items-center sm:px-6">
-      <div className="my-auto w-full max-w-md rounded-xl border border-theme-border bg-card p-5 shadow-lg sm:p-8">
+    <div data-testid="login-viewport" className="box-border flex min-h-[100dvh] min-w-0 w-full max-w-full items-start justify-center bg-page px-4 py-8 text-primary sm:items-center sm:px-6">
+      <div data-testid="login-card" className="my-auto min-w-0 w-full max-w-md rounded-xl border border-theme-border bg-card p-5 shadow-lg sm:p-8">
         <div className="mb-7 text-center sm:mb-8">
           <h1 className="mb-2 break-words text-xl font-bold leading-tight text-primary sm:text-2xl">北部工程排程與庫存管理系統</h1>
           <p className="text-sm text-secondary sm:text-base">請登入以繼續使用系統</p>
@@ -68,16 +62,16 @@ export default function LoginPage() {
         {authError && (
           <div className="mb-6 p-4 bg-red-900/50 border border-red-500 rounded-lg flex items-start gap-3">
             <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
-            <p className="text-red-200 text-sm">{authError}</p>
+            <p className="min-w-0 break-words text-red-200 text-sm">{authError}</p>
           </div>
         )}
 
         <button
           onClick={handleGoogleLogin}
           disabled={isLoading}
-          className="flex min-h-12 w-full items-center justify-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 text-center font-medium text-gray-900 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex min-h-12 min-w-0 w-full max-w-full items-center justify-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 text-center text-base font-medium text-gray-900 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <svg className="w-5 h-5" viewBox="0 0 24 24">
+          <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24">
             <path
               d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
               fill="#4285F4"

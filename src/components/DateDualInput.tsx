@@ -156,9 +156,7 @@ export function DateDualInput({ expectedDate, completionDate, baseDate, onChange
     if (showCompletionInSummary && completionDate) {
       const parsed = parseDateField(completionDate.replace(/\./g, '/'), baseDate);
       if (parsed) {
-        const month = String(parsed.getMonth() + 1).padStart(2, '0');
-        const day = String(parsed.getDate()).padStart(2, '0');
-        return `${completionIsActual ? '實際' : '預計完工'}${month}/${day}`;
+        return formatDateForDisplay(completionDate.replace(/\./g, '/'),baseDate,completionIsActual);
       }
       return completionDate;
     }
@@ -166,21 +164,11 @@ export function DateDualInput({ expectedDate, completionDate, baseDate, onChange
     if (expectedDate) {
       const parsed = parseDateField(expectedDate.replace(/\./g, '/'), baseDate);
       if (parsed) {
-        const today = new Date();
-        const todayTime = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
-        const parsedTime = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()).getTime();
-        
-        const m = String(parsed.getMonth() + 1).padStart(2, '0');
-        const d = String(parsed.getDate()).padStart(2, '0');
-        if (parsedTime >= todayTime) {
-          return `預計${m}/${d}`;
-        } else {
-          return `實際${m}/${d}`;
-        }
+        return formatDateForDisplay(expectedDate.replace(/\./g, '/'),baseDate,false,isCompleted);
       }
       return expectedDate;
     }
-    return '';
+    return isCompleted ? '已完成' : '';
   };
 
   let textClass = 'text-primary';
@@ -196,7 +184,7 @@ export function DateDualInput({ expectedDate, completionDate, baseDate, onChange
         if (parsedTime >= todayTime) {
           textClass = 'text-blue-400 font-medium';
         } else {
-          textClass = 'text-emerald-400 font-medium';
+          textClass = 'text-danger font-medium';
         }
       }
     }

@@ -1,4 +1,38 @@
-import type { ScheduleTask, ScheduleTaskMember } from './db/types';
+import type { ScheduleTask, ScheduleTaskMember, User, WorkGroup, WorkGroupKey } from './db/types';
+import { type MemberWorkGroup, resolveParticipantWorkGroups } from './work-groups';
+
+export function selectScheduleTasksByWorkGroup(
+  tasks: ScheduleTask[],
+  workGroupId: string | null | undefined,
+  participants?: { members: ScheduleTaskMember[]; users: User[]; memberships: MemberWorkGroup[]; groups: WorkGroup[] },
+): ScheduleTask[] {
+  if (!workGroupId) return [];
+  const participantIds=new Set((participants?.users||[]).filter(user=>{
+    const resolution=resolveParticipantWorkGroups(user,participants!.memberships,participants!.groups);
+    return resolution.activeGroups.some(group=>group.id===workGroupId);
+  }).map(user=>user.id));
+  const sharedTaskIds=new Set((participants?.members||[]).filter(member=>participantIds.has(member.user_id)).map(member=>member.task_id));
+  const seen=new Set<string>();
+  return tasks.filter(task=>{
+    const visible=task.work_group_id===workGroupId||participantIds.has(task.main_assignee_id||'')||sharedTaskIds.has(task.id);
+    if(!visible||seen.has(task.id))return false;seen.add(task.id);return true;
+  });
+}
+
+export function selectSchedulePrimaryCandidates(
+  users: User[],
+  workGroupKey: WorkGroupKey | undefined,
+  currentAssigneeId?: string | null,
+): User[] {
+  return users.filter(user => (
+    (workGroupKey === 'ENGINEERING'
+      ? user.category === 'ENGINEERING'
+      : workGroupKey === 'PROJECT'
+        ? user.role !== 'VIEWER'
+        : false)
+    || user.id === currentAssigneeId
+  ));
+}
 
 export function sortScheduleTasks(taskList: ScheduleTask[]) {
   return [...taskList].filter(task => task.status !== '取消').sort((a, b) => {

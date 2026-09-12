@@ -7,6 +7,7 @@ import {
   loadScheduleTaskSyncRow,
 } from '@/lib/google-calendar-sync';
 import { requireActiveTeamMember } from '@/lib/server/supabase-auth';
+import { resolveScheduleGoogleEligibility } from '@/lib/server/schedule-google-eligibility';
 
 const getSafeErrorInfo = (error: any) => ({
   status: error?.status ?? error?.code ?? null,
@@ -38,17 +39,27 @@ export async function POST(req: Request) {
     if (!task) {
       return NextResponse.json({ error: 'Task is required' }, { status: 400 });
     }
+    const supabase = context.supabase;
+    const [persistedTask, eligibility] = await Promise.all([
+      loadScheduleTaskSyncRow(supabase, task.id),
+      resolveScheduleGoogleEligibility(supabase, task.id),
+    ]);
+    if (!persistedTask || !eligibility) {
+      return NextResponse.json({ success: false, error: 'Task not found' }, { status: 404 });
+    }
+    if (!eligibility.eligible) {
+      return NextResponse.json({
+        success: true,
+        skipped: true,
+        reason: 'google_calendar_ineligible',
+        workGroupKey: eligibility.workGroup?.key || null,
+      });
+    }
     if (!GOOGLE_CALENDAR_ID) {
       return NextResponse.json({ success: false, error: 'Missing GOOGLE_CALENDAR_ID' }, { status: 500 });
     }
 
-    const supabase = context.supabase;
     const calendar = getGoogleCalendarClient();
-
-    const persistedTask = await loadScheduleTaskSyncRow(supabase, task.id);
-    if (!persistedTask) {
-      return NextResponse.json({ success: false, error: 'Task not found' }, { status: 404 });
-    }
 
     if (action === 'DELETE') {
       try {

@@ -1,8 +1,9 @@
 export type UserRole = 'ADMIN' | 'ENGINEER' | 'VIEWER';
 export type TaskStatus = '未開始' | '進行中' | '已完成' | '取消' | '' | '改期' | '完成';
-export type TodoStatus = '待安排' | '已排程' | '已完成' | '取消' | '已退件';
+export type TodoStatus = '待安排' | '已排程' | '已完成' | '取消' | '已退件' | '已收納';
 export type TodoScope = 'TEAM' | 'PRIVATE';
 export type ScheduleCreationSource = 'APP' | 'GOOGLE_IMPORT' | 'SYSTEM' | 'LEGACY';
+export type WorkGroupKey = 'ENGINEERING' | 'PROJECT';
 export type TransactionType = 'IN' | 'OUT' | 'RETURN' | 'ADJUST';
 export type StockCategory = 'CONSTRUCTION' | 'MAINTENANCE' | 'VENDOR_SPARE';
 export type SerialStatus = '在庫' | '已出庫' | '已使用' | '已退回' | '待補' | '報廢' | '作廢';
@@ -12,6 +13,8 @@ export type ActivityActionType =
   | 'UPDATE_TASK'
   | 'COMPLETE_TASK'
   | 'RESCHEDULE_TASK'
+  | 'DRAG_MOVE_TASK'
+  | 'ASSIGNEE_CHANGE_TASK'
   | 'DELETE_TASK'
   | 'CREATE_TODO'
   | 'ASSIGN_TODO'
@@ -83,6 +86,15 @@ export interface User {
   google_calendar_email?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface WorkGroup {
+  id: string;
+  key: WorkGroupKey;
+  name: string;
+  google_calendar_sync_enabled: boolean;
+  is_active: boolean;
+  sort_order: number;
 }
 
 export interface Project {
@@ -252,6 +264,7 @@ export interface Contractor {
 
 export interface ScheduleTask {
   id: string;
+  work_group_id: string;
   task_type: string;
   title: string;
   project_id: string | null;
@@ -296,7 +309,9 @@ export interface ScheduleTaskType {
 }
 
 export interface Todo {
+  received_at?: string | null;
   id: string;
+  work_group_id: string | null;
   title: string;
   content: string | null;
   project_id: string | null;
@@ -317,11 +332,14 @@ export interface Todo {
 export interface PrivateTodoInput {
   title: string;
   created_by: string;
+  received_at?: string;
 }
 
 export interface PrivateTodoUpdate {
   title?: string;
+  content?: string | null;
   status?: Extract<TodoStatus, '待安排' | '已完成'>;
+  received_at?: string;
 }
 
 export interface InventoryItem {
@@ -521,6 +539,8 @@ export interface ProjectWorkflowInstance {
 }
 
 export interface ProjectMilestone {
+  archived_at?: string | null;
+  phase_sort_order_snapshot?: number;
   id: string;
   workflow_instance_id: string;
   project_id: string;

@@ -1,9 +1,18 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { User } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { supabase } from '@/lib/db/supabaseClient';
+import {
+  buildOAuthRedirectUrl,
+  AUTH_INITIALIZATION_TIMEOUT_MS,
+  getSafeNextPath,
+  initializeAuth,
+  resolveAuthStateChange,
+  type AuthResolution,
+  withAuthFailureTimeout,
+} from '@/lib/auth-lifecycle';
 
 interface UserContextType {
   currentUser: User | null;
@@ -18,74 +27,56 @@ interface UserContextType {
 const UserContext = createContext<UserContextType | undefined>(undefined);
 const INTENDED_PATH_STORAGE_KEY = 'north-schedule-intended-path';
 
-const normalizeEmail = (email?: string | null) => email?.trim().toLowerCase() || '';
-
-const getSafeNextPath = (value?: string | null) => {
-  if (!value) return '/';
-  if (!value.startsWith('/') || value.startsWith('//')) return '/';
-  if (value === '/login' || value.startsWith('/login?')) return '/';
-  return value;
-};
-
 export function UserProvider({ children }: { children: React.ReactNode }) {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
+  const preserveNextSignOutError = useRef(false);
 
   useEffect(() => {
     let mounted = true;
+    let operation = 0;
 
-    async function loadUsersAndHandleSession(session: any) {
-      try {
-        const users = await dbAdapter.getUsers();
-        if (mounted) {
-          setAllUsers(users);
-          if (session?.user?.email) {
-            const sessionEmail = normalizeEmail(session.user.email);
-            const foundUser = users.find((u: User) => normalizeEmail(u.email) === sessionEmail);
-            if (!foundUser) {
-              setAuthError('此 Google 帳號尚未被授權，請聯絡管理者');
-              setCurrentUser(null);
-              supabase.auth.signOut();
-            } else if (!foundUser.is_active) {
-              setAuthError('此帳號已停用');
-              setCurrentUser(null);
-              supabase.auth.signOut();
-            } else {
-              setAuthError(null);
-              setCurrentUser(foundUser);
-            }
-          } else {
-            setCurrentUser(null);
-          }
-          setIsLoading(false);
-        }
-      } catch (error) {
-        console.error("Auth init error:", error);
-        if (mounted) setIsLoading(false);
+    const applyResolution = (resolution: AuthResolution, operationId: number) => {
+      if (!mounted || operationId !== operation) return;
+      setAllUsers(resolution.allUsers);
+      setCurrentUser(resolution.currentUser);
+      setAuthError(resolution.error);
+      setIsLoading(false);
+      if (resolution.shouldClearLocalSession) {
+        preserveNextSignOutError.current = true;
+        void supabase.auth.signOut({ scope: 'local' }).catch(error => {
+          console.error('Local session cleanup error:', error);
+        });
       }
-    }
+    };
 
-    // Initial check
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (mounted) loadUsersAndHandleSession(session);
-    }).catch((err) => {
-      console.error("Auth init error:", err);
-      if (mounted) setIsLoading(false);
-    });
+    const runResolution = (factory: () => Promise<AuthResolution>) => {
+      const operationId = ++operation;
+      void factory().then(resolution => applyResolution(resolution, operationId));
+    };
+
+    runResolution(() => initializeAuth(
+      () => supabase.auth.getSession(),
+      () => dbAdapter.getUsers(),
+    ));
 
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (!mounted) return;
-      
+
       if (event === 'SIGNED_IN') {
         setIsLoading(true);
         setTimeout(() => {
-          if (mounted) loadUsersAndHandleSession(session);
+          if (mounted) runResolution(() => resolveAuthStateChange(event, session, () => dbAdapter.getUsers()).then(result => result!));
         }, 0);
       } else if (event === 'SIGNED_OUT') {
+        operation += 1;
+        const preserveError = preserveNextSignOutError.current;
+        preserveNextSignOutError.current = false;
+        setAllUsers([]);
         setCurrentUser(null);
-        setAuthError(null);
+        if (!preserveError) setAuthError(null);
         setIsLoading(false);
       }
     });
@@ -103,13 +94,18 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     try {
       const safeNextPath = getSafeNextPath(nextPath);
       sessionStorage.setItem(INTENDED_PATH_STORAGE_KEY, safeNextPath);
-      const redirectTo = `${window.location.origin}/login?next=${encodeURIComponent(safeNextPath)}`;
-      await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo,
-        },
-      });
+      const redirectTo = buildOAuthRedirectUrl(window.location.origin, safeNextPath);
+      const { error } = await withAuthFailureTimeout(
+        supabase.auth.signInWithOAuth({
+          provider: 'google',
+          options: {
+            redirectTo,
+          },
+        }),
+        AUTH_INITIALIZATION_TIMEOUT_MS,
+        '登入服務回應逾時',
+      );
+      if (error) throw error;
     } catch (error) {
       console.error('Login error:', error);
       setAuthError('登入過程發生錯誤');
@@ -120,7 +116,11 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const logout = async () => {
     setIsLoading(true);
     try {
-      await supabase.auth.signOut();
+      await withAuthFailureTimeout(
+        supabase.auth.signOut(),
+        AUTH_INITIALIZATION_TIMEOUT_MS,
+        '登出服務回應逾時',
+      );
       setCurrentUser(null);
       setAuthError(null);
     } catch (error) {

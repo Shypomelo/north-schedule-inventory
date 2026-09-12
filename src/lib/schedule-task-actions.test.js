@@ -16,7 +16,7 @@ test('Dashboard and Schedule reuse the same schedule mutation actions and edit d
     assert.match(source, /updateScheduleTaskWithActivity/);
     assert.match(source, /ScheduleTaskFormDialog/);
   }
-  assert.match(actions, /action_type: timingChanged \? 'RESCHEDULE_TASK' : 'UPDATE_TASK'/);
+  assert.match(actions, /action_type: actionType \|\| \(timingChanged \? 'RESCHEDULE_TASK' : assigneesChanged \? 'ASSIGNEE_CHANGE_TASK' : 'UPDATE_TASK'\)/);
   assert.match(actions, /action_type: 'COMPLETE_TASK'/);
   assert.match(actions, /action_type: 'DELETE_TASK'/);
   assert.match(actions, /dbAdapter\.updateTodo\(task\.source_todo_id, \{ status: '已完成' \}\)/);

@@ -3,8 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "npx rimraf .next && next build",
+    "dev": "node scripts/dev.mjs",
+    "build": "node scripts/build.mjs",
+    "build:verify": "node scripts/verify-build.mjs",
     "start": "next start",
     "lint": "next lint"
   },

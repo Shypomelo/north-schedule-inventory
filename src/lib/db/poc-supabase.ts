@@ -38,6 +38,7 @@ import {
   Todo,
   PrivateTodoInput,
   PrivateTodoUpdate,
+  WorkGroup,
   isActiveFormalTransaction,
 } from './types';
 import { throwMissingCoreTablesErrorIfNeeded } from './supabase-errors';
@@ -66,7 +67,9 @@ const mapUser = (row: any): User => ({
 });
 
 const mapTodo = (row: any): Todo => ({
+  received_at: row.received_at || null,
   id: row.id,
+  work_group_id: row.work_group_id || null,
   title: row.title || '',
   content: row.content || null,
   project_id: row.project_id || null,
@@ -91,7 +94,7 @@ const buildTeamTodoPayload = (
   const fields: Array<keyof Omit<Todo, 'id' | 'created_at' | 'updated_at' | 'scope'>> = [
     'title', 'content', 'project_id', 'task_type', 'status', 'created_by',
     'assigned_to', 'assigned_by', 'converted_task_id', 'rejected_by',
-    'rejected_at', 'rejection_reason',
+    'rejected_at', 'rejection_reason', 'work_group_id', 'received_at',
   ];
   fields.forEach(field => {
     if (todo[field] !== undefined) payload[field] = todo[field];
@@ -1412,6 +1415,16 @@ const validateProjectConstructionCompletionUpdates = (p: Partial<Project>) => {
 };
 
 export const pocSupabaseAdapter = {
+  getWorkGroups: async (): Promise<WorkGroup[]> => {
+    const { data, error } = await supabase
+      .from('work_groups')
+      .select('id, key, name, google_calendar_sync_enabled, is_active, sort_order')
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true });
+    if (error) throw error;
+    return (data || []) as WorkGroup[];
+  },
+
   // --- Users (team_members) ---
   getUsers: async (): Promise<User[]> => {
     const { data, error } = await supabase
@@ -1612,11 +1625,10 @@ export const pocSupabaseAdapter = {
     return (data ?? []) as Position[];
   },
 
-  getProjectPositionAssignments: async (projectId: string): Promise<ProjectPositionAssignment[]> => {
-    const { data, error } = await supabase
-      .from('project_position_assignments')
-      .select('*')
-      .eq('project_id', projectId);
+  getProjectPositionAssignments: async (projectId?: string): Promise<ProjectPositionAssignment[]> => {
+    let query = supabase.from('project_position_assignments').select('*');
+    if (projectId) query = query.eq('project_id', projectId);
+    const { data, error } = await query;
     if (error) throw error;
     return (data ?? []) as ProjectPositionAssignment[];
   },
@@ -1702,11 +1714,13 @@ export const pocSupabaseAdapter = {
   },
 
   // --- Todos ---
-  getTodos: async (): Promise<Todo[]> => {
-    const { data, error } = await supabase
+  getTodos: async (workGroupId?: string): Promise<Todo[]> => {
+    let query = supabase
       .from('todos')
       .select('*')
-      .eq('scope', 'TEAM')
+      .eq('scope', 'TEAM');
+    if (workGroupId) query = query.eq('work_group_id', workGroupId);
+    const { data, error } = await query
       .order('created_at', { ascending: false })
       .limit(50);
     if (error) throw error;
@@ -1716,6 +1730,7 @@ export const pocSupabaseAdapter = {
   createTodo: async (
     todo: Omit<Todo, 'id' | 'created_at' | 'updated_at'>,
   ): Promise<Todo> => {
+    if (!todo.work_group_id) throw new Error('新增團隊待辦必須指定工作群組');
     const { data, error } = await supabase
       .from('todos')
       .insert(buildTeamTodoPayload(todo))
@@ -1775,6 +1790,7 @@ export const pocSupabaseAdapter = {
         title: input.title.trim(),
         status: '待安排',
         scope: 'PRIVATE',
+        work_group_id: null,
         created_by: input.created_by,
         content: null,
         project_id: null,
@@ -1785,6 +1801,7 @@ export const pocSupabaseAdapter = {
         rejected_by: null,
         rejected_at: null,
         rejection_reason: null,
+        received_at: input.received_at ?? new Date().toISOString(),
       })
       .select()
       .single();
@@ -1795,7 +1812,9 @@ export const pocSupabaseAdapter = {
   updatePrivateTodo: async (id: string, updates: PrivateTodoUpdate): Promise<Todo> => {
     const payload: PrivateTodoUpdate = {};
     if (updates.title !== undefined) payload.title = updates.title.trim();
+    if (updates.content !== undefined) payload.content = updates.content;
     if (updates.status !== undefined) payload.status = updates.status;
+    if (updates.received_at !== undefined) payload.received_at = updates.received_at;
     const { data, error } = await supabase
       .from('todos')
       .update(payload)
@@ -1910,6 +1929,7 @@ export const pocSupabaseAdapter = {
     // Map Supabase schema back to frontend ScheduleTask
     return data.map((row: any) => ({
       id: row.id,
+      work_group_id: row.work_group_id,
       task_type: row.task_type || '',
       title: row.title || '',
       project_id: row.project_id || null,
@@ -1959,6 +1979,7 @@ export const pocSupabaseAdapter = {
   ): Promise<ScheduleTask> => {
     const memberNameMap = await loadTeamMemberNamesById([t.main_assignee_id, ...newMemberIds].filter(Boolean) as string[]);
     const taskData = {
+      work_group_id: t.work_group_id,
       project_id: t.project_id,
       project_name: t.project_name,
       task_type: t.task_type,
@@ -2059,6 +2080,7 @@ export const pocSupabaseAdapter = {
     
     return {
       id: data.id,
+      work_group_id: data.work_group_id,
       task_type: data.task_type || '',
       title: data.title || '',
       project_id: data.project_id || null,

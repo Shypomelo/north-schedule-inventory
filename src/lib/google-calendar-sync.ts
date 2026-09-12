@@ -21,6 +21,7 @@ type GoogleCalendarClientLike = {
 
 export type ScheduleTaskSyncRow = {
   id: string;
+  work_group_id: string;
   task_type: string | null;
   title: string | null;
   project_id: string | null;
@@ -78,6 +79,7 @@ export type GoogleImportProject = {
 };
 
 export type ManualScheduleTaskInsert = {
+  work_group_id: string;
   project_id: string | null;
   project_name: string | null;
   task_type: '其他';
@@ -263,6 +265,7 @@ export function mapManualGoogleEvent(
   event: calendar_v3.Schema$Event,
   options: {
     calendarId: string;
+    workGroupId: string;
     activeMembers: GoogleImportMember[];
     projects: GoogleImportProject[];
     syncedAt: string;
@@ -295,6 +298,7 @@ export function mapManualGoogleEvent(
   return {
     ok: true,
     task: {
+      work_group_id: options.workGroupId,
       project_id: project?.id || null,
       project_name: project?.project_name || null,
       task_type: '其他',
@@ -340,6 +344,7 @@ const normalizeTime = (time: string | null | undefined, fallback: string): strin
 
 const mapRowToScheduleTask = (row: ScheduleTaskSyncRow): ScheduleTask => ({
   id: row.id,
+  work_group_id: row.work_group_id,
   task_type: row.task_type || '',
   title: row.title || '',
   project_id: row.project_id || null,
@@ -375,6 +380,7 @@ export async function loadScheduleTaskSyncRow(
     .from('schedule_tasks')
     .select(`
       id,
+      work_group_id,
       task_type,
       title,
       project_id,
@@ -450,6 +456,7 @@ export async function buildGoogleEventBody(
   const row = await loadScheduleTaskSyncRow(supabase, task.id);
   const syncRow = row || ({
     id: task.id,
+    work_group_id: task.work_group_id,
     task_type: task.task_type,
     title: task.title,
     project_id: task.project_id,

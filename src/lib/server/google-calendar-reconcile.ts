@@ -11,12 +11,23 @@ import {
   type ManualGoogleEventSkipReason,
   type ScheduleTaskSyncRow,
 } from '@/lib/google-calendar-sync';
+import {
+  getScheduleGoogleEligibility,
+  type ScheduleGoogleEligibilityRow,
+} from '@/lib/server/schedule-google-eligibility';
 
 const runningReconciles = new Set<string>();
 const GOOGLE_LIST_TIME_ZONE = 'Asia/Taipei';
 const DAY_IN_MILLISECONDS = 24 * 60 * 60 * 1000;
 const SCHEDULE_TASK_SYNC_COLUMNS = `
   id,
+  work_group_id,
+  work_groups!inner (
+    id,
+    key,
+    name,
+    google_calendar_sync_enabled
+  ),
   task_type,
   title,
   project_id,
@@ -87,17 +98,24 @@ const listGoogleEventsInImportWindow = async (
 };
 
 const loadImportReferences = async (supabase: any) => {
-  const [{ data: members, error: membersError }, { data: projects, error: projectsError }] = await Promise.all([
+  const [
+    { data: members, error: membersError },
+    { data: projects, error: projectsError },
+    { data: engineeringGroup, error: workGroupError },
+  ] = await Promise.all([
     supabase.from('team_members').select('id, email, name, google_calendar_email')
       .eq('is_active', true).is('deleted_at', null),
     supabase.from('projects').select('id, project_name, project_short_name, project_code, address')
       .is('deleted_at', null),
+    supabase.from('work_groups').select('id').eq('key', 'ENGINEERING').eq('is_active', true).single(),
   ]);
   if (membersError) throw membersError;
   if (projectsError) throw projectsError;
+  if (workGroupError) throw workGroupError;
   return {
     members: (members || []) as GoogleImportMember[],
     projects: (projects || []) as GoogleImportProject[],
+    engineeringWorkGroupId: engineeringGroup.id as string,
   };
 };
 
@@ -131,11 +149,13 @@ export async function reconcileGoogleCalendarCore(
     if (body.taskId) query = query.eq('id', body.taskId);
     const { data: queriedTasks, error } = await query;
     if (error) throw error;
-    const tasks = ((queriedTasks || []) as ScheduleTaskSyncRow[]).filter(task => (
-      !task.google_event_id
-      || !task.google_calendar_id
-      || task.google_calendar_id === GOOGLE_CALENDAR_ID
-    ));
+    const tasks = ((queriedTasks || []) as (ScheduleTaskSyncRow & ScheduleGoogleEligibilityRow)[])
+      .filter(task => getScheduleGoogleEligibility(task).eligible)
+      .filter(task => (
+        !task.google_event_id
+        || !task.google_calendar_id
+        || task.google_calendar_id === GOOGLE_CALENDAR_ID
+      ));
 
     let checked = 0;
     let updated = 0;
@@ -175,7 +195,7 @@ export async function reconcileGoogleCalendarCore(
       const existingEventIds = new Set(
         tasks.map(task => task.google_event_id).filter((eventId): eventId is string => !!eventId),
       );
-      const { members, projects } = await loadImportReferences(supabase);
+      const { members, projects, engineeringWorkGroupId } = await loadImportReferences(supabase);
 
       for (const event of listedEvents) {
         if (isSystemManagedGoogleEvent(event)) {
@@ -188,6 +208,7 @@ export async function reconcileGoogleCalendarCore(
         try {
           const mapping = mapManualGoogleEvent(event, {
             calendarId: GOOGLE_CALENDAR_ID,
+            workGroupId: engineeringWorkGroupId,
             activeMembers: members,
             projects,
             syncedAt,

@@ -1,4 +1,4 @@
-import { User, Project, ScheduleTask, ScheduleTaskMember, ScheduleTaskType, Todo, InventoryItem, InventoryTransaction, InventorySerial, InventoryTransactionSerial, InventoryMonthlyClosing, InventoryMonthlyClosingItem, StockCategory, ActivityLog, Contractor, InventoryBatch, SESupplyRecord, isActiveFormalTransaction } from './types';
+import { User, Project, ScheduleTask, ScheduleTaskMember, ScheduleTaskType, Todo, InventoryItem, InventoryTransaction, InventorySerial, InventoryTransactionSerial, InventoryMonthlyClosing, InventoryMonthlyClosingItem, StockCategory, ActivityLog, Contractor, InventoryBatch, SESupplyRecord, WorkGroup, isActiveFormalTransaction } from './types';
 import { resolveInventorySerialLookupFromList } from '../inventory-serial-normalization';
 import { getInventoryTransactionQuantityDelta } from './inventory-stock';
 
@@ -40,6 +40,11 @@ const initialScheduleTaskTypes: ScheduleTaskType[] = [
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
 }));
+
+const initialWorkGroups: WorkGroup[] = [
+  { id: 'mock-work-group-engineering', key: 'ENGINEERING', name: '工程', google_calendar_sync_enabled: true, is_active: true, sort_order: 10 },
+  { id: 'mock-work-group-project', key: 'PROJECT', name: '專案設計', google_calendar_sync_enabled: false, is_active: true, sort_order: 20 },
+];
 
 const normalizeScheduleTaskTypeName = (name: string) => (
   name.replace(/\u3000/g, ' ').trim().toLocaleLowerCase()
@@ -358,6 +363,7 @@ function persist() {
 }
 
 export const mockDbAdapter = {
+  getWorkGroups: async () => [...initialWorkGroups],
   // --- Users ---
   getUsers: async () => [...db.users],
   createUser: async (u: Omit<User, 'id'|'created_at'|'updated_at'>) => {
@@ -498,11 +504,13 @@ export const mockDbAdapter = {
   // --- Todos ---
   getTodos: async () => [...db.todos].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
   createTodo: async (t: Omit<Todo, 'id'|'created_at'|'updated_at'>) => {
+    const now = new Date().toISOString();
     const newTodo: Todo = {
       ...t,
       id: crypto.randomUUID(),
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      received_at: t.received_at || now,
+      created_at: now,
+      updated_at: now
     };
     db.todos.push(newTodo);
     persist();
@@ -545,7 +553,8 @@ export const mockDbAdapter = {
   updateScheduleTask: async (id: string, updates: Partial<Omit<ScheduleTask, 'id'|'created_at'|'updated_at'>>, newMemberIds?: string[]) => {
     const idx = db.schedule_tasks.findIndex(t => t.id === id);
     if (idx === -1) throw new Error("Task not found");
-    const updated = { ...db.schedule_tasks[idx], ...updates, updated_at: new Date().toISOString() };
+    const { work_group_id: _ignoredWorkGroupId, ...safeUpdates } = updates;
+    const updated = { ...db.schedule_tasks[idx], ...safeUpdates, updated_at: new Date().toISOString() };
     db.schedule_tasks[idx] = updated;
     
     if (newMemberIds) {

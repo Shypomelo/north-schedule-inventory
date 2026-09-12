@@ -21,10 +21,10 @@ test('application shell exposes mobile navigation without a global desktop minim
 test('login card fits mobile dynamic viewport without changing the auth flow', () => {
   const login = read('app/login/page.tsx');
   assert.match(login, /min-h-\[100dvh\]/);
-  assert.match(login, /overflow-x-hidden/);
+  assert.match(login, /min-w-0 w-full max-w-full/);
   assert.match(login, /max-w-md/);
   assert.match(login, /text-xl[\s\S]*sm:text-2xl/);
-  assert.match(login, /min-h-12 w-full/);
+  assert.match(login, /min-h-12 min-w-0 w-full/);
   assert.match(login, /loginWithGoogle\(snapshot\.redirectTo\)/);
 });
 
@@ -38,7 +38,7 @@ test('schedule detail fits the mobile viewport and retains readable information 
   assert.match(detail, /\}完成/);
   assert.match(detail, /\/>改期/);
   assert.match(detail, /\/>刪除/);
-  assert.match(detail, /更多資訊/);
+  assert.match(detail, /查看歷程/);
 });
 
 test('dashboard uses mobile pages below 768px and three columns from 1100px', () => {
