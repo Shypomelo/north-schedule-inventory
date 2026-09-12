@@ -3,7 +3,7 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import { zhTW } from 'date-fns/locale';
-import { ArrowUpRight, BriefcaseBusiness, CalendarDays, CheckCircle2, Circle, ListTodo, Loader2, MapPin, Plus, Users } from 'lucide-react';
+import { ArrowUpRight, BriefcaseBusiness, CalendarDays, CheckCircle2, Circle, ListTodo, Loader2, MapPin, Users } from 'lucide-react';
 import { ProjectDetailModal } from '@/components/ProjectDetailModal';
 import { ScheduleTaskDetail } from '@/components/ScheduleTaskDetail';
 import { ScheduleTaskFormDialog } from '@/components/ScheduleTaskFormDialog';
@@ -12,6 +12,7 @@ import { TodoTextEditDialog } from '@/components/TodoTextEditDialog';
 import { TodoInlineText } from '@/components/TodoInlineText';
 import { TodoContextMenu } from '@/components/TodoContextMenu';
 import { TodoRow } from '@/components/TodoRow';
+import { TodoQuickComposer } from '@/components/TodoQuickComposer';
 import { useDashboardView } from '@/components/DashboardViewContext';
 import { DesignWorkbench } from '@/components/DesignWorkbench';
 import { ProjectOverviewCards } from '@/components/ProjectOverviewCards';
@@ -27,6 +28,7 @@ import { isActiveProject, selectActiveProjects } from '@/lib/project-selectors';
 import { selectActiveTeamTodos } from '@/lib/todo-selectors';
 import { useScheduleWeather } from '@/hooks/useScheduleWeather';
 import { canDeleteTodo } from '@/lib/todo-text-actions';
+import { canCreateTodo, createCanonicalPrivateTodo } from '@/lib/todo-create';
 import {
   completeScheduleTaskWithActivity,
   confirmScheduleTaskDeletion,
@@ -71,7 +73,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
   const [mobilePage, setMobilePage] = useState<MobileDashboardPage>('schedule');
   const [mobileTodoPage, setMobileTodoPage] = useState<MobileTodoPage>('private');
   const today = useMemo(() => format(new Date(), 'yyyy-MM-dd'), []);
-  const canMutateTodos = Boolean(currentUser && currentUser.role !== 'VIEWER');
+  const canMutateTodos = canCreateTodo(currentUser);
 
   const loadDashboard = useCallback(async () => {
     if (!currentUser) return;
@@ -135,7 +137,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
     if (!title || !currentUser || !canMutateTodos) return;
     setSavingKey('private-new');
     try {
-      await dbAdapter.createPrivateTodo({ title, created_by: currentUser.id });
+      await createCanonicalPrivateTodo(title, currentUser);
       setPrivateTitle('');
       await loadDashboard();
     } catch (mutationError) {
@@ -401,14 +403,13 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
             <MobileTab active={mobileTodoPage === 'private'} onClick={() => setMobileTodoPage('private')}>我的</MobileTab>
             <MobileTab active={mobileTodoPage === 'team'} onClick={() => setMobileTodoPage('team')}>團隊</MobileTab>
           </nav>
-          <DashboardSection icon={<ListTodo size={18} />} title="我的 TODO" count={visiblePrivateTodos.length} className={`${mobileTodoPage === 'private' ? 'block' : 'hidden'} md:block min-[1100px]:min-h-0 min-[1100px]:overflow-y-auto`}>
-            <HideCompletedToggle checked={hideCompletedPrivate} onChange={setHideCompletedPrivate} />
-            <TodoComposer value={privateTitle} onChange={setPrivateTitle} onSubmit={createPrivateTodo} placeholder="新增私人記事…" disabled={!canMutateTodos} isSaving={savingKey === 'private-new'} />
+          <DashboardSection icon={<ListTodo size={18} />} title="我的 TODO" count={visiblePrivateTodos.length} headerAccessory={<HideCompletedToggle checked={hideCompletedPrivate} onChange={setHideCompletedPrivate} />} className={`${mobileTodoPage === 'private' ? 'block' : 'hidden'} md:block min-[1100px]:min-h-0 min-[1100px]:overflow-y-auto`}>
+            <TodoQuickComposer value={privateTitle} onChange={setPrivateTitle} onSubmit={createPrivateTodo} placeholder="新增私人記事…" disabled={!canMutateTodos} isSaving={savingKey === 'private-new'} />
             <TodoList actor={currentUser} todos={visiblePrivateTodos} emptyText={hideCompletedPrivate ? '沒有未完成的私人記事' : '目前沒有私人記事'} savingKey={savingKey} onComplete={completePrivateTodo} onEdit={setEditingTodo} onDelete={deleteTodo} onSaved={loadDashboard} disabled={!canMutateTodos} />
           </DashboardSection>
 
           <DashboardSection icon={<Users size={18} />} title="團隊 TODO" count={visibleTeamTodos.length} actionHref="/schedule" actionLabel="週排程待辦" className={`${mobileTodoPage === 'team' ? 'block' : 'hidden'} md:block min-[1100px]:min-h-0 min-[1100px]:overflow-y-auto`}>
-            <TodoComposer value={teamTitle} onChange={setTeamTitle} onSubmit={createTeamTodo} placeholder="新增團隊待辦…" disabled={!canMutateTodos} isSaving={savingKey === 'team-new'} />
+            <TodoQuickComposer value={teamTitle} onChange={setTeamTitle} onSubmit={createTeamTodo} placeholder="新增團隊待辦…" disabled={!canMutateTodos} isSaving={savingKey === 'team-new'} />
             <TodoList
               actor={currentUser}
               todos={visibleTeamTodos}
@@ -473,13 +474,14 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
   );
 }
 
-function DashboardSection({ icon, title, count, children, actionHref, actionLabel, className = '' }: {
+function DashboardSection({ icon, title, count, children, actionHref, actionLabel, headerAccessory, className = '' }: {
   icon: ReactNode;
   title: string;
   count: number;
   children: ReactNode;
   actionHref?: string;
   actionLabel?: string;
+  headerAccessory?: ReactNode;
   className?: string;
 }) {
   return (
@@ -490,7 +492,10 @@ function DashboardSection({ icon, title, count, children, actionHref, actionLabe
           <h2 className="font-bold">{title}</h2>
           <span className="rounded-full bg-page px-2 py-0.5 text-xs font-semibold text-secondary">{count}</span>
         </div>
-        {actionHref ? <a href={actionHref} className="text-xs font-semibold text-secondary transition hover:text-accent">{actionLabel} →</a> : null}
+        <div className="flex shrink-0 items-center gap-2">
+          {headerAccessory}
+          {actionHref ? <a href={actionHref} className="text-xs font-semibold text-secondary transition hover:text-accent">{actionLabel} →</a> : null}
+        </div>
       </div>
       {children}
     </section>
@@ -511,29 +516,11 @@ function MobileTab({ active, onClick, children }: { active: boolean; onClick: ()
 
 function HideCompletedToggle({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }) {
   return (
-    <label className="mb-3 flex min-h-10 cursor-pointer items-center justify-end gap-2 text-xs font-medium text-secondary">
-      <input type="checkbox" checked={checked} onChange={event => onChange(event.target.checked)} className="h-4 w-4 accent-[var(--accent)]" />
-      隱藏已完成
+    <label className="flex h-7 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full border border-theme-border bg-page/60 px-2 text-[11px] font-medium text-secondary transition hover:border-accent/40">
+      <input type="checkbox" checked={checked} onChange={event => onChange(event.target.checked)} className="h-3.5 w-3.5 accent-[var(--accent)]" />
+      <span className="hidden sm:inline">隱藏已完成</span>
+      <span className="sm:hidden">隱藏完成</span>
     </label>
-  );
-}
-
-function TodoComposer({ value, onChange, onSubmit, placeholder, disabled, isSaving }: {
-  value: string;
-  onChange: (value: string) => void;
-  onSubmit: (event: FormEvent) => void;
-  placeholder: string;
-  disabled: boolean;
-  isSaving: boolean;
-}) {
-  return (
-    <form onSubmit={onSubmit} className="mb-3 flex items-center gap-2 border-b border-theme-border pb-3">
-      <Plus size={17} className="shrink-0 text-accent" />
-      <input value={value} onChange={event => onChange(event.target.value)} disabled={disabled || isSaving} placeholder={disabled ? '僅可檢視' : placeholder} aria-label={placeholder} className="min-w-0 flex-1 bg-transparent py-1.5 text-sm outline-none placeholder:text-secondary/70 disabled:cursor-not-allowed" />
-      <button type="submit" disabled={disabled || isSaving || !value.trim()} className="rounded-lg bg-accent px-2.5 py-1.5 text-xs font-bold text-white transition hover:bg-accent-hover disabled:opacity-40">
-        {isSaving ? <Loader2 className="animate-spin" size={14} /> : '新增'}
-      </button>
-    </form>
   );
 }
 

@@ -16,4 +16,14 @@ export const workbenchAdapter={
  async updateItem(item:WorkItem,fields:Pick<WorkItem,'title'|'content'|'project_id'|'project_label'|'received_at'|'expected_start_date'|'due_date'|'status'>) {
   const {data,error}=await supabase.from('work_items').update({...fields,completed_at:fields.status==='已完成'?(item.completed_at||new Date().toISOString()):null}).eq('id',item.id).eq('owner_member_id',item.owner_member_id).select('id').single();if(error||!data)throw error||new Error('Work item not updated');
  },
+ async moveItem(item:WorkItem,workZoneId:string) {
+  const {data,error}=await supabase.from('work_items').update({work_zone_id:workZoneId}).eq('id',item.id).eq('owner_member_id',item.owner_member_id).select('id,work_zone_id').single();if(error||!data)throw error||new Error('Work item not moved');
+ },
+ async setItemStatus(item:WorkItem,status:WorkItem['status']) {
+  const completedAt=status==='已完成'?(item.completed_at||new Date().toISOString()):null;
+  const {data,error}=await supabase.from('work_items').update({status,completed_at:completedAt}).eq('id',item.id).eq('owner_member_id',item.owner_member_id).select('id,status,completed_at').single();if(error||!data)throw error||new Error('Work item status not updated');
+ },
+ async deleteItem(item:WorkItem) {
+  const {data,error}=await supabase.from('work_items').delete().eq('id',item.id).eq('owner_member_id',item.owner_member_id).select('id').single();if(error||!data)throw error||new Error('Work item not deleted');
+ },
 };

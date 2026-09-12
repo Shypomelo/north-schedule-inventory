@@ -13,9 +13,13 @@ test('Design Workbench loads PROJECT Team Todo below global private Todo',()=>{
 
 test('quick Todo omits date input and adapter defaults received_at now without changing created_at',()=>{
   const source=read('../components/DesignWorkbench.tsx');
+  const dashboard=read('../app/page.tsx');
+  const canonical=read('todo-create.ts');
   const adapter=read('db/poc-supabase.ts');
   assert.doesNotMatch(source,/aria-label="收到日期" required type="date"/);
-  assert.match(source,/createPrivateTodo\(\{title:title\.trim\(\),created_by:currentUser\.id\}\)/);
+  assert.match(source,/createCanonicalPrivateTodo\(title,currentUser\)/);
+  assert.match(dashboard,/createCanonicalPrivateTodo\(title, currentUser\)/);
+  assert.match(canonical,/dbAdapter\.createPrivateTodo/);
   assert.match(adapter,/received_at: input\.received_at \?\? new Date\(\)\.toISOString\(\)/);
   assert.doesNotMatch(adapter,/created_at: input\.received_at/);
 });

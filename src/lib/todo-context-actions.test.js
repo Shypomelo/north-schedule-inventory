@@ -33,7 +33,7 @@ test('Engineering and Project dashboards use canonical delete paths', () => {
 test('Design dashboard exposes private and team delete through the shared menu', () => {
   const source = read('../components/DesignWorkbench.tsx');
   assert.match(source, /deletePrivateTodo\(todo\.id\)/);
-  assert.match(source, /else await dbAdapter\.deleteTodo\(todo\.id\)/);
+  assert.match(source, /dbAdapter\.deleteTodo\(todo\.id\)/);
   assert.match(source, /<TodoContextMenu/);
   assert.match(source, /label:'刪除待辦'/);
 });
@@ -49,7 +49,7 @@ test('Dashboard and Schedule use shared TodoRow and TodoContextMenu presentation
   assert.match(row, /md:hidden/);
   assert.match(read('../app/page.tsx'), /flex items-start gap-3 rounded-xl[\s\S]{0,160}p-3/);
   assert.match(read('../app/schedule/page.tsx'), /cursor-grab rounded-xl[\s\S]{0,160}p-2/);
-  assert.match(read('../components/DesignWorkbench.tsx'), /rounded border border-theme-border p-3/);
+  assert.match(read('../components/DesignWorkbench.tsx'), /rounded-lg border border-theme-border\/70 bg-page\/45 p-3/);
 });
 
 test('Dashboard Todo columns use equal independent desktop rows and mobile flow', () => {

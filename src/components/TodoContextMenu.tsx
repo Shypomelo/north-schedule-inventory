@@ -11,10 +11,11 @@ export interface TodoContextMenuAction {
   disabled?: boolean;
 }
 
-export function TodoContextMenu({ point, actions, onClose }: {
+export function TodoContextMenu({ point, actions, onClose, label = '待辦操作' }: {
   point: ContextMenuPoint | null;
   actions: readonly TodoContextMenuAction[];
   onClose: () => void;
+  label?: string;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = useState(false);
@@ -59,7 +60,7 @@ export function TodoContextMenu({ point, actions, onClose }: {
     <div
       ref={menuRef}
       role="menu"
-      aria-label="待辦操作"
+      aria-label={label}
       className="fixed z-[100] min-w-36 rounded-lg border border-theme-border bg-card p-1 text-sm shadow-xl"
       style={{
         left: position?.left ?? point.x,
