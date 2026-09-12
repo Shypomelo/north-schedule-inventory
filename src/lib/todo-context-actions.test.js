@@ -45,9 +45,11 @@ test('Dashboard and Schedule use shared TodoRow and TodoContextMenu presentation
     assert.match(source, /<TodoContextMenu/);
   }
   const row = read('../components/TodoRow.tsx');
-  assert.match(row, /TEAM_TODO_CARD_CLASS/);
-  assert.match(row, /gap-3/);
+  assert.match(row, /content\?: ReactNode/);
   assert.match(row, /md:hidden/);
+  assert.match(read('../app/page.tsx'), /flex items-start gap-3 rounded-xl[\s\S]{0,160}p-3/);
+  assert.match(read('../app/schedule/page.tsx'), /cursor-grab rounded-xl[\s\S]{0,160}p-2/);
+  assert.match(read('../components/DesignWorkbench.tsx'), /rounded border border-theme-border p-3/);
 });
 
 test('Dashboard Todo columns use equal independent desktop rows and mobile flow', () => {

@@ -49,11 +49,23 @@ test('work item editor persists project label and editable business dates but ne
 
 test('flexible date editor commits on blur or Enter and visibly rejects invalid input',()=>{
   const source=read('../components/FlexibleDateInput.tsx');
+  assert.match(source,/type="text"/);
   assert.match(source,/onBlur=\{commit\}/);
   assert.match(source,/event\.key === 'Enter'/);
   assert.match(source,/aria-invalid=\{invalid\}/);
   assert.match(source,/目前儲存值未變更/);
   assert.match(source,/type="date"/);
+  assert.match(source,/picker\.showPicker\(\)/);
+  assert.match(source,/pointer-events-none absolute h-px w-px/);
+  assert.doesNotMatch(source,/absolute inset-0 h-10 w-10 cursor-pointer opacity-0/);
+});
+
+test('historical invalid received_at is labelled and preserved instead of rendered as canonical',()=>{
+  const source=read('../components/DesignWorkbench.tsx');
+  const dateHelper=read('flexible-local-date.ts');
+  assert.match(source,/presentTodoReceivedDate\(todo\.received_at\?\?todo\.created_at\)/);
+  assert.match(source,/保留原始值，未自動改寫/);
+  assert.match(dateHelper,/日期異常（原始值：\$\{raw\}）/);
 });
 
 test('candidate migration adds project_label without changing existing work item ownership RLS',()=>{

@@ -4,6 +4,7 @@ const path = require('node:path');
 const loadTypeScript = require('./test-load-ts.cjs');
 
 const { parseFlexibleLocalDate } = loadTypeScript(path.join(__dirname, 'flexible-local-date.ts'));
+const { formatTodoReceivedDate, presentTodoReceivedDate, taiwanDayStart } = loadTypeScript(path.join(__dirname, 'todo-presentation.ts'));
 
 for (const [input, expected] of [
   ['09/08', '2026-09-08'],
@@ -28,4 +29,13 @@ test('validates leap years', () => {
 
 test('rejects ambiguous undelimited YYYYMMDD', () => {
   assert.equal(parseFlexibleLocalDate('20260908', 2026), null);
+});
+
+test('rejects year-zero-like historical corruption instead of presenting it as canonical', () => {
+  assert.equal(parseFlexibleLocalDate('0008-09-10', 2026), null);
+  assert.equal(parseFlexibleLocalDate('0999/09/10', 2026), null);
+  assert.equal(parseFlexibleLocalDate('0908', 2026), '2026-09-08');
+  assert.equal(formatTodoReceivedDate('0008-09-10T00:00:00+08:00'), '收到日期異常（原始值：0008-09-10）');
+  assert.deepEqual(presentTodoReceivedDate('0008-09-10T00:00:00+08:00'), { label: '日期異常（原始值：0008-09-10）', invalid: true });
+  assert.throws(() => taiwanDayStart('0008-09-10'), /Invalid received date/);
 });

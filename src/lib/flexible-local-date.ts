@@ -36,9 +36,15 @@ export function parseFlexibleLocalDate(input: string, currentYear = new Date().g
     return null;
   }
 
-  if (!Number.isInteger(year) || year < 1 || year > 9999) return null;
+  if (!Number.isInteger(year) || year < 1000 || year > 9999) return null;
   if (!Number.isInteger(month) || month < 1 || month > 12) return null;
   if (!Number.isInteger(day) || day < 1 || day > daysInMonth(year, month)) return null;
 
   return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+export function presentStoredLocalDate(value: string | null | undefined): { label: string; invalid: boolean } {
+  const raw = value?.slice(0, 10) || '';
+  if (raw && parseFlexibleLocalDate(raw) === raw) return { label: raw, invalid: false };
+  return { label: raw ? `日期異常（原始值：${raw}）` : '未設定', invalid: true };
 }

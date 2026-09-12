@@ -10,13 +10,13 @@ import {
   type GoogleCalendarSyncSummary,
 } from '@/components/GoogleCalendarSyncDialogs';
 import { TodoForm } from '@/components/TodoForm';
-import { TodoTextEditDialog } from '@/components/TodoTextEditDialog';
+import { TodoInlineText } from '@/components/TodoInlineText';
 import { TodoContextMenu } from '@/components/TodoContextMenu';
 import { TodoRow } from '@/components/TodoRow';
 import { useWorkGroups } from '@/hooks/useWorkGroups';
 import { requireTodoWorkGroup } from '@/lib/work-groups';
 import { startOfWeek, endOfWeek, addDays, subDays, format, isSameDay, startOfMonth, endOfMonth } from 'date-fns';
-import { ChevronLeft, ChevronRight, Plus, X, ArrowLeft, RefreshCw, Circle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, X, ArrowLeft, RefreshCw } from 'lucide-react';
 import { useUser } from '@/components/UserContext';
 import { getDatabaseErrorMessage, isMissingCoreTablesError } from '@/lib/db/supabase-errors';
 import { supabase } from '@/lib/db/supabaseClient';
@@ -142,9 +142,8 @@ export default function SchedulePage() {
   const [googleSyncSummary, setGoogleSyncSummary] = useState<GoogleCalendarSyncSummary | null>(null);
   const [selectedDayTasks, setSelectedDayTasks] = useState<{date: Date, tasks: ScheduleTask[]} | null>(null);
 
-  // Todo Modal
+  // Todo creation modal; existing Todo text stays inline.
   const [isTodoFormOpen, setIsTodoFormOpen] = useState(false);
-  const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
 
   // Context Menu
   const [contextMenu, setContextMenu] = useState<{taskId: string, x: number, y: number} | null>(null);
@@ -834,15 +833,19 @@ export default function SchedulePage() {
                   todo={todo}
                   draggable={currentUser?.role !== 'VIEWER'}
                   onDragStart={event => handleDragStart(event, todo.id, 'todo')}
-                  onActivate={() => setEditingTodo(todo)}
                   menuDisabled={currentUser?.role === 'VIEWER'}
+                  menuButtonClassName="mt-1 ml-auto flex min-h-10 min-w-10 items-center justify-center rounded text-lg disabled:opacity-50 md:hidden"
                   onOpenMenu={point => {
                     setContextMenu(null);
                     setDayContextMenu(null);
                     setTodoContextMenu({ todoId: todo.id, ...point });
                   }}
-                  statusControl={<Circle size={20} className="text-secondary" />}
-                  secondary={<><span className="font-semibold text-amber-300">{projectName}</span><span className="mx-1">·</span><span className="font-semibold text-accent">{todo.task_type || '未分類'}</span></>}
+                  className="cursor-grab rounded-xl border border-[var(--warning)] bg-[var(--surface-secondary)] p-2 shadow-sm transition hover:border-[var(--accent)] hover:bg-[var(--surface)]"
+                  content={<TodoInlineText todo={todo} onSaved={async()=>{await fetchData(false);}} display={<>
+                    <span className="block truncate text-xs font-semibold text-amber-300">{projectName}</span>
+                    <span className="mt-1 block truncate text-xs font-bold text-[var(--accent)]">[{todo.task_type || '未分類'}]</span>
+                    <span className="mt-0.5 block truncate text-xs text-[var(--text-primary)]">{todo.title}</span>
+                  </>}/>}
                 />
               );
             })}
@@ -1279,7 +1282,6 @@ export default function SchedulePage() {
           </div>
         </div>
       )}
-      {editingTodo && <TodoTextEditDialog todo={editingTodo} onClose={()=>setEditingTodo(null)} onSaved={async()=>{await fetchData(false);}} />}
     </div>
   );
 }

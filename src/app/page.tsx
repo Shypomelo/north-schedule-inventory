@@ -569,7 +569,7 @@ function TodoList({ actor, todos, emptyText, savingKey, onComplete, onEdit, onDe
               <TodoInlineText todo={todo} onSaved={onSaved}/>
             }
             secondary={detail ? <span className="truncate">{detail}</span> : null}
-            className="my-2"
+            className="my-2 flex items-start gap-3 rounded-xl border border-[var(--warning)] bg-[var(--surface-secondary)] p-3 shadow-sm transition hover:border-[var(--accent)]"
           />
         );
       })}

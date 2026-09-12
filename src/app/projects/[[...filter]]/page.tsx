@@ -18,7 +18,7 @@ import { buildWorkflowActivityLog, getWorkflowMilestoneProjectPatch } from '@/li
 import { logWorkflowActivitySafely } from '@/lib/workflow-activity';
 import { supabase } from '@/lib/db/supabaseClient';
 import { getConstructionOuterDisplay, getConstructionProjectPatch, getConstructionToday, validateActualCompletionDate } from '@/lib/construction-progress';
-import { getActiveProjectColumns } from '@/lib/active-project-columns';
+import { ACTIVE_PROJECT_SECTION_COLUMNS, getActiveProjectColumns } from '@/lib/active-project-columns';
 import { MapPin, Plus, Search, Filter, Maximize2 } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { selectActiveProjectsForEngineeringMember, selectEngineeringMembers } from '@/lib/personnel-workspace';
@@ -516,7 +516,8 @@ export default function ProjectsPage() {
     const showMeter = isSec1 || isSec2 || isSec3;
     const showRoof = isSec1 || isSec3;
     const showStartDate = isSec1;
-    const columns = getActiveProjectColumns({
+    const usesSharedActiveGeometry = isSec1 || isSec2 || isSec3;
+    const columns = usesSharedActiveGeometry ? ACTIVE_PROJECT_SECTION_COLUMNS : getActiveProjectColumns({
       showBracket,
       showPower,
       showInspection,
@@ -531,7 +532,7 @@ export default function ProjectsPage() {
       <div className="mb-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
         <h2 className="text-xl font-bold text-primary mb-4 px-2 border-l-4 border-accent">{title} <span className="text-secondary text-sm font-normal ml-2">({projectsList.length})</span></h2>
         <div className="bg-card/40 border border-theme-border rounded-xl overflow-auto shadow-xl backdrop-blur-sm">
-          <table className="w-full table-fixed border-collapse text-left" style={{ minWidth: tableWidth }}>
+          <table data-column-geometry={usesSharedActiveGeometry ? 'active-projects-v1' : 'completed-projects-v1'} className="w-full table-fixed border-collapse text-left" style={{ minWidth: tableWidth }}>
             <colgroup>
               {columns.map(column => <col key={column.key} style={{ width: column.width }} />)}
             </colgroup>
@@ -546,8 +547,8 @@ export default function ProjectsPage() {
                   {showPower && <th className="p-3 font-semibold whitespace-nowrap min-w-[120px]">電力</th>}
                   {showInspection && <th className="p-3 font-semibold whitespace-nowrap min-w-[120px]">驗收</th>}
                   {showMeter && <th className="p-3 font-semibold whitespace-nowrap min-w-[120px]">掛表</th>}
-                  {showRoof && <th className="p-3 font-semibold whitespace-nowrap min-w-[120px]">新設頂蓋</th>}
-                  {showStartDate && <th className="p-3 font-semibold whitespace-nowrap min-w-[120px]">開工日期</th>}
+                  {usesSharedActiveGeometry && <th className="p-3 font-semibold whitespace-nowrap min-w-[120px]">新設頂蓋</th>}
+                  {usesSharedActiveGeometry && <th className="p-3 font-semibold whitespace-nowrap min-w-[120px]">開工日期</th>}
                   <th className="p-3 font-semibold min-w-[250px]">備註</th>
                   {isSec4 && <th className="p-3 font-semibold min-w-[80px]">操作</th>}
                 </tr>
@@ -630,8 +631,8 @@ export default function ProjectsPage() {
                       onUpdated={milestone => patchProjectState(project.id, getWorkflowMilestoneProjectPatch(milestone))}
                     />
                   </td>}
-                  {showRoof && <td className="p-1">
-                    <DateDualInput 
+                  {usesSharedActiveGeometry && <td className="p-1">
+                    {showRoof && <DateDualInput
                       baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
                       disabled={currentUser?.role === 'VIEWER'}
                       expectedDate={project.roof_cover_expected_start_date || null}
@@ -639,16 +640,16 @@ export default function ProjectsPage() {
                       completionIsActual={project.roof_cover_is_completed}
                       summaryText={getProjectConstructionDisplay(project.roof_cover_expected_start_date, project.roof_cover_completion_date, project.roof_cover_is_completed).label}
                       onChange={(exp, comp) => handleConstructionDatesChange(project, 'roof_cover', exp, comp)}
-                    />
+                    />}
                   </td>}
-                  {showStartDate && <td className="p-1">
-                    <SmartDateInput 
+                  {usesSharedActiveGeometry && <td className="p-1">
+                    {showStartDate && <SmartDateInput
                       disabled={currentUser?.role === 'VIEWER'}
                       value={project.start_date || ''}
                       baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
                       onChange={(val) => handleProjectInlineChange(project.id, 'start_date', val)}
                       placeholder="YYYY-MM-DD"
-                    />
+                    />}
                   </td>}
                   <td className="p-1">
                     <input 

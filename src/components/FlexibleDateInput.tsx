@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { CalendarDays } from 'lucide-react';
 import { parseFlexibleLocalDate } from '@/lib/flexible-local-date';
 
@@ -12,14 +12,18 @@ export function FlexibleDateInput({ value, onChange, label, required = false, di
   disabled?: boolean;
 }) {
   const id = useId();
-  const canonicalValue = value?.slice(0, 10) || '';
-  const [text, setText] = useState(canonicalValue);
-  const [invalid, setInvalid] = useState(false);
+  const pickerRef = useRef<HTMLInputElement>(null);
+  const sourceValue = value?.slice(0, 10) || '';
+  const parsedSource = sourceValue ? parseFlexibleLocalDate(sourceValue) : null;
+  const canonicalValue = parsedSource === sourceValue ? sourceValue : '';
+  const sourceInvalid = Boolean(sourceValue && !canonicalValue);
+  const [text, setText] = useState(sourceValue);
+  const [invalid, setInvalid] = useState(sourceInvalid);
 
   useEffect(() => {
-    setText(canonicalValue);
-    setInvalid(false);
-  }, [canonicalValue]);
+    setText(sourceValue);
+    setInvalid(sourceInvalid);
+  }, [sourceValue, sourceInvalid]);
 
   const commit = () => {
     const trimmed = text.trim();
@@ -40,11 +44,10 @@ export function FlexibleDateInput({ value, onChange, label, required = false, di
 
   return (
     <div>
-      <div className={`flex min-h-11 items-center rounded border bg-page ${invalid ? 'border-danger' : 'border-theme-border'}`}>
+      <div className={`relative flex min-h-11 items-center rounded border bg-page ${invalid ? 'border-danger' : 'border-theme-border'}`}>
         <input
           id={id}
           type="text"
-          inputMode="numeric"
           value={text}
           required={required}
           disabled={disabled}
@@ -62,28 +65,40 @@ export function FlexibleDateInput({ value, onChange, label, required = false, di
               event.preventDefault();
               commit();
             } else if (event.key === 'Escape') {
-              setText(canonicalValue);
-              setInvalid(false);
+              setText(sourceValue);
+              setInvalid(sourceInvalid);
             }
           }}
         />
-        <div className="relative h-10 w-10 shrink-0" title={`${label}日期選擇器`}>
-          <CalendarDays size={17} className="pointer-events-none absolute left-3 top-3 text-secondary" />
-          <input
-            id={`${id}-picker`}
-            type="date"
-            value={canonicalValue}
-            disabled={disabled}
-            aria-label={`${label}日期選擇器`}
-            className="absolute inset-0 h-10 w-10 cursor-pointer opacity-0 disabled:cursor-not-allowed"
-            onChange={event => {
-              const next = event.target.value;
-              setText(next);
-              setInvalid(false);
-              onChange(next || null);
-            }}
-          />
-        </div>
+        <button
+          type="button"
+          disabled={disabled}
+          aria-label={`${label}日期選擇器`}
+          className="flex h-10 w-10 shrink-0 items-center justify-center text-secondary disabled:cursor-not-allowed"
+          onClick={() => {
+            const picker = pickerRef.current;
+            if (!picker) return;
+            try { picker.showPicker(); } catch { picker.click(); }
+          }}
+        >
+          <CalendarDays size={17} />
+        </button>
+        <input
+          ref={pickerRef}
+          id={`${id}-picker`}
+          type="date"
+          tabIndex={-1}
+          value={canonicalValue}
+          disabled={disabled}
+          aria-hidden="true"
+          className="pointer-events-none absolute h-px w-px overflow-hidden opacity-0"
+          onChange={event => {
+            const next = event.target.value;
+            setText(next);
+            setInvalid(false);
+            onChange(next || null);
+          }}
+        />
       </div>
       {invalid ? <p id={`${id}-error`} role="alert" className="mt-1 text-xs text-danger">日期格式或日期無效；目前儲存值未變更。</p> : null}
     </div>
