@@ -55,7 +55,7 @@ function ConstructionCompletionDateInput({ value, today, isCompleted, disabled, 
       aria-label={isCompleted ? '實際完工日期' : '預計完工日期'}
       type="text"
       className={inputClass}
-      value={focused ? draft : value ? formatDateForDisplay(value, today) : ''}
+      value={focused ? draft : value ? formatDateForDisplay(value, today, isCompleted) : ''}
       disabled={disabled}
       placeholder="MMDD"
       onFocus={() => { setFocused(true); setError(null); }}

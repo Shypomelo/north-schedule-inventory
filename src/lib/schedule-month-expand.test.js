@@ -73,7 +73,7 @@ test('September cross-month first and last weeks remain authoritative', () => {
 
 test('expanded weeks keep the authoritative day and schedule filter', () => {
   assert.match(schedulePage, /renderWeeklySchedule\(week\.scheduleDays, false\)/);
-  assert.match(schedulePage, /const dateStr = format\(day, 'yyyy-MM-dd'\);\s*const dayTasks = sortTasks\(tasks\.filter\(task => task\.task_date === dateStr\)\)/);
+  assert.match(schedulePage, /const dateStr = format\(day, 'yyyy-MM-dd'\);\s*const dayTasks = sortTasks\(groupTasks\.filter\(task => task\.task_date === dateStr\)\)/);
   assert.doesNotMatch(schedulePage, /new Date\(`\$\{expandedMonthWeek/);
 });
 

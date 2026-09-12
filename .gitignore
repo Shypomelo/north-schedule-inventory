@@ -1,5 +1,8 @@
 node_modules
 .next
+.next-verify
+.next-candidate-review
+.next-dev.lock
 out
 .env
 .env.local
@@ -13,4 +16,5 @@ tsconfig.tsbuildinfo
 
 .vercel/
 .codex-logs/
+supabase/.temp/
 scripts/diagnose-supabase.mjs

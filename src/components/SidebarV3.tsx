@@ -5,8 +5,13 @@ import { usePathname } from 'next/navigation';
 import { useUser } from '@/components/UserContext';
 import { useTheme } from '@/components/ThemeContext';
 import { UserSelector } from '@/components/UserSelector';
+import { DashboardViewSelector } from './DashboardViewContext';
 import { Building2, Calendar, ChevronLeft, ChevronRight, Home, ListChecks, Menu, Package, Palette, Settings, Truck, Users, Wrench, X } from 'lucide-react';
 import { isMobileNavigationEdgeSwipe, type SwipePoint } from '@/lib/mobile-navigation-gesture';
+import { dbAdapter } from '@/lib/db';
+import type { MemberPosition, Position } from '@/lib/db/types';
+import { ROLE_LABELS, selectEngineeringMembers } from '@/lib/personnel-workspace';
+import { buildMemberProjectsHref } from '@/lib/project-routes';
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -15,14 +20,26 @@ export function Sidebar() {
   const [showTheme, setShowTheme] = useState(false);
   const { currentUser, allUsers, logout } = useUser();
   const { theme, setTheme } = useTheme();
+  const [positions, setPositions] = useState<Position[]>([]);
+  const [memberPositions, setMemberPositions] = useState<MemberPosition[]>([]);
   const currentRole = currentUser?.role?.toLowerCase();
-  const engineeringUsers = allUsers.filter(user => user.is_active && user.category === 'ENGINEERING');
+  const engineeringUsers = selectEngineeringMembers(allUsers, positions, memberPositions);
   const isActive = (href: string, includeSubpaths = false) => pathname === href || (includeSubpaths && href !== '/' && pathname.startsWith(`${href}/`));
 
   useEffect(() => {
     setIsMobileOpen(false);
     setShowTheme(false);
   }, [pathname]);
+
+  useEffect(() => {
+    let live = true;
+    Promise.all([dbAdapter.getPositions(), dbAdapter.getMemberPositions()])
+      .then(([positionRows, membershipRows]) => {
+        if (live) { setPositions(positionRows); setMemberPositions(membershipRows); }
+      })
+      .catch(error => console.error('Sidebar position assignments failed to load:', error));
+    return () => { live = false; };
+  }, []);
 
   useEffect(() => {
     if (!isMobileOpen) return;
@@ -74,7 +91,8 @@ export function Sidebar() {
             <div className="min-w-0 break-words text-sm font-bold text-[var(--text-primary)]">{currentUser.name}</div>
             <button type="button" onClick={() => setShowTheme(value => !value)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded text-[var(--text-secondary)] hover:bg-[var(--sidebar-hover)]" aria-label="切換主題"><Palette size={16} /></button>
           </div>
-          <div className="mb-2 mt-1 text-xs text-[var(--text-secondary)]">角色: {currentRole === 'admin' ? 'Admin' : currentUser.role === 'ENGINEER' ? 'Engineer' : 'Viewer'}</div>
+          <div className="mb-2 mt-1 text-xs text-[var(--text-secondary)]">系統權限: {ROLE_LABELS[currentUser.role]}</div>
+          <DashboardViewSelector />
           {showTheme && (
             <div className="theme-popover absolute right-3 top-11 z-50 flex min-w-32 flex-col gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2 shadow-xl [--text-primary:var(--modal-text)]">
               {(['dark', 'light', 'orange'] as const).map(value => (
@@ -96,7 +114,7 @@ export function Sidebar() {
           </summary>
           {!collapsed && <div className="mt-1 flex flex-col gap-1 pl-2">
             <a href="/projects/active" className={`min-h-11 rounded p-2 text-sm text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] ${isActive('/projects/active', true) ? 'bg-[var(--sidebar-active)]' : ''}`}>進行中案場</a>
-            {engineeringUsers.map(user => <a key={user.id} href={`/projects/${user.id}`} className={`min-h-11 rounded p-2 text-sm text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] ${isActive(`/projects/${user.id}`, true) ? 'bg-[var(--sidebar-active)]' : ''}`}>{user.name}案場</a>)}
+            {engineeringUsers.map(user => { const href = buildMemberProjectsHref(user.id); return <a key={user.id} href={href} className={`min-h-11 rounded p-2 text-sm text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] ${isActive(href, true) ? 'bg-[var(--sidebar-active)]' : ''}`}>{user.name}案場</a>; })}
             <a href="/projects" className={`min-h-11 rounded p-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--sidebar-hover)] ${isActive('/projects') ? 'bg-[var(--sidebar-active)]' : ''}`}>所有案場</a>
           </div>}
         </details>

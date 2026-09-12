@@ -12,6 +12,7 @@ const transpiled = ts.transpileModule(fs.readFileSync(sourcePath, 'utf8'), {
 const sourceModule = new Module(sourcePath);
 sourceModule.filename = sourcePath;
 sourceModule.paths = module.paths;
+sourceModule.require = id => id === './date-presentation' ? require('./test-load-ts.cjs')(path.join(__dirname,'date-presentation.ts')) : require(id);
 sourceModule._compile(transpiled, sourcePath);
 
 const {
@@ -81,10 +82,10 @@ test('acceptance and meter outer fields use active authoritative milestones', ()
     meter_completion_date: '2026-10-21',
   });
   assert.deepEqual(getWorkflowOuterDisplay('ACCEPTANCE', fields.inspection_status, fields.inspection_expected_date, fields.inspection_completion_date), {
-    label: '預計驗收 10/15', date: '2026-10-15', isCompleted: false,
+    label: '驗收 · 預計 2026/10/15', date: '2026-10-15', isCompleted: false,
   });
   assert.deepEqual(getWorkflowOuterDisplay('METER', fields.meter_status, fields.meter_expected_date, fields.meter_completion_date), {
-    label: '已掛表 10/21', date: '2026-10-21', isCompleted: true,
+    label: '掛表 · 實際 2026/10/21', date: '2026-10-21', isCompleted: true,
   });
 });
 
@@ -263,7 +264,7 @@ test('newly refreshed milestones snapshot current responsible positions without 
 });
 
 test('only admins receive the workflow refresh control and RPC authorization', () => {
-  assert.match(workflowComponent, /canRefresh \? \([\s\S]*>重製流程</);
+  assert.match(workflowComponent, /canRefresh \? \([\s\S]*>同步模板新增項目</);
   assert.match(refreshMigration, /IF NOT app_private\.is_admin_member\(\)/);
 });
 

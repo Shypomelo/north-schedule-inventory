@@ -34,7 +34,7 @@ export function getPositionMilestoneProgress(
   positionId: string,
 ) {
   const applicable = milestones
-    .filter(milestone => milestone.deleted_at === null && milestone.is_applicable)
+    .filter(milestone => milestone.deleted_at === null && !milestone.archived_at && milestone.is_applicable)
     .sort(byWorkflowOrder);
   const currentIndex = applicable.findIndex(milestone =>
     milestone.responsible_position_id === positionId
@@ -107,7 +107,7 @@ export function buildMemberProjectResponsibilities({
         milestone.project_id === project.id
         && milestone.responsible_position_id === position.id
         && milestone.is_applicable
-        && milestone.deleted_at === null);
+        && milestone.deleted_at === null && !milestone.archived_at);
       const progress = getPositionMilestoneProgress(
         milestones.filter(milestone => milestone.project_id === project.id),
         position.id,

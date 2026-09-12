@@ -25,6 +25,7 @@ export function TodoForm({ initialData, onSubmit, onCancel, isSubmitting }: Todo
     task_type: initialData?.task_type || null,
     status: initialData?.status || '待安排',
     scope: 'TEAM',
+    work_group_id: initialData?.work_group_id || null,
     created_by: initialData?.created_by || currentUser?.id || null,
     assigned_to: initialData?.assigned_to || null,
     assigned_by: initialData?.assigned_by || null,
@@ -63,6 +64,7 @@ export function TodoForm({ initialData, onSubmit, onCancel, isSubmitting }: Todo
     e.preventDefault();
     setErrorMsg(null);
     if (!formData.title) return setErrorMsg('標題為必填');
+    if (!formData.work_group_id) return setErrorMsg('請先選擇工作群組');
     await onSubmit(formData);
   };
 

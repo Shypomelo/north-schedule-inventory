@@ -18,6 +18,7 @@ sourceModule.require = id => {
   const dependencyModule = new Module(dependencyPath);
   dependencyModule.filename = dependencyPath;
   dependencyModule.paths = module.paths;
+  dependencyModule.require = id => id === '../date-presentation' ? require('./test-load-ts.cjs')(path.join(__dirname,'date-presentation.ts')) : require(id);
   dependencyModule._compile(ts.transpileModule(fs.readFileSync(dependencyPath, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
   }).outputText, dependencyPath);

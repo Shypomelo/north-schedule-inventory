@@ -1,19 +1,10 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const Module = require('node:module');
 const path = require('node:path');
 const test = require('node:test');
-const ts = require('typescript');
 
 function loadTypeScript(relativePath) {
-  const filename = path.join(__dirname, relativePath);
-  const sourceModule = new Module(filename, module);
-  sourceModule.filename = filename;
-  sourceModule.paths = module.paths;
-  sourceModule._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
-  }).outputText, filename);
-  return sourceModule.exports;
+  return require('./test-load-ts.cjs')(path.join(__dirname, relativePath));
 }
 
 const { selectTodayMemberSchedule } = loadTypeScript('schedule-selectors.ts');
@@ -97,14 +88,14 @@ test('Dashboard uses the shared Todo adapters and keeps the route responsive', (
   const dashboard = fs.readFileSync(path.join(__dirname, '..', 'app', 'page.tsx'), 'utf8');
   const layout = fs.readFileSync(path.join(__dirname, '..', 'components', 'LayoutContentV3.tsx'), 'utf8');
   assert.match(dashboard, /dbAdapter\.getPrivateTodos\(\)/);
-  assert.match(dashboard, /dbAdapter\.getTodos\(\)/);
+  assert.match(dashboard, /dbAdapter\.getTodos\(engineeringGroup.id\)/);
   assert.match(dashboard, /dbAdapter\.updatePrivateTodo\(todo\.id, \{ status: '已完成' \}\)/);
   assert.match(dashboard, /dbAdapter\.updateTodo\(todo\.id, \{ status: '已完成' \}\)/);
   assert.match(dashboard, /initialMilestoneId=\{selectedProject\.milestoneId\}/);
   assert.match(dashboard, /useState\(true\)/);
   assert.match(dashboard, /隱藏已完成/);
   assert.match(dashboard, /!hideCompletedPrivate \|\| todo\.status !== '已完成'/);
-  assert.match(dashboard, /!hideCompletedTeam \|\| todo\.status !== '已完成'/);
+  assert.match(dashboard, /selectActiveTeamTodos\(/);
   assert.doesNotMatch(layout, /min-w-\[1400px\]/);
   assert.match(layout, /pt-14 md:pt-0/);
 });
@@ -112,11 +103,12 @@ test('Dashboard uses the shared Todo adapters and keeps the route responsive', (
 test('Dashboard today schedule reuses Schedule presentation, weather, member, map, and detail sources', () => {
   const dashboard = fs.readFileSync(path.join(__dirname, '..', 'app', 'page.tsx'), 'utf8');
   const schedule = fs.readFileSync(path.join(__dirname, '..', 'app', 'schedule', 'page.tsx'), 'utf8');
-  assert.match(dashboard, /getScheduleTaskPresentation\(task, projects, allUsers, taskMembers\)/);
+  assert.match(dashboard, /getScheduleTaskPresentation\(task, projects, allUsers, taskMembers, workGroups\)/);
   assert.match(schedule, /getScheduleTaskPresentation\(task, projects, users, members\)/);
   assert.match(dashboard, /useScheduleWeather\(todayTasks, projects\)/);
   assert.match(schedule, /useScheduleWeather\(visibleWeatherTasks, projects\)/);
   assert.match(dashboard, /display\.collaboratorDisplay/);
+  assert.match(dashboard, /display\.workGroupName/);
   assert.match(dashboard, /href=\{display\.mapUrl\}/);
   assert.match(dashboard, /event => event\.stopPropagation\(\)/);
   assert.match(dashboard, /<ScheduleTaskDetail/);

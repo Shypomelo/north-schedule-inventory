@@ -1,5 +1,6 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { UserProvider } from "@/components/UserContext";
+import { DashboardViewProvider } from '@/components/DashboardViewContext';
 import { AuthGuard } from "@/components/AuthGuard";
 import { LayoutContent } from "@/components/LayoutContentV3";
 import { ThemeProvider } from "@/components/ThemeContext";
@@ -9,6 +10,8 @@ export const metadata: Metadata = {
   title: "北部工程排程與庫存管理系統",
   description: "Schedule and Inventory Management System",
 };
+
+export const viewport: Viewport = { width: 'device-width', initialScale: 1 };
 
 export default function RootLayout({
   children,
@@ -37,7 +40,7 @@ export default function RootLayout({
         <ThemeProvider>
           <UserProvider>
             <AuthGuard>
-              <LayoutContent>{children}</LayoutContent>
+              <DashboardViewProvider><LayoutContent>{children}</LayoutContent></DashboardViewProvider>
             </AuthGuard>
           </UserProvider>
         </ThemeProvider>

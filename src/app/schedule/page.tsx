@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { ScheduleTask, ScheduleTaskMember, Project, User, Todo, TaskStatus } from '@/lib/db/types';
+import { ScheduleTask, ScheduleTaskMember, Project, User, Todo, TaskStatus, WorkGroup, WorkGroupKey } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { ScheduleTaskFormDialog } from '@/components/ScheduleTaskFormDialog';
 import {
@@ -10,14 +10,22 @@ import {
   type GoogleCalendarSyncSummary,
 } from '@/components/GoogleCalendarSyncDialogs';
 import { TodoForm } from '@/components/TodoForm';
+import { TodoInlineText } from '@/components/TodoInlineText';
+import { TodoContextMenu } from '@/components/TodoContextMenu';
+import { TodoRow } from '@/components/TodoRow';
+import { useWorkGroups } from '@/hooks/useWorkGroups';
+import { requireTodoWorkGroup } from '@/lib/work-groups';
 import { startOfWeek, endOfWeek, addDays, subDays, format, isSameDay, startOfMonth, endOfMonth } from 'date-fns';
 import { ChevronLeft, ChevronRight, Plus, X, ArrowLeft, RefreshCw } from 'lucide-react';
 import { useUser } from '@/components/UserContext';
 import { getDatabaseErrorMessage, isMissingCoreTablesError } from '@/lib/db/supabase-errors';
 import { supabase } from '@/lib/db/supabaseClient';
-import { formatScheduleTaskTime, sortScheduleTasks } from '@/lib/schedule-selectors';
+import { formatScheduleTaskTime, selectScheduleTasksByWorkGroup, sortScheduleTasks } from '@/lib/schedule-selectors';
+import { selectActiveTeamTodos } from '@/lib/todo-selectors';
+import { type MemberWorkGroup, selectActiveWorkGroups } from '@/lib/work-groups';
 import { getScheduleTaskPresentation } from '@/lib/schedule-presentation';
 import { useScheduleWeather } from '@/hooks/useScheduleWeather';
+import { canDeleteTodo } from '@/lib/todo-text-actions';
 import {
   completeScheduleTaskWithActivity,
   confirmScheduleTaskDeletion,
@@ -97,6 +105,8 @@ const formatTaskTime = formatScheduleTaskTime;
 
 export default function SchedulePage() {
   const { currentUser } = useUser();
+  const workspace = useWorkGroups();
+  const [initializedMember, setInitializedMember] = useState<string>();
   const [viewMode, setViewMode] = useState<ViewMode>('week');
   const [scheduleFontSize, setScheduleFontSize] = useState<ScheduleFontSize>('medium');
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -110,8 +120,17 @@ export default function SchedulePage() {
   const [tasks, setTasks] = useState<ScheduleTask[]>([]);
   const [todos, setTodos] = useState<Todo[]>([]);
   const [members, setMembers] = useState<ScheduleTaskMember[]>([]);
+  const [groupMemberships,setGroupMemberships]=useState<MemberWorkGroup[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]);
+  const [activeWorkGroupKey, setActiveWorkGroupKey] = useState<WorkGroupKey | null>('ENGINEERING');
+  useEffect(() => {
+    if (workspace.ready && currentUser?.id !== initializedMember) {
+      setActiveWorkGroupKey(workspace.defaultGroup?.key ?? null);
+      setInitializedMember(currentUser?.id);
+    }
+  }, [workspace.ready, workspace.defaultGroup, currentUser?.id, initializedMember]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Task Modal & Drawer State
@@ -123,7 +142,7 @@ export default function SchedulePage() {
   const [googleSyncSummary, setGoogleSyncSummary] = useState<GoogleCalendarSyncSummary | null>(null);
   const [selectedDayTasks, setSelectedDayTasks] = useState<{date: Date, tasks: ScheduleTask[]} | null>(null);
 
-  // Todo Modal
+  // Todo creation modal; existing Todo text stays inline.
   const [isTodoFormOpen, setIsTodoFormOpen] = useState(false);
 
   // Context Menu
@@ -134,7 +153,6 @@ export default function SchedulePage() {
     const handleClick = () => {
       setContextMenu(null);
       setDayContextMenu(null);
-      setTodoContextMenu(null);
     };
     document.addEventListener('click', handleClick);
     return () => document.removeEventListener('click', handleClick);
@@ -232,7 +250,7 @@ export default function SchedulePage() {
         setTimeout(() => reject(new Error('讀取超時，請重試')), 10000)
       );
 
-      const [t, m, p, u, td] = await Promise.race([
+      const [t, m, p, u, td, wg, memberships] = await Promise.race([
         Promise.all([
           dbAdapter.getScheduleTasks().catch(e => { console.error('Schedule tasks error:', e); return []; }),
           dbAdapter.getScheduleTaskMembers().catch(e => { console.error('Schedule members error:', e); return []; }),
@@ -242,16 +260,20 @@ export default function SchedulePage() {
             return [];
           }),
           dbAdapter.getUsers().catch(e => { console.error('Users error:', e); return []; }),
-          dbAdapter.getTodos().catch(e => { console.error('Todos error:', e); return []; })
+          dbAdapter.getWorkGroups().then(groups => Promise.all(selectActiveWorkGroups(groups).map(group => dbAdapter.getTodos(group.id)))).then(rows => rows.flat()).catch(e => { console.error('Todos error:', e); return []; }),
+          dbAdapter.getWorkGroups(),
+          dbAdapter.getMemberWorkGroups()
         ]),
         timeoutPromise
-      ]) as [ScheduleTask[], ScheduleTaskMember[], Project[], User[], Todo[]];
+      ]) as [ScheduleTask[], ScheduleTaskMember[], Project[], User[], Todo[], WorkGroup[],MemberWorkGroup[]];
 
       setTasks(t);
       setMembers(m);
       setProjects(p);
       setUsers(u);
       setTodos(td);
+      setWorkGroups(selectActiveWorkGroups(wg));
+      setGroupMemberships(memberships);
 
       if (showLoading) setIsLoading(false);
 
@@ -272,6 +294,20 @@ export default function SchedulePage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  const activeWorkGroup = workGroups.find(group => group.key === activeWorkGroupKey);
+  const activeTeamTodos = useMemo(
+    () => selectActiveTeamTodos(todos, activeWorkGroup?.id ?? null),
+    [activeWorkGroup?.id, todos],
+  );
+  const groupTasks = useMemo(
+    () => selectScheduleTasksByWorkGroup(tasks, activeWorkGroup?.id,{members,users,memberships:groupMemberships,groups:workGroups}),
+    [activeWorkGroup?.id, tasks,members,users,groupMemberships,workGroups],
+  );
+
+  useEffect(() => {
+    setSelectedDayTasks(null);
+  }, [activeWorkGroupKey]);
 
   // Week View Dates
   const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 }); 
@@ -300,7 +336,7 @@ export default function SchedulePage() {
       for (const week of expandedMonthWeekDetails) {
         for (const day of week.scheduleDays) {
           const dateStr = format(day, 'yyyy-MM-dd');
-          visibleTasks.push(...sortTasks(tasks.filter(task => task.task_date === dateStr)).slice(0, DAILY_TASK_DISPLAY_LIMIT));
+          visibleTasks.push(...sortTasks(groupTasks.filter(task => task.task_date === dateStr)).slice(0, DAILY_TASK_DISPLAY_LIMIT));
         }
       }
       return visibleTasks;
@@ -310,10 +346,10 @@ export default function SchedulePage() {
     const visibleWeekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
     for (let index = 0; index < 6; index += 1) {
       const dateStr = format(addDays(visibleWeekStart, index), 'yyyy-MM-dd');
-      visibleTasks.push(...sortTasks(tasks.filter(task => task.task_date === dateStr)).slice(0, DAILY_TASK_DISPLAY_LIMIT));
+      visibleTasks.push(...sortTasks(groupTasks.filter(task => task.task_date === dateStr)).slice(0, DAILY_TASK_DISPLAY_LIMIT));
     }
     return visibleTasks;
-  }, [currentDate, expandedMonthWeekDetails, selectedDayTasks, tasks, viewMode]);
+  }, [currentDate, expandedMonthWeekDetails, groupTasks, selectedDayTasks, viewMode]);
 
   const getTaskWeatherDisplay = useScheduleWeather(visibleWeatherTasks, projects);
 
@@ -336,19 +372,21 @@ export default function SchedulePage() {
   const handleCreateOrUpdateTask = async (data: Omit<ScheduleTask, 'id' | 'created_at' | 'updated_at'>, newMemberIds: string[]) => {
     setIsSubmitting(true);
     try {
-      let sourceTodoId = convertingTodoId || (editingTask as ScheduleTask)?.source_todo_id;
+      const sourceTodoId = convertingTodoId || (editingTask as ScheduleTask)?.source_todo_id;
 
       if (editingTask?.id) {
         const originalTask = tasks.find(t => t.id === editingTask.id);
         if (!originalTask) throw new Error('找不到要更新的排程');
+        const safeData = { ...data, work_group_id: originalTask.work_group_id };
         // Optimistic Update
-        setTasks(prev => prev.map(t => t.id === editingTask.id ? { ...t, ...data, updated_at: new Date().toISOString() } as ScheduleTask : t));
+        setTasks(prev => prev.map(t => t.id === editingTask.id ? { ...t, ...safeData, updated_at: new Date().toISOString() } as ScheduleTask : t));
         
         try {
           await updateScheduleTaskWithActivity({
             task: originalTask,
-            data,
+            data: safeData,
             memberIds: newMemberIds,
+            previousMemberIds: editingTaskMembers,
             actor: { id: currentUser?.id, name: currentUser?.name },
           });
           replaceTaskMembers(editingTask.id, newMemberIds);
@@ -362,7 +400,15 @@ export default function SchedulePage() {
           throw error;
         }
       } else {
-        const payload = { ...data, source_todo_id: convertingTodoId };
+        const targetWorkGroup = convertingTodoId
+          ? workGroups.find(group => group.id === requireTodoWorkGroup(todos.find(todo => todo.id === convertingTodoId)!))
+          : activeWorkGroup;
+        if (!targetWorkGroup) throw new Error('找不到排程群組');
+        const payload = {
+          ...data,
+          work_group_id: targetWorkGroup.id,
+          source_todo_id: convertingTodoId,
+        };
         
         // Optimistic Create
         const tempId = `temp-${Date.now()}`;
@@ -383,8 +429,10 @@ export default function SchedulePage() {
           });
 
           if (convertingTodoId) {
-            setTodos(prev => prev.filter(t => t.id !== convertingTodoId));
             await dbAdapter.updateTodo(convertingTodoId, { status: '已排程', converted_task_id: newTask.id });
+            setTodos(prev => prev.map(todo => todo.id === convertingTodoId
+              ? { ...todo, status: '已排程', converted_task_id: newTask.id }
+              : todo));
             await dbAdapter.logActivity({
               actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
               action_type: 'TODO_TO_TASK', target_type: 'Todo', target_id: convertingTodoId, target_label: data.title,
@@ -416,7 +464,7 @@ export default function SchedulePage() {
         const dateStr = format(selectedDayTasks.date, 'yyyy-MM-dd');
         setSelectedDayTasks({
           date: selectedDayTasks.date,
-          tasks: sortTasks(freshTasks.filter(t => t.task_date === dateStr))
+            tasks: sortTasks(selectScheduleTasksByWorkGroup(freshTasks,activeWorkGroup?.id,{members,users,memberships:groupMemberships,groups:workGroups}).filter(t => t.task_date === dateStr))
         });
       }
 
@@ -442,6 +490,7 @@ export default function SchedulePage() {
            task_type: task.task_type,
            status: '待安排',
            scope: 'TEAM',
+           work_group_id: task.work_group_id,
            converted_task_id: null,
            created_by: currentUser?.id || null,
            assigned_to: null,
@@ -504,6 +553,18 @@ export default function SchedulePage() {
     }
   };
 
+  const handleDeleteTodo = async (todo: Todo) => {
+    if (!canDeleteTodo(todo, currentUser) || !window.confirm(`確定要刪除「${todo.title}」嗎？`)) return;
+    setIsSubmitting(true);
+    try {
+      await dbAdapter.deleteTodo(todo.id);
+      await fetchData(false);
+    } catch (deleteError) {
+      console.error('刪除待辦失敗', deleteError);
+      setError('待辦刪除失敗，請重新整理後重試');
+    } finally { setIsSubmitting(false); }
+  };
+
   const handleDragStart = (e: React.DragEvent, id: string, type: 'task' | 'todo') => {
     const data = JSON.stringify({ dragId: id, dragType: type });
     e.dataTransfer.setData('application/x-schedule-item', data);
@@ -512,8 +573,11 @@ export default function SchedulePage() {
   };
 
   const openTodoConvertForm = (todo: Todo, dateStr: string) => {
+    const sourceWorkGroup = workGroups.find(group => group.id === todo.work_group_id);
+    if (!sourceWorkGroup) return;
     setConvertingTodoId(todo.id);
     setEditingTask({
+      work_group_id: requireTodoWorkGroup(todo),
       title: todo.title,
       description: todo.content,
       project_id: todo.project_id,
@@ -544,11 +608,14 @@ export default function SchedulePage() {
         setTasks(prev => prev.map(t => t.id === dragId ? { ...t, task_date: dateStr } : t));
         
         try {
-          await dbAdapter.updateScheduleTask(dragId, { task_date: dateStr });
-          await dbAdapter.logActivity({
-            actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
-            action_type: 'RESCHEDULE_TASK', target_type: 'ScheduleTask', target_id: task.id, target_label: task.title,
-            project_id: task.project_id, project_name: '', before_value: originalDate, after_value: dateStr, message: '拖曳改期'
+          const taskMemberIds = members.filter(member => member.task_id === task.id).map(member => member.user_id);
+          await updateScheduleTaskWithActivity({
+            task,
+            data: {...task,task_date:dateStr},
+            memberIds: taskMemberIds,
+            previousMemberIds: taskMemberIds,
+            actionType: 'DRAG_MOVE_TASK',
+            actor: {id:currentUser?.id,name:currentUser?.name},
           });
           // Optimistic update succeeded, we can fetch later silently
           fetchData(false);
@@ -563,7 +630,7 @@ export default function SchedulePage() {
           const freshTasks = await dbAdapter.getScheduleTasks();
           setSelectedDayTasks(prev => prev ? {
             date: prev.date,
-            tasks: sortTasks(freshTasks.filter(t => t.task_date === format(prev.date, 'yyyy-MM-dd')))
+            tasks: sortTasks(selectScheduleTasksByWorkGroup(freshTasks,activeWorkGroup?.id,{members,users,memberships:groupMemberships,groups:workGroups}).filter(t => t.task_date === format(prev.date, 'yyyy-MM-dd')))
           } : null);
         }
       } else if (dragType === 'todo') {
@@ -611,7 +678,7 @@ export default function SchedulePage() {
         const freshTasks = await dbAdapter.getScheduleTasks();
         setSelectedDayTasks(prev => prev ? {
           date: prev.date,
-          tasks: sortTasks(freshTasks.filter(t => t.task_date === format(prev.date, 'yyyy-MM-dd')))
+          tasks: sortTasks(selectScheduleTasksByWorkGroup(freshTasks,activeWorkGroup?.id,{members,users,memberships:groupMemberships,groups:workGroups}).filter(t => t.task_date === format(prev.date, 'yyyy-MM-dd')))
         } : null);
       }
     } catch(err) {
@@ -635,7 +702,7 @@ export default function SchedulePage() {
     <div className={`grid min-w-[72rem] ${includeTodoColumn ? 'grid-cols-7 flex-1' : 'grid-cols-6'} border border-[var(--border)] rounded-xl bg-[var(--surface)] overflow-hidden`}>
       {days.map(day => {
         const dateStr = format(day, 'yyyy-MM-dd');
-        const dayTasks = sortTasks(tasks.filter(task => task.task_date === dateStr));
+        const dayTasks = sortTasks(groupTasks.filter(task => task.task_date === dateStr));
         const displayTasks = dayTasks.slice(0, DAILY_TASK_DISPLAY_LIMIT);
         const hiddenCount = dayTasks.length - DAILY_TASK_DISPLAY_LIMIT;
 
@@ -756,33 +823,33 @@ export default function SchedulePage() {
             <button onClick={() => setIsTodoFormOpen(true)} disabled={currentUser?.role === 'VIEWER'} className="hover:bg-[var(--surface-secondary)] p-1 rounded disabled:opacity-50 disabled:cursor-not-allowed" title="新增待辦"><Plus size={16}/></button>
           </div>
           <div className="flex-1 p-2 flex flex-col gap-2 overflow-y-auto">
-            {todos.filter(todo => todo.status === '待安排').map(todo => {
+            {activeTeamTodos.map(todo => {
               const project = projects.find(candidate => candidate.id === todo.project_id);
               const projectName = project?.short_name || project?.name || '未指定案場';
 
               return (
-                <div
+                <TodoRow
                   key={todo.id}
+                  todo={todo}
                   draggable={currentUser?.role !== 'VIEWER'}
                   onDragStart={event => handleDragStart(event, todo.id, 'todo')}
-                  onClick={() => openTodoConvertForm(todo, format(new Date(), 'yyyy-MM-dd'))}
-                  onContextMenu={event => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    if (currentUser?.role === 'VIEWER') return;
+                  menuDisabled={currentUser?.role === 'VIEWER'}
+                  menuButtonClassName="mt-1 ml-auto flex min-h-10 min-w-10 items-center justify-center rounded text-lg disabled:opacity-50 md:hidden"
+                  onOpenMenu={point => {
                     setContextMenu(null);
                     setDayContextMenu(null);
-                    setTodoContextMenu({ todoId: todo.id, x: event.clientX, y: event.clientY });
+                    setTodoContextMenu({ todoId: todo.id, ...point });
                   }}
-                  className="p-2 rounded border border-[var(--warning)] bg-[var(--surface)] shadow-sm cursor-pointer hover:border-[var(--accent)] transition"
-                >
-                  <div className="text-xs font-semibold text-amber-300 truncate">{projectName}</div>
-                  <div className="text-xs mt-1 font-bold text-[var(--accent)] truncate">[{todo.task_type || '未分類'}]</div>
-                  <div className="text-xs mt-0.5 text-[var(--text-primary)] truncate">{todo.title}</div>
-                </div>
+                  className="cursor-grab rounded-xl border border-[var(--warning)] bg-[var(--surface-secondary)] p-2 shadow-sm transition hover:border-[var(--accent)] hover:bg-[var(--surface)]"
+                  content={<TodoInlineText todo={todo} onSaved={async()=>{await fetchData(false);}} display={<>
+                    <span className="block truncate text-xs font-semibold text-amber-300">{projectName}</span>
+                    <span className="mt-1 block truncate text-xs font-bold text-[var(--accent)]">[{todo.task_type || '未分類'}]</span>
+                    <span className="mt-0.5 block truncate text-xs text-[var(--text-primary)]">{todo.title}</span>
+                  </>}/>}
+                />
               );
             })}
-            {todos.filter(todo => todo.status === '待安排').length === 0 && (
+            {activeTeamTodos.length === 0 && (
               <div className="text-xs text-[var(--text-muted)] text-center mt-4">無待辦事項</div>
             )}
           </div>
@@ -792,10 +859,25 @@ export default function SchedulePage() {
   );
 
   return (
-    <div className="mx-auto flex h-full min-w-0 flex-col p-3 sm:p-5 lg:p-8 xl:min-w-[1500px]">
+    <div className="mx-auto flex h-full min-w-0 flex-col p-3 sm:p-5 lg:p-8">
       <div className="mb-4 flex flex-col items-stretch justify-between gap-3 lg:mb-6 lg:flex-row lg:items-center">
         <div className="flex flex-wrap items-center gap-3 lg:gap-6">
           <h1 className="w-full text-2xl font-bold text-[var(--text-primary)] sm:w-auto sm:text-3xl">排程管理</h1>
+
+          {!workspace.configurationRequired && <div className="flex rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1" role="tablist" aria-label="排程群組">
+            {workGroups.filter(group => group.key === 'ENGINEERING' || group.key === 'PROJECT').map(group => (
+              <button
+                key={group.id}
+                type="button"
+                role="tab"
+                aria-selected={activeWorkGroupKey === group.key}
+                onClick={() => setActiveWorkGroupKey(group.key)}
+                className={`min-h-9 rounded-md px-3 py-1.5 text-sm font-semibold transition ${activeWorkGroupKey === group.key ? 'bg-[var(--accent)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
+              >
+                {group.key === 'ENGINEERING' ? '工程排程' : '專案排程'}
+              </button>
+            ))}
+          </div>}
           
           <div className="flex bg-[var(--surface)] rounded-lg p-1 border border-[var(--border)]">
             <button 
@@ -874,8 +956,8 @@ export default function SchedulePage() {
             重新同步 Google 日曆
           </button>
           <button
-            onClick={() => { setEditingTask(null); setConvertingTodoId(null); setEditingTaskMembers([]); setIsFormOpen(true); }}
-            disabled={currentUser?.role === 'VIEWER'}
+            onClick={() => { setEditingTask({ work_group_id: activeWorkGroup?.id || '' }); setConvertingTodoId(null); setEditingTaskMembers([]); setIsFormOpen(true); }}
+            disabled={currentUser?.role === 'VIEWER' || !activeWorkGroup || !workspace.ready}
             className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded bg-[var(--accent)] px-4 py-2 text-[var(--accent-text)] shadow transition hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
           >
             <Plus size={20} />
@@ -884,16 +966,20 @@ export default function SchedulePage() {
         </div>
       </div>
 
-      {error ? (
+      {error || workspace.error ? (
         <div className="flex-1 flex flex-col items-center justify-center text-[var(--danger)]">
           <p className="mb-2 text-xl font-bold">載入失敗</p>
-          <p>{error}</p>
+          <p>{error || workspace.error}</p>
           <button onClick={() => fetchData(true)} className="mt-4 px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-[var(--accent-text)] rounded">重試</button>
         </div>
-      ) : isLoading ? (
+      ) : isLoading || !workspace.ready ? (
         <div className="flex-1 flex items-center justify-center text-[var(--text-secondary)]">載入中...</div>
-      ) : tasks.length === 0 && viewMode === 'week' ? (
-        <div className="flex-1 flex items-center justify-center text-[var(--text-secondary)]">目前沒有排程，點擊右上角「新增任務」開始排程。</div>
+      ) : workspace.configurationRequired ? (
+        <div role="status" className="flex-1 rounded-xl border border-amber-500/40 bg-amber-500/10 p-6 text-center text-[var(--text-secondary)]">
+          {currentUser?.role === 'ADMIN' ? '目前沒有有效工作群組，請至人員管理設定。' : '目前沒有可用的工作群組，請聯絡管理員完成設定。'}
+        </div>
+      ) : groupTasks.length === 0 && viewMode === 'week' ? (
+        <div className="flex-1 flex items-center justify-center text-[var(--text-secondary)]">目前沒有{activeWorkGroupKey === 'ENGINEERING' ? '工程' : '專案'}排程，點擊右上角「新增任務」開始排程。</div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col overflow-auto">
           {viewMode === 'week' ? (
@@ -926,7 +1012,7 @@ export default function SchedulePage() {
                         ) : (
                           week.calendarDays.map((day, dayIndex) => {
                             const dateStr = format(day, 'yyyy-MM-dd');
-                            const dayTasks = sortTasks(tasks.filter(t => t.task_date === dateStr));
+                            const dayTasks = sortTasks(groupTasks.filter(t => t.task_date === dateStr));
                             const isCurrentMonth = day.getMonth() === currentDate.getMonth();
 
                             return (
@@ -1139,7 +1225,7 @@ export default function SchedulePage() {
             disabled={currentUser?.role === 'VIEWER'}
             onClick={(e) => {
               e.stopPropagation();
-              setEditingTask({ task_date: dayContextMenu.dateStr, task_type: '維修', status: '已排程' as TaskStatus });
+              setEditingTask({ work_group_id: activeWorkGroup?.id || '', task_date: dayContextMenu.dateStr, task_type: '維修', status: '已排程' as TaskStatus });
               setEditingTaskMembers([]);
               setIsFormOpen(true);
               setDayContextMenu(null);
@@ -1150,43 +1236,21 @@ export default function SchedulePage() {
         </div>
       )}
 
-      {todoContextMenu && (
-        <div 
-          className="fixed bg-[var(--surface)] border border-[var(--border)] rounded shadow-xl py-1 z-50 text-sm min-w-[120px]"
-          style={{ top: todoContextMenu.y, left: todoContextMenu.x }}
-        >
-          {todoContextMenu.todoId ? (
-            <button 
-              className="w-full text-left px-4 py-2 hover:bg-[var(--surface-secondary)] text-[var(--danger)] disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={currentUser?.role === 'VIEWER'}
-              onClick={async (e) => {
-                e.stopPropagation();
-                const id = todoContextMenu.todoId;
-                if (!id) return;
-                setTodoContextMenu(null);
-                setTodos(prev => prev.filter(t => t.id !== id));
-                await dbAdapter.deleteTodo(id);
-                await dbAdapter.logActivity({
-                  actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
-                  action_type: 'DELETE_TASK', target_type: 'Todo', target_id: id, target_label: '已刪除',
-                  project_id: null, project_name: '', before_value: null, after_value: '刪除', message: '刪除待辦'
-                });
-                await fetchData(false);
-              }}
-            >刪除待辦</button>
-          ) : (
-            <button 
-              className="w-full text-left px-4 py-2 hover:bg-[var(--surface-secondary)] text-[var(--accent)] disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={currentUser?.role === 'VIEWER'}
-              onClick={(e) => {
-                e.stopPropagation();
-                setTodoContextMenu(null);
-                setIsTodoFormOpen(true);
-              }}
-            >新增待辦</button>
-          )}
-        </div>
-      )}
+      {todoContextMenu ? (
+        <TodoContextMenu
+          point={{ x: todoContextMenu.x, y: todoContextMenu.y }}
+          onClose={() => setTodoContextMenu(null)}
+          actions={(() => {
+            if (!todoContextMenu.todoId) return [{ label: '新增待辦', tone: 'accent' as const, onSelect: () => setIsTodoFormOpen(true) }];
+            const todo = todos.find(item => item.id === todoContextMenu.todoId);
+            if (!todo) return [];
+            return [
+              { label: '加入排程', tone: 'accent' as const, onSelect: () => openTodoConvertForm(todo, format(new Date(), 'yyyy-MM-dd')) },
+              { label: '刪除待辦', tone: 'danger' as const, onSelect: () => void handleDeleteTodo(todo) },
+            ];
+          })()}
+        />
+      ) : null}
 
       {isFormOpen && (
         <ScheduleTaskFormDialog
@@ -1210,6 +1274,7 @@ export default function SchedulePage() {
           <div className="bg-[var(--modal-bg)] text-[var(--modal-text)] border border-[var(--border)] p-5 rounded-2xl w-full max-w-md shadow-2xl">
             <h2 className="text-xl font-bold text-[var(--modal-text)] mb-4">新增待辦事項</h2>
             <TodoForm 
+              initialData={{ work_group_id: activeWorkGroup?.id || null }}
               onSubmit={handleCreateTodo}
               onCancel={() => setIsTodoFormOpen(false)}
               isSubmitting={isSubmitting}

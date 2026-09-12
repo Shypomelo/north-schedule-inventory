@@ -1,4 +1,4 @@
-import type { Project, ScheduleTask, ScheduleTaskMember, User } from '@/lib/db/types';
+import type { Project, ScheduleTask, ScheduleTaskMember, User, WorkGroup } from '@/lib/db/types';
 import { parseTaiwanProjectLocation } from '@/lib/project-location';
 
 const CREATION_SOURCE_LABELS: Record<NonNullable<ScheduleTask['creation_source']>, string> = {
@@ -21,6 +21,7 @@ export function getScheduleTaskPresentation(
   projects: Project[],
   users: User[],
   members: ScheduleTaskMember[],
+  workGroups: WorkGroup[] = [],
 ) {
   const project = projects.find(candidate => candidate.id === task.project_id);
   const projectName = task.project_name || project?.short_name || project?.name || '未匹配案場';
@@ -39,6 +40,7 @@ export function getScheduleTaskPresentation(
       : location.district.replace(/[區鄉鎮市]$/, ''))
     : '';
   const searchAddress = task.address || project?.address || projectName;
+  const workGroup = workGroups.find(candidate => candidate.id === task.work_group_id);
 
   return {
     project,
@@ -50,5 +52,7 @@ export function getScheduleTaskPresentation(
     district: districtName ? `[${districtName}]` : '',
     searchAddress,
     mapUrl: getScheduleMapUrl(searchAddress),
+    workGroup,
+    workGroupName: workGroup?.name || '未設定群組',
   };
 }

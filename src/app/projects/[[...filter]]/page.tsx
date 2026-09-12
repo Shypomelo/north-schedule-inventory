@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Project, User, Contractor, WorkflowSnapshotResult } from '@/lib/db/types';
+import { Project, User, Contractor, WorkflowSnapshotResult, MemberPosition, Position, ProjectPositionAssignment } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { ProjectForm } from '@/components/ProjectForm';
 import { ProjectDetailModal } from '@/components/ProjectDetailModal';
@@ -13,12 +13,16 @@ import { WorkflowMilestoneQuickEditor } from '@/components/WorkflowMilestoneQuic
 import { useUser } from '@/components/UserContext';
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
 import { parseTaiwanProjectLocation, projectMatchesSearchQuery } from '@/lib/project-location';
+import { isActiveProject } from '@/lib/project-selectors';
 import { buildWorkflowActivityLog, getWorkflowMilestoneProjectPatch } from '@/lib/project-workflow';
 import { logWorkflowActivitySafely } from '@/lib/workflow-activity';
 import { supabase } from '@/lib/db/supabaseClient';
 import { getConstructionOuterDisplay, getConstructionProjectPatch, getConstructionToday, validateActualCompletionDate } from '@/lib/construction-progress';
+import { ACTIVE_PROJECT_SECTION_COLUMNS, getActiveProjectColumns } from '@/lib/active-project-columns';
 import { MapPin, Plus, Search, Filter, Maximize2 } from 'lucide-react';
 import { useParams } from 'next/navigation';
+import { selectActiveProjectsForEngineeringMember, selectEngineeringMembers } from '@/lib/personnel-workspace';
+import { parseProjectsRoute } from '@/lib/project-routes';
 
 const getCity = (address: string | null) => {
   if (!address) return null;
@@ -59,11 +63,14 @@ const logWorkflowInitialization = (
 export default function ProjectsPage() {
   const params = useParams();
   const { currentUser } = useUser();
-  const filterKey = Array.isArray(params.filter) ? params.filter[0] : params.filter || 'all';
+  const projectsRoute = parseProjectsRoute(params.filter);
+  const memberId = projectsRoute.kind === 'member' ? projectsRoute.memberId : null;
 
   const [projects, setProjects] = useState<Project[]>([]);
   
   const [users, setUsers] = useState<User[]>([]);
+  const [positions, setPositions] = useState<Position[]>([]);
+  const [projectAssignments, setProjectAssignments] = useState<ProjectPositionAssignment[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   
   // Custom Filters
@@ -141,17 +148,22 @@ export default function ProjectsPage() {
         setTimeout(() => reject(new Error('讀取超時，請重試')), 10000)
       );
 
-      const [data, usersData, contractorsData] = await Promise.race([
+      const [data, usersData, contractorsData, positionRows, memberPositionRows, assignmentRows] = await Promise.race([
         Promise.all([
           dbAdapter.getProjects(),
           dbAdapter.getUsers().catch(e => { console.error(e); return []; }),
-          dbAdapter.getContractors()
+          dbAdapter.getContractors(),
+          dbAdapter.getPositions(),
+          dbAdapter.getMemberPositions(),
+          dbAdapter.getProjectPositionAssignments(),
         ]),
         timeoutPromise
-      ]) as [Project[], User[], Contractor[]];
+      ]) as [Project[], User[], Contractor[], Position[], MemberPosition[], ProjectPositionAssignment[]];
 
       setProjects(data);
-      setUsers(usersData.filter(u => u.is_active && u.category === 'ENGINEERING'));
+      setUsers(selectEngineeringMembers(usersData, positionRows, memberPositionRows));
+      setPositions(positionRows);
+      setProjectAssignments(assignmentRows);
       setContractors(contractorsData.filter(c => c.is_active));
     } catch (err: any) {
       console.error('Fetch projects failed:', err);
@@ -165,12 +177,13 @@ export default function ProjectsPage() {
     fetchProjects();
   }, []);
 
-  const filterUser = users.find(u => u.id === filterKey);
-  const isActiveView = filterKey === 'active' || !!filterUser;
+  const filterUser = memberId ? users.find(user => user.id === memberId) : undefined;
+  const isActiveView = projectsRoute.kind === 'active' || projectsRoute.kind === 'member';
 
   const getPageTitle = () => {
-    if (filterKey === 'active') return '進行中案場';
+    if (projectsRoute.kind === 'active') return '進行中案場';
     if (filterUser) return `${filterUser.name}案場`;
+    if (projectsRoute.kind === 'member') return '個人案場';
     return '所有案場';
   };
 
@@ -204,16 +217,19 @@ export default function ProjectsPage() {
   }, [projects, searchTerm, filterCity, filterWarrantyStatus, filterInverterBrand]);
 
   const filteredProjects = useMemo(() => {
+    if (memberId) {
+      return selectActiveProjectsForEngineeringMember(projects, memberId, positions, projectAssignments)
+        .filter(project => !searchTerm || projectMatchesSearchQuery(project, searchTerm, [project.notes]));
+    }
     return projects.filter(p => {
-      if (p.status === '已結案' || p.status === '作廢') return false;
-      if (filterUser && p.manager !== filterUser.name) return false;
+      if (!isActiveProject(p)) return false;
 
       if (searchTerm) {
         if (!projectMatchesSearchQuery(p, searchTerm, [p.notes])) return false;
       }
       return true;
     });
-  }, [projects, searchTerm, filterUser]);
+  }, [projects, searchTerm, memberId, positions, projectAssignments]);
 
   const activeCategories = useMemo(() => {
     const cats = {
@@ -500,12 +516,26 @@ export default function ProjectsPage() {
     const showMeter = isSec1 || isSec2 || isSec3;
     const showRoof = isSec1 || isSec3;
     const showStartDate = isSec1;
+    const usesSharedActiveGeometry = isSec1 || isSec2 || isSec3;
+    const columns = usesSharedActiveGeometry ? ACTIVE_PROJECT_SECTION_COLUMNS : getActiveProjectColumns({
+      showBracket,
+      showPower,
+      showInspection,
+      showMeter,
+      showRoof,
+      showStartDate,
+      showComplete: isSec4,
+    });
+    const tableWidth = columns.reduce((total, column) => total + column.width, 0);
 
     return (
       <div className="mb-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
         <h2 className="text-xl font-bold text-primary mb-4 px-2 border-l-4 border-accent">{title} <span className="text-secondary text-sm font-normal ml-2">({projectsList.length})</span></h2>
         <div className="bg-card/40 border border-theme-border rounded-xl overflow-auto shadow-xl backdrop-blur-sm">
-          <table className="w-full text-left border-collapse min-w-[1500px]">
+          <table data-column-geometry={usesSharedActiveGeometry ? 'active-projects-v1' : 'completed-projects-v1'} className="w-full table-fixed border-collapse text-left" style={{ minWidth: tableWidth }}>
+            <colgroup>
+              {columns.map(column => <col key={column.key} style={{ width: column.width }} />)}
+            </colgroup>
             <thead className="bg-[var(--surface-secondary)] text-secondary text-sm border-b border-theme-border">
                 <tr>
                   <th className="p-3 font-semibold whitespace-nowrap w-[60px] text-center"></th>
@@ -517,8 +547,8 @@ export default function ProjectsPage() {
                   {showPower && <th className="p-3 font-semibold whitespace-nowrap min-w-[120px]">電力</th>}
                   {showInspection && <th className="p-3 font-semibold whitespace-nowrap min-w-[120px]">驗收</th>}
                   {showMeter && <th className="p-3 font-semibold whitespace-nowrap min-w-[120px]">掛表</th>}
-                  {showRoof && <th className="p-3 font-semibold whitespace-nowrap min-w-[120px]">新設頂蓋</th>}
-                  {showStartDate && <th className="p-3 font-semibold whitespace-nowrap min-w-[120px]">開工日期</th>}
+                  {usesSharedActiveGeometry && <th className="p-3 font-semibold whitespace-nowrap min-w-[120px]">新設頂蓋</th>}
+                  {usesSharedActiveGeometry && <th className="p-3 font-semibold whitespace-nowrap min-w-[120px]">開工日期</th>}
                   <th className="p-3 font-semibold min-w-[250px]">備註</th>
                   {isSec4 && <th className="p-3 font-semibold min-w-[80px]">操作</th>}
                 </tr>
@@ -601,8 +631,8 @@ export default function ProjectsPage() {
                       onUpdated={milestone => patchProjectState(project.id, getWorkflowMilestoneProjectPatch(milestone))}
                     />
                   </td>}
-                  {showRoof && <td className="p-1">
-                    <DateDualInput 
+                  {usesSharedActiveGeometry && <td className="p-1">
+                    {showRoof && <DateDualInput
                       baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
                       disabled={currentUser?.role === 'VIEWER'}
                       expectedDate={project.roof_cover_expected_start_date || null}
@@ -610,16 +640,16 @@ export default function ProjectsPage() {
                       completionIsActual={project.roof_cover_is_completed}
                       summaryText={getProjectConstructionDisplay(project.roof_cover_expected_start_date, project.roof_cover_completion_date, project.roof_cover_is_completed).label}
                       onChange={(exp, comp) => handleConstructionDatesChange(project, 'roof_cover', exp, comp)}
-                    />
+                    />}
                   </td>}
-                  {showStartDate && <td className="p-1">
-                    <SmartDateInput 
+                  {usesSharedActiveGeometry && <td className="p-1">
+                    {showStartDate && <SmartDateInput
                       disabled={currentUser?.role === 'VIEWER'}
                       value={project.start_date || ''}
                       baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
                       onChange={(val) => handleProjectInlineChange(project.id, 'start_date', val)}
                       placeholder="YYYY-MM-DD"
-                    />
+                    />}
                   </td>}
                   <td className="p-1">
                     <input 
