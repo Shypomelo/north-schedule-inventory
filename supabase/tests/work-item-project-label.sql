@@ -8,7 +8,7 @@ CREATE SCHEMA app_private;
 
 CREATE TABLE public.projects (
   id uuid PRIMARY KEY,
-  name text NOT NULL
+  project_name text NOT NULL
 );
 
 CREATE TABLE public.todos (
@@ -48,7 +48,7 @@ LANGUAGE sql
 STABLE
 AS $$ SELECT '10000000-0000-4000-8000-000000000001'::uuid $$;
 
-INSERT INTO public.projects (id, name)
+INSERT INTO public.projects (id, project_name)
 VALUES ('20000000-0000-4000-8000-000000000001', '正式案場');
 
 INSERT INTO public.work_items (

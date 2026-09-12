@@ -71,6 +71,6 @@ test('historical invalid received_at is labelled and preserved instead of render
 test('candidate migration adds project_label without changing existing work item ownership RLS',()=>{
   const migration=read('../../supabase/migrations/20260912020803_add_work_item_project_label.sql');
   assert.match(migration,/ADD COLUMN project_label text/);
-  assert.match(migration,/NEW\.project_id IS NOT NULL[\s\S]*project\.name INTO NEW\.project_label/);
+  assert.match(migration,/NEW\.project_id IS NOT NULL[\s\S]*project\.project_name INTO NEW\.project_label/);
   assert.doesNotMatch(migration,/CREATE POLICY|DROP POLICY|ALTER TABLE public\.work_items DISABLE ROW LEVEL SECURITY/);
 });

@@ -6,7 +6,7 @@ ALTER TABLE public.work_items
   CHECK (project_label IS NULL OR btrim(project_label) <> '');
 
 UPDATE public.work_items AS item
-SET project_label = project.name
+SET project_label = project.project_name
 FROM public.projects AS project
 WHERE item.project_id = project.id
   AND item.project_label IS NULL;
@@ -19,7 +19,7 @@ SET search_path = ''
 AS $$
 BEGIN
   IF NEW.project_id IS NOT NULL THEN
-    SELECT project.name INTO NEW.project_label
+    SELECT project.project_name INTO NEW.project_label
     FROM public.projects AS project
     WHERE project.id = NEW.project_id;
   ELSE

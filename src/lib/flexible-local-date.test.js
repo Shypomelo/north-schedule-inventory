@@ -39,3 +39,9 @@ test('rejects year-zero-like historical corruption instead of presenting it as c
   assert.deepEqual(presentTodoReceivedDate('0008-09-10T00:00:00+08:00'), { label: '日期異常（原始值：0008-09-10）', invalid: true });
   assert.throws(() => taiwanDayStart('0008-09-10'), /Invalid received date/);
 });
+
+test('presents stored instants using the Taipei business date after reload', () => {
+  const stored = '2026-09-07T16:00:00.000Z';
+  assert.equal(formatTodoReceivedDate(stored), '09/08 收到');
+  assert.deepEqual(presentTodoReceivedDate(stored), { label: '2026-09-08', invalid: false });
+});

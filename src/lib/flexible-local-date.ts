@@ -45,6 +45,20 @@ export function parseFlexibleLocalDate(input: string, currentYear = new Date().g
 
 export function presentStoredLocalDate(value: string | null | undefined): { label: string; invalid: boolean } {
   const raw = value?.slice(0, 10) || '';
-  if (raw && parseFlexibleLocalDate(raw) === raw) return { label: raw, invalid: false };
+  if (raw && parseFlexibleLocalDate(raw) === raw) {
+    if (value && value.length > 10) {
+      const instant = new Date(value);
+      if (!Number.isNaN(instant.getTime())) {
+        const label = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Asia/Taipei',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        }).format(instant);
+        return { label, invalid: false };
+      }
+    }
+    return { label: raw, invalid: false };
+  }
   return { label: raw ? `日期異常（原始值：${raw}）` : '未設定', invalid: true };
 }
