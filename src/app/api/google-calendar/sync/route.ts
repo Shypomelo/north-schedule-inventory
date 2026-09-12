@@ -8,6 +8,7 @@ import {
 } from '@/lib/google-calendar-sync';
 import { requireActiveTeamMember } from '@/lib/server/supabase-auth';
 import { resolveScheduleGoogleEligibility } from '@/lib/server/schedule-google-eligibility';
+import { getExternalSideEffectGuard } from '@/lib/server/external-side-effect-guard';
 
 const getSafeErrorInfo = (error: any) => ({
   status: error?.status ?? error?.code ?? null,
@@ -27,6 +28,16 @@ const getSafeErrorInfo = (error: any) => ({
 
 export async function POST(req: Request) {
   try {
+    const sideEffectGuard = getExternalSideEffectGuard();
+    if (sideEffectGuard.disabled) {
+      return NextResponse.json({
+        success: true,
+        skipped: true,
+        reason: sideEffectGuard.reason,
+        projectRef: sideEffectGuard.projectRef,
+      });
+    }
+
     const { context, error: authResponse } = await requireActiveTeamMember(req);
     if (authResponse) return authResponse;
 

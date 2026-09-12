@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'crypto';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { reconcileGoogleCalendarCore } from '@/lib/server/google-calendar-reconcile';
+import { getExternalSideEffectGuard } from '@/lib/server/external-side-effect-guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,6 +15,16 @@ const safeSecretMatches = (provided: string | null, expected: string) => {
 };
 
 export async function POST(req: Request) {
+  const sideEffectGuard = getExternalSideEffectGuard();
+  if (sideEffectGuard.disabled) {
+    return NextResponse.json({
+      success: true,
+      skipped: true,
+      reason: sideEffectGuard.reason,
+      projectRef: sideEffectGuard.projectRef,
+    });
+  }
+
   const cronSecret = process.env.GOOGLE_CALENDAR_CRON_SECRET;
   if (!cronSecret) {
     return NextResponse.json({ success: false, error: 'Cron endpoint is not configured' }, { status: 503 });

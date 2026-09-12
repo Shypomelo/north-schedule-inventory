@@ -213,6 +213,7 @@ for (const action of ['CREATE', 'UPDATE', 'DELETE']) test('PROJECT server ' + ac
     '@/lib/google-calendar-sync': { loadScheduleTaskSyncRow: async () => ({ id: 'task', work_group_id: requireTodoWorkGroup(todo('TEAM', 'p')) }) },
     '@/lib/server/supabase-auth': { requireActiveTeamMember: async () => ({ context: { member: { role: 'ENGINEER' }, supabase: { from: () => { dbWrites++; throw Error('must not write'); } } } }) },
     '@/lib/server/schedule-google-eligibility': { resolveScheduleGoogleEligibility: async () => eligibility({ work_group_id: 'p', work_groups: groups[1] }) },
+    '@/lib/server/external-side-effect-guard': { getExternalSideEffectGuard: () => ({ disabled: false, projectRef: 'production', reason: null }) },
   });
   const response = await route.POST({ json: async () => ({ action, task: { id: 'task', work_group_id: 'e' } }) });
   assert.equal(response.status, 200); assert.equal(response.body.reason, 'google_calendar_ineligible');

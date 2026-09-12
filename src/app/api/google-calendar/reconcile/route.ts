@@ -5,10 +5,21 @@ import {
   type GoogleCalendarReconcileBody,
 } from '@/lib/server/google-calendar-reconcile';
 import { requireActiveTeamMember } from '@/lib/server/supabase-auth';
+import { getExternalSideEffectGuard } from '@/lib/server/external-side-effect-guard';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
+  const sideEffectGuard = getExternalSideEffectGuard();
+  if (sideEffectGuard.disabled) {
+    return NextResponse.json({
+      success: true,
+      skipped: true,
+      reason: sideEffectGuard.reason,
+      projectRef: sideEffectGuard.projectRef,
+    });
+  }
+
   const { context, error: authResponse } = await requireActiveTeamMember(req);
   if (authResponse) return authResponse;
   if (context.member.role?.toUpperCase() === 'VIEWER') {
