@@ -300,6 +300,7 @@ test('Project Detail defaults to Workflow with embedded construction and no stan
     './ProjectWorkflow': { ProjectWorkflow: props => props.construction },
     './ProjectPositionAssignments': { ProjectPositionAssignments: () => null },
     './ProjectDifficultyAssessments': { ProjectDifficultyAssessments: () => null },
+    './ProjectMaterials': { ProjectMaterials: () => null },
     './ConstructionProgressSection': { ConstructionProgressSection, ConstructionWorkTypeControls },
     './useConstructionProgress': { useConstructionProgress: () => { modelReads++; return shared; } },
   });
@@ -330,13 +331,14 @@ test('construction phase integration reuses the supplied section without milesto
   assert.doesNotMatch(workflowSource, /planned_start_date|planned_end_date|actual_completed_date/);
 });
 
-test('Project Detail tab contract is Workflow, Basic, Notes and resets per project', () => {
+test('Project Detail tab contract is Workflow, Basic, Materials, Notes and resets per project', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'components', 'ProjectDetailModal.tsx'), 'utf8');
   const pageSource = fs.readFileSync(path.join(__dirname, '..', 'app', 'projects', '[[...filter]]', 'page.tsx'), 'utf8');
   assert.match(source, /useState<TabType>\('workflow'\)/);
   assert.match(pageSource, /<ProjectDetailModal\s+key=\{viewingProject\.id\}/);
   assert.ok(source.indexOf("id: 'workflow'") < source.indexOf("id: 'basic'"));
-  assert.ok(source.indexOf("id: 'basic'") < source.indexOf("id: 'notes'"));
+  assert.ok(source.indexOf("id: 'basic'") < source.indexOf("id: 'materials'"));
+  assert.ok(source.indexOf("id: 'materials'") < source.indexOf("id: 'notes'"));
   assert.doesNotMatch(source, /id: 'progress'/);
 });
 

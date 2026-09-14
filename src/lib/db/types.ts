@@ -359,6 +359,113 @@ export interface InventoryItem {
   updated_at: string;
 }
 
+export interface MaterialCatalogItem {
+  id: string;
+  group_id: string | null;
+  group_name: string | null;
+  name: string;
+  default_specification: string | null;
+  default_unit: string;
+  default_reminder_enabled: boolean;
+  default_reminder_days_before: number | null;
+  is_active: boolean;
+  sort_order: number;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MaterialGroup {
+  id: string;
+  name: string;
+  sort_order: number;
+  is_active: boolean;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type MaterialGroupCreateInput = Omit<
+  MaterialGroup,
+  'id' | 'created_at' | 'updated_at'
+>;
+
+export type MaterialGroupUpdateInput = Partial<Omit<
+  MaterialGroup,
+  'id' | 'created_by' | 'created_at' | 'updated_at'
+>>;
+
+export type ProcurementStatus =
+  | 'NOT_ORDERED'
+  | 'ORDERED'
+  | 'PARTIAL_RECEIVED'
+  | 'RECEIVED';
+
+export interface ProjectMaterialBatch {
+  id: string;
+  project_id: string;
+  batch_name: string;
+  ordered_at: string | null;
+  notes: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ProjectMaterialBatchCreateInput = Omit<
+  ProjectMaterialBatch,
+  'id' | 'created_at' | 'updated_at'
+>;
+
+export type ProjectMaterialBatchUpdateInput = Partial<Omit<
+  ProjectMaterialBatch,
+  'id' | 'project_id' | 'created_by' | 'created_at' | 'updated_at'
+>>;
+
+export interface ProjectMaterial {
+  id: string;
+  project_id: string;
+  batch_id: string;
+  catalog_item_id: string | null;
+  item_name: string;
+  specification: string | null;
+  quantity: number;
+  unit: string;
+  procurement_status: ProcurementStatus;
+  ordered_on: string | null;
+  expected_delivery_on: string | null;
+  received_on: string | null;
+  expected_delivery_at: string | null;
+  received_at: string | null;
+  reminder_enabled: boolean;
+  reminder_days_before: number | null;
+  include_in_purchase_request: boolean;
+  notes: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type MaterialCatalogItemCreateInput = Omit<
+  MaterialCatalogItem,
+  'id' | 'created_at' | 'updated_at'
+>;
+
+export type MaterialCatalogItemUpdateInput = Partial<Omit<
+  MaterialCatalogItem,
+  'id' | 'created_by' | 'created_at' | 'updated_at'
+>>;
+
+export type ProjectMaterialCreateInput = Omit<
+  ProjectMaterial,
+  'id' | 'created_at' | 'updated_at'
+>;
+
+export type ProjectMaterialUpdateInput = Partial<Omit<
+  ProjectMaterial,
+  'id' | 'project_id' | 'created_by' | 'created_at' | 'updated_at'
+>>;
+
 export interface InventoryTransaction {
   id: string;
   item_id: string;

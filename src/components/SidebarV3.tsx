@@ -130,6 +130,7 @@ export function Sidebar() {
               {navItem('/admin/contractors', '包商管理', Wrench, false, true)}
               {navItem('/admin/task-types', '任務類型管理', ListChecks, false, true)}
               {navItem('/admin/workflow-settings', '專案流程設定', ListChecks, false, true)}
+              {navItem('/admin/materials', '常用物料管理', Package, false, true)}
             </div>}
           </details>
         )}

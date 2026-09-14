@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Layers3, ListChecks, Plus, Shapes } from 'lucide-react';
 import { useUser } from '@/components/UserContext';
+import { useRowAutosave, type RowAutosaveState } from '@/hooks/useRowAutosave';
 import { dbAdapter } from '@/lib/db';
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
 import type { Position, WorkflowPhase, WorkflowTemplate, WorkflowTemplateStep, WorkflowType } from '@/lib/db/types';
@@ -74,6 +75,10 @@ export default function AdminWorkflowSettingsPage() {
     }
   };
 
+  const handleAutosaveError = useCallback((saveError: unknown, validationMessage?: string) => {
+    setError(validationMessage || getDatabaseErrorMessage(saveError, '儲存專案流程設定失敗'));
+  }, []);
+
   if (contextLoading || !isAdmin) return <div className="p-8 text-center text-secondary">驗證權限中...</div>;
 
   return (
@@ -98,21 +103,22 @@ export default function AdminWorkflowSettingsPage() {
 
       {isLoading ? <div className="rounded-xl border border-theme-border bg-card p-10 text-center text-secondary">載入中...</div> : (
         <>
-          {tab === 'phases' && <ClassificationManager kind="phase" items={phases} savingId={savingId} onItemsChange={setPhases} onSave={runSave} />}
-          {tab === 'types' && <ClassificationManager kind="type" items={types} savingId={savingId} onItemsChange={setTypes} onSave={runSave} />}
-          {tab === 'steps' && <TemplateStepManager template={template} phases={phases} types={types} positions={positions} steps={steps} savingId={savingId} onStepsChange={setSteps} onSave={runSave} />}
+          {tab === 'phases' && <ClassificationManager kind="phase" items={phases} savingId={savingId} onItemsChange={setPhases} onSave={runSave} onAutosaveError={handleAutosaveError} />}
+          {tab === 'types' && <ClassificationManager kind="type" items={types} savingId={savingId} onItemsChange={setTypes} onSave={runSave} onAutosaveError={handleAutosaveError} />}
+          {tab === 'steps' && <TemplateStepManager template={template} phases={phases} types={types} positions={positions} steps={steps} savingId={savingId} onStepsChange={setSteps} onSave={runSave} onAutosaveError={handleAutosaveError} />}
         </>
       )}
     </div>
   );
 }
 
-function ClassificationManager({ kind, items, savingId, onItemsChange, onSave }: {
+function ClassificationManager({ kind, items, savingId, onItemsChange, onSave, onAutosaveError }: {
   kind: 'phase' | 'type';
   items: (WorkflowPhase | WorkflowType)[];
   savingId: string | null;
   onItemsChange: (items: any[]) => void;
   onSave: (id: string, operation: () => Promise<unknown>, message: string) => Promise<void>;
+  onAutosaveError: (error: unknown, validationMessage?: string) => void;
 }) {
   const [newName, setNewName] = useState('');
   const title = kind === 'phase' ? 'Phase' : 'Type';
@@ -128,22 +134,30 @@ function ClassificationManager({ kind, items, savingId, onItemsChange, onSave }:
     setNewName('');
   };
 
-  const updateLocal = (id: string, updates: Record<string, unknown>) => {
-    onItemsChange(items.map(item => item.id === id ? { ...item, ...updates } : item));
-  };
+  const saveRow = useCallback(async (item: WorkflowPhase | WorkflowType) => (
+    kind === 'phase'
+      ? dbAdapter.updateWorkflowPhase(item.id, { name: item.name.trim(), sort_order: item.sort_order, is_active: item.is_active })
+      : dbAdapter.updateWorkflowType(item.id, { name: item.name.trim(), sort_order: item.sort_order, is_active: item.is_active })
+  ) as Promise<WorkflowPhase | WorkflowType>, [kind]);
+  const autosave = useRowAutosave({
+    rows: items,
+    setRows: onItemsChange,
+    saveRow,
+    validate: item => item.name.trim() ? null : `${title} 名稱不可留白。`,
+    onError: onAutosaveError,
+    delay: 700,
+  });
 
   return (
     <section className="overflow-x-auto rounded-xl border border-theme-border bg-card/40 p-3 sm:p-5">
       <form onSubmit={create} className="mb-5 flex min-w-[30rem] gap-3"><input value={newName} onChange={event => setNewName(event.target.value)} placeholder={`新增 ${title} 名稱`} className={inputClass} /><button type="submit" disabled={!newName.trim() || savingId !== null} className="flex shrink-0 items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-hover disabled:opacity-50"><Plus size={16} />新增</button></form>
       <div className="space-y-2">
         {ordered.map(item => (
-          <div key={item.id} className={`grid min-w-[38rem] grid-cols-[minmax(12rem,1fr)_7rem_6rem_auto] items-end gap-3 rounded-xl border border-theme-border p-3 ${item.is_active ? 'bg-page/35' : 'bg-page/20 opacity-60'}`}>
-            <label className="text-xs text-secondary">名稱<input value={item.name} onChange={event => updateLocal(item.id, { name: event.target.value })} className={`${inputClass} mt-1`} /></label>
-            <label className="text-xs text-secondary">排序<input type="number" min={0} value={item.sort_order} onChange={event => updateLocal(item.id, { sort_order: Number(event.target.value) })} className={`${inputClass} mt-1`} /></label>
-            <label className="flex h-10 items-center gap-2 text-sm text-secondary"><input type="checkbox" checked={item.is_active} onChange={event => updateLocal(item.id, { is_active: event.target.checked })} className="h-4 w-4 accent-accent" />啟用</label>
-            <button type="button" disabled={savingId !== null || !item.name.trim()} onClick={() => void onSave(item.id, () => kind === 'phase'
-              ? dbAdapter.updateWorkflowPhase(item.id, { name: item.name.trim(), sort_order: item.sort_order, is_active: item.is_active })
-              : dbAdapter.updateWorkflowType(item.id, { name: item.name.trim(), sort_order: item.sort_order, is_active: item.is_active }), `${title} 已儲存。`)} className="h-10 rounded-lg border border-theme-border px-4 text-sm text-primary hover:bg-card disabled:opacity-50">{savingId === item.id ? '儲存中...' : '儲存'}</button>
+          <div key={item.id} onBlur={() => autosave.flush(item.id)} className={`grid min-w-[38rem] grid-cols-[minmax(12rem,1fr)_7rem_6rem_6rem] items-end gap-3 rounded-xl border border-theme-border p-3 ${item.is_active ? 'bg-page/35' : 'bg-page/20 opacity-60'}`}>
+            <label className="text-xs text-secondary">名稱<input value={item.name} onChange={event => autosave.updateRow(item.id, { name: event.target.value })} className={`${inputClass} mt-1`} /></label>
+            <label className="text-xs text-secondary">排序<input type="number" min={0} value={item.sort_order} onChange={event => autosave.updateRow(item.id, { sort_order: Number(event.target.value) })} className={`${inputClass} mt-1`} /></label>
+            <label className="flex h-10 items-center gap-2 text-sm text-secondary"><input type="checkbox" checked={item.is_active} onChange={event => autosave.updateRow(item.id, { is_active: event.target.checked })} className="h-4 w-4 accent-accent" />啟用</label>
+            <AutosaveStatus state={autosave.stateFor(item.id)} />
             <div className="col-span-4 text-[11px] text-secondary">technical key：{'phase_key' in item ? item.phase_key : item.type_key}</div>
           </div>
         ))}
@@ -152,7 +166,7 @@ function ClassificationManager({ kind, items, savingId, onItemsChange, onSave }:
   );
 }
 
-function TemplateStepManager({ template, phases, types, positions, steps, savingId, onStepsChange, onSave }: {
+function TemplateStepManager({ template, phases, types, positions, steps, savingId, onStepsChange, onSave, onAutosaveError }: {
   template: WorkflowTemplate | null;
   phases: WorkflowPhase[];
   types: WorkflowType[];
@@ -161,6 +175,7 @@ function TemplateStepManager({ template, phases, types, positions, steps, saving
   savingId: string | null;
   onStepsChange: (steps: WorkflowTemplateStep[]) => void;
   onSave: (id: string, operation: () => Promise<unknown>, message: string) => Promise<void>;
+  onAutosaveError: (error: unknown, validationMessage?: string) => void;
 }) {
   const activePhases = useMemo(() => phases.filter(item => item.is_active), [phases]);
   const activeTypes = useMemo(() => types.filter(item => item.is_active), [types]);
@@ -175,11 +190,9 @@ function TemplateStepManager({ template, phases, types, positions, steps, saving
     }));
   }, [activePhases, activeTypes]);
 
-  if (!template) return <div className="rounded-xl border border-danger/30 bg-danger/10 p-6 text-danger">找不到 NORTH_DEFAULT 流程範本。</div>;
-
   const create = async (event: FormEvent) => {
     event.preventDefault();
-    if (!newStep.label.trim() || !newStep.phase_id || !newStep.type_id) return;
+    if (!template || !newStep.label.trim() || !newStep.phase_id || !newStep.type_id) return;
     const sortOrder = steps.reduce((max, item) => Math.max(max, item.sort_order), 0) + 10;
     await onSave('new', () => dbAdapter.createWorkflowTemplateStep({
       template_id: template.id,
@@ -192,7 +205,27 @@ function TemplateStepManager({ template, phases, types, positions, steps, saving
     }), '流程項目已新增。');
     setNewStep(current => ({ ...current, label: '', default_is_applicable: true }));
   };
-  const updateLocal = (id: string, updates: Partial<WorkflowTemplateStep>) => onStepsChange(steps.map(step => step.id === id ? { ...step, ...updates } : step));
+  const saveStep = useCallback(async (step: WorkflowTemplateStep) => (
+    dbAdapter.updateWorkflowTemplateStep(step.id, {
+      label: step.label.trim(),
+      phase_id: step.phase_id,
+      type_id: step.type_id,
+      sort_order: step.sort_order,
+      default_is_applicable: step.default_is_applicable,
+      responsible_position_id: step.responsible_position_id,
+      is_active: step.is_active,
+    }) as Promise<WorkflowTemplateStep>
+  ), []);
+  const autosave = useRowAutosave({
+    rows: steps,
+    setRows: onStepsChange,
+    saveRow: saveStep,
+    validate: step => step.label.trim() ? null : '流程項目名稱不可留白。',
+    onError: onAutosaveError,
+    delay: 700,
+  });
+
+  if (!template) return <div className="rounded-xl border border-danger/30 bg-danger/10 p-6 text-danger">找不到 NORTH_DEFAULT 流程範本。</div>;
 
   return (
     <section className="overflow-x-auto rounded-xl border border-theme-border bg-card/40 p-3 sm:p-5">
@@ -208,18 +241,16 @@ function TemplateStepManager({ template, phases, types, positions, steps, saving
 
       <div className="space-y-2">
         {ordered.map(step => (
-          <div key={step.id} className={`rounded-xl border border-theme-border p-3 ${step.is_active ? 'bg-page/35' : 'bg-page/20 opacity-60'}`}>
-            <div className="grid min-w-[68rem] grid-cols-[minmax(10rem,1fr)_repeat(3,minmax(7rem,9rem))_5rem_6rem_4rem_auto] items-end gap-2">
-              <label className="text-xs text-secondary">名稱<input value={step.label} onChange={event => updateLocal(step.id, { label: event.target.value })} className={`${inputClass} mt-1`} /></label>
-              <Select label="Phase" value={step.phase_id} onChange={value => updateLocal(step.id, { phase_id: value })} items={phases} />
-              <Select label="Type" value={step.type_id} onChange={value => updateLocal(step.id, { type_id: value })} items={types} />
-              <PositionSelect label="負責職位" value={step.responsible_position_id || ''} onChange={value => updateLocal(step.id, { responsible_position_id: value || null })} items={positions.filter(position => position.is_active || position.id === step.responsible_position_id)} />
-              <label className="text-xs text-secondary">排序<input type="number" min={0} value={step.sort_order} onChange={event => updateLocal(step.id, { sort_order: Number(event.target.value) })} className={`${inputClass} mt-1`} /></label>
-              <label className="flex h-10 items-center gap-2 text-xs text-secondary"><input type="checkbox" checked={step.default_is_applicable} onChange={event => updateLocal(step.id, { default_is_applicable: event.target.checked })} className="h-4 w-4 accent-accent" />預設適用</label>
-              <label className="flex h-10 items-center gap-2 text-xs text-secondary"><input type="checkbox" checked={step.is_active} onChange={event => updateLocal(step.id, { is_active: event.target.checked })} className="h-4 w-4 accent-accent" />啟用</label>
-              <button type="button" disabled={savingId !== null || !step.label.trim()} onClick={() => void onSave(step.id, () => dbAdapter.updateWorkflowTemplateStep(step.id, {
-                label: step.label.trim(), phase_id: step.phase_id, type_id: step.type_id, sort_order: step.sort_order, default_is_applicable: step.default_is_applicable, responsible_position_id: step.responsible_position_id, is_active: step.is_active,
-              }), '流程項目已儲存。')} className="h-10 rounded-lg border border-theme-border px-4 text-sm text-primary hover:bg-card disabled:opacity-50">{savingId === step.id ? '儲存中...' : '儲存'}</button>
+          <div key={step.id} onBlur={() => autosave.flush(step.id)} className={`rounded-xl border border-theme-border p-3 ${step.is_active ? 'bg-page/35' : 'bg-page/20 opacity-60'}`}>
+            <div className="grid min-w-[68rem] grid-cols-[minmax(10rem,1fr)_repeat(3,minmax(7rem,9rem))_5rem_6rem_4rem_6rem] items-end gap-2">
+              <label className="text-xs text-secondary">名稱<input value={step.label} onChange={event => autosave.updateRow(step.id, { label: event.target.value })} className={`${inputClass} mt-1`} /></label>
+              <Select label="Phase" value={step.phase_id} onChange={value => autosave.updateRow(step.id, { phase_id: value })} items={phases} />
+              <Select label="Type" value={step.type_id} onChange={value => autosave.updateRow(step.id, { type_id: value })} items={types} />
+              <PositionSelect label="負責職位" value={step.responsible_position_id || ''} onChange={value => autosave.updateRow(step.id, { responsible_position_id: value || null })} items={positions.filter(position => position.is_active || position.id === step.responsible_position_id)} />
+              <label className="text-xs text-secondary">排序<input type="number" min={0} value={step.sort_order} onChange={event => autosave.updateRow(step.id, { sort_order: Number(event.target.value) })} className={`${inputClass} mt-1`} /></label>
+              <label className="flex h-10 items-center gap-2 text-xs text-secondary"><input type="checkbox" checked={step.default_is_applicable} onChange={event => autosave.updateRow(step.id, { default_is_applicable: event.target.checked })} className="h-4 w-4 accent-accent" />預設適用</label>
+              <label className="flex h-10 items-center gap-2 text-xs text-secondary"><input type="checkbox" checked={step.is_active} onChange={event => autosave.updateRow(step.id, { is_active: event.target.checked })} className="h-4 w-4 accent-accent" />啟用</label>
+              <AutosaveStatus state={autosave.stateFor(step.id)} />
             </div>
             <div className="mt-2 text-[11px] text-secondary">technical key：{step.step_key}</div>
           </div>
@@ -227,6 +258,13 @@ function TemplateStepManager({ template, phases, types, positions, steps, saving
       </div>
     </section>
   );
+}
+
+function AutosaveStatus({ state }: { state: RowAutosaveState }) {
+  if (state === 'saving') return <span className="pb-3 text-xs text-secondary">儲存中…</span>;
+  if (state === 'saved') return <span className="pb-3 text-xs text-success">已儲存</span>;
+  if (state === 'error') return <span className="pb-3 text-xs text-danger">儲存失敗</span>;
+  return <span className="pb-3 text-xs text-secondary">自動儲存</span>;
 }
 
 function Select<T extends { id: string; name: string; is_active: boolean }>({ label, value, onChange, items }: { label: string; value: string; onChange: (value: string) => void; items: T[] }) {

@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { Project } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
-import { X, Building2, FileText, ListChecks } from 'lucide-react';
+import { X, Building2, FileText, ListChecks, Package } from 'lucide-react';
 import { useUser } from './UserContext';
 import { ProjectWorkflow } from './ProjectWorkflow';
 import { ConstructionProgressSection, ConstructionWorkTypeControls } from './ConstructionProgressSection';
@@ -11,6 +11,7 @@ import { useConstructionProgress, type ConstructionMutationResult } from './useC
 import type { ProjectMilestone } from '@/lib/db/types';
 import { ProjectDifficultyAssessments } from './ProjectDifficultyAssessments';
 import { ProjectPositionAssignments } from './ProjectPositionAssignments';
+import { ProjectMaterials } from './ProjectMaterials';
 
 interface Props {
   project: Project;
@@ -21,7 +22,7 @@ interface Props {
   onMilestoneUpdated: (milestone: ProjectMilestone) => void;
 }
 
-type TabType = 'workflow' | 'basic' | 'notes';
+type TabType = 'workflow' | 'basic' | 'materials' | 'notes';
 
 export function ProjectDetailModal({ project, initialMilestoneId, onClose, onUpdate, onConstructionUpdated, onMilestoneUpdated }: Props) {
   const { currentUser } = useUser();
@@ -154,6 +155,7 @@ export function ProjectDetailModal({ project, initialMilestoneId, onClose, onUpd
   const tabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
     { id: 'workflow', label: '專案流程', icon: <ListChecks size={18} /> },
     { id: 'basic', label: '基本資料', icon: <Building2 size={18} /> },
+    { id: 'materials', label: '物料', icon: <Package size={18} /> },
     { id: 'notes', label: '備註', icon: <FileText size={18} /> }
   ];
 
@@ -201,6 +203,7 @@ export function ProjectDetailModal({ project, initialMilestoneId, onClose, onUpd
           <div className="min-w-0 flex-1 overflow-y-auto bg-page/30 p-3 sm:p-6">
             {activeTab === 'basic' && renderBasicInfo()}
             {activeTab === 'workflow' && <ProjectWorkflow projectId={project.id} projectName={editedProject.name} targetMilestoneId={initialMilestoneId} actor={currentUser ? { id: currentUser.id, name: currentUser.name } : null} canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')} canRefresh={currentUser?.role === 'ADMIN'} construction={<ConstructionProgressSection model={construction} />} onUpdate={onUpdate} onMilestoneUpdated={onMilestoneUpdated} />}
+            {activeTab === 'materials' && <ProjectMaterials projectId={project.id} projectName={editedProject.name} canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')} />}
             {activeTab === 'notes' && renderNotes()}
           </div>
         </div>

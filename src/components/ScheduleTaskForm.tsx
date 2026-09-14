@@ -215,7 +215,7 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
 
   const handleProjectSearch = (val: string) => {
     setProjectNameInput(val);
-    setIsDropdownOpen(true);
+    setIsDropdownOpen(Boolean(val.trim()));
     // When manually typing, update project_name but clear project_id because it's not a verified selection yet.
     setFormData(prev => ({ ...prev, project_name: val, project_id: null, address: null }));
   };
@@ -227,7 +227,7 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
   };
 
   const filteredProjects = useMemo(() => {
-    if (!projectNameInput.trim()) return projects.slice(0, 50); // Show max 50 default
+    if (!projectNameInput.trim()) return [];
     
     const scored = projects.map(p => {
       return {
@@ -319,8 +319,8 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
             placeholder="請輸入或選擇案場名稱..."
             value={projectNameInput}
             onChange={e => handleProjectSearch(e.target.value)}
-            onFocus={() => setIsDropdownOpen(true)}
-            onClick={() => setIsDropdownOpen(true)}
+            onFocus={() => setIsDropdownOpen(Boolean(projectNameInput.trim()))}
+            onClick={() => setIsDropdownOpen(Boolean(projectNameInput.trim()))}
           />
           {isDropdownOpen && projectNameInput.trim() !== '' && filteredProjects.length === 0 && (
             <div className="absolute top-[100%] left-0 z-[100] w-full mt-1 bg-[var(--modal-bg)] border border-[var(--border)] rounded-md shadow-2xl p-2 text-sm text-[var(--modal-muted)]">

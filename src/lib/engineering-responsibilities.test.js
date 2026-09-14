@@ -92,11 +92,12 @@ test('workflow responsible position columns are nullable foreign keys', () => {
   assert.match(workflowPage, /<option value="">未設定<\/option>/);
 });
 
-test('workflow responsible position uses the existing row save interaction', () => {
+test('workflow responsible position uses the existing canonical update through row autosave', () => {
   const stepManager = workflowPage.match(/function TemplateStepManager[\s\S]*?function Select</)[0];
   assert.equal((stepManager.match(/dbAdapter\.updateWorkflowTemplateStep/g) || []).length, 1);
-  assert.match(stepManager, /<PositionSelect label="負責職位"[\s\S]*?onSave\(step\.id,[\s\S]*?responsible_position_id: step\.responsible_position_id/);
-  assert.match(stepManager, /label: step\.label\.trim\(\), phase_id: step\.phase_id, type_id: step\.type_id, sort_order: step\.sort_order, default_is_applicable: step\.default_is_applicable, responsible_position_id: step\.responsible_position_id, is_active: step\.is_active/);
+  assert.match(stepManager, /const saveStep = useCallback[\s\S]*?dbAdapter\.updateWorkflowTemplateStep\(step\.id,[\s\S]*?responsible_position_id: step\.responsible_position_id/);
+  assert.match(stepManager, /useRowAutosave\([\s\S]*?saveRow: saveStep/);
+  assert.match(stepManager, /<PositionSelect label="負責職位"[\s\S]*?autosave\.updateRow\(step\.id, \{ responsible_position_id: value \|\| null \}\)/);
 });
 
 test('new workflow snapshots copy the template responsible position', () => {

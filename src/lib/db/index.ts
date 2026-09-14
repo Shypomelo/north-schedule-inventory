@@ -3,6 +3,7 @@ import { pocSupabaseAdapter } from './poc-supabase';
 import { supabase } from './supabaseClient';
 import { createWorkGroupAdapter } from './work-group-adapter';
 import { createPersonnelWorkspaceAdapter } from './personnel-workspace-adapter';
+import { createMaterialsAdapter } from './materials';
 
 const hasSupabase = !!process.env.NEXT_PUBLIC_SUPABASE_URL && !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const isProduction = process.env.NODE_ENV === 'production';
@@ -156,6 +157,31 @@ const requireTodoSupabase = (methodName: string) => async (..._args: any[]) => {
   throw new Error(`Supabase is required for Todos. Cannot run ${methodName} without it.`);
 };
 
+const requireMaterialsSupabase = (methodName: string) => async (..._args: any[]) => {
+  throw new Error(
+    `Supabase is required for project materials. Refusing localStorage fallback for ${methodName}.`
+  );
+};
+
+const materialAdapter = hasSupabase
+  ? createMaterialsAdapter(supabase)
+  : {
+      listMaterialGroups: requireMaterialsSupabase('listMaterialGroups'),
+      createMaterialGroup: requireMaterialsSupabase('createMaterialGroup'),
+      updateMaterialGroup: requireMaterialsSupabase('updateMaterialGroup'),
+      listProjectMaterialBatches: requireMaterialsSupabase('listProjectMaterialBatches'),
+      createProjectMaterialBatch: requireMaterialsSupabase('createProjectMaterialBatch'),
+      updateProjectMaterialBatch: requireMaterialsSupabase('updateProjectMaterialBatch'),
+      deleteProjectMaterialBatch: requireMaterialsSupabase('deleteProjectMaterialBatch'),
+      listMaterialCatalogItems: requireMaterialsSupabase('listMaterialCatalogItems'),
+      createMaterialCatalogItem: requireMaterialsSupabase('createMaterialCatalogItem'),
+      updateMaterialCatalogItem: requireMaterialsSupabase('updateMaterialCatalogItem'),
+      listProjectMaterials: requireMaterialsSupabase('listProjectMaterials'),
+      createProjectMaterial: requireMaterialsSupabase('createProjectMaterial'),
+      updateProjectMaterial: requireMaterialsSupabase('updateProjectMaterial'),
+      deleteProjectMaterial: requireMaterialsSupabase('deleteProjectMaterial'),
+    };
+
 const todoAdapter = hasSupabase
   ? {
       getTodos: pocSupabaseAdapter.getTodos,
@@ -292,6 +318,7 @@ export const dbAdapter = {
   ...scheduleTaskTypesAdapter,
   ...workflowAdapter,
   ...todoAdapter,
+  ...materialAdapter,
   getUsers: hasSupabase ? pocSupabaseAdapter.getUsers : mockDbAdapter.getUsers,
   getWorkGroups: hasSupabase ? pocSupabaseAdapter.getWorkGroups : mockDbAdapter.getWorkGroups,
   getMemberWorkGroups: hasSupabase ? createWorkGroupAdapter(supabase).getMemberWorkGroups : async (_memberId?: string) => [],
