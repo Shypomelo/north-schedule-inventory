@@ -29,6 +29,7 @@ import { selectActiveTeamTodos } from '@/lib/todo-selectors';
 import { useScheduleWeather } from '@/hooks/useScheduleWeather';
 import { canDeleteTodo } from '@/lib/todo-text-actions';
 import { canCreateTodo, createCanonicalPrivateTodo } from '@/lib/todo-create';
+import { selectTodoPool, type WorkItem } from '@/lib/workbench';
 import {
   completeScheduleTaskWithActivity,
   confirmScheduleTaskDeletion,
@@ -58,6 +59,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
   const [responsibilities, setResponsibilities] = useState<MemberProjectResponsibility[]>([]);
   const [privateTodos, setPrivateTodos] = useState<Todo[]>([]);
   const [teamTodos, setTeamTodos] = useState<Todo[]>([]);
+  const [workItems, setWorkItems] = useState<WorkItem[]>([]);
   const [privateTitle, setPrivateTitle] = useState('');
   const [teamTitle, setTeamTitle] = useState('');
   const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
@@ -82,7 +84,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
       const groups = await dbAdapter.getWorkGroups();
       const engineeringGroup = groups.find(group => group.is_active && group.key === todoGroupKey);
       if (!engineeringGroup) throw new Error('找不到工程工作群組');
-      const [taskRows, memberRows, projectRows, responsibilityRows, privateRows, teamRows, workGroupRows, activityRows] = await Promise.all([
+      const [taskRows, memberRows, projectRows, responsibilityRows, privateRows, teamRows, workGroupRows, activityRows, workItemRows] = await Promise.all([
         dbAdapter.getScheduleTasks(),
         dbAdapter.getScheduleTaskMembers(),
         dbAdapter.getProjects(),
@@ -91,6 +93,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
         dbAdapter.getTodos(engineeringGroup.id),
         Promise.resolve(groups),
         dbAdapter.getActivityLogs(),
+        workbenchAdapter.getItems(currentUser.id),
       ]);
       setTasks(taskRows);
       setTaskMembers(memberRows);
@@ -102,6 +105,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
       setTeamTodos(teamRows);
       setWorkGroups(workGroupRows.filter(group => group.is_active));
       setActivityLogs(activityRows);
+      setWorkItems(workItemRows);
     } catch (loadError) {
       console.error('Dashboard load failed:', loadError);
       setError(loadError instanceof Error ? loadError.message : '工程儀表載入失敗');
@@ -125,11 +129,12 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
     () => buildDashboardProjectCards(responsibilities, today),
     [responsibilities, today],
   );
-  const visiblePrivateTodos = privateTodos.filter(todo => !hideCompletedPrivate || todo.status !== '已完成');
-  const visibleTeamTodos = selectActiveTeamTodos(
+  const visiblePrivateTodos = selectTodoPool(privateTodos, workItems)
+    .filter(todo => !hideCompletedPrivate || todo.status !== '已完成');
+  const visibleTeamTodos = selectTodoPool(selectActiveTeamTodos(
     teamTodos,
     workGroups.find(group => group.key === todoGroupKey)?.id ?? null,
-  );
+  ), workItems);
 
   const createPrivateTodo = async (event: FormEvent) => {
     event.preventDefault();
@@ -292,7 +297,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
       <nav className="mb-4 grid grid-cols-3 rounded-xl border border-theme-border bg-card p-1 md:hidden" aria-label="工程儀表頁面" role="tablist">
         <MobileTab active={mobilePage === 'schedule'} onClick={() => setMobilePage('schedule')}>今日排程</MobileTab>
         <MobileTab active={mobilePage === 'projects'} onClick={() => setMobilePage('projects')}>{projectManagement?'案件進度':'專案進度'}</MobileTab>
-        <MobileTab active={mobilePage === 'todos'} onClick={() => setMobilePage('todos')}>TODO</MobileTab>
+        <MobileTab active={mobilePage === 'todos'} onClick={() => setMobilePage('todos')}>TO DO</MobileTab>
       </nav>
 
       <div className="grid items-start gap-5 md:grid-cols-2 min-[1100px]:h-[calc(100%-5rem)] min-[1100px]:min-h-0 min-[1100px]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.25fr)_minmax(0,0.9fr)] min-[1100px]:items-stretch">
@@ -357,7 +362,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
           )}
         </DashboardSection>
 
-        {projectManagement?<DashboardSection icon={<BriefcaseBusiness size={18}/>} title="案件進度" count={projects.length} className={`${mobilePage==='projects'?'block':'hidden'} md:block`}><ProjectOverviewCards projects={projects} milestones={overviewMilestones} onOpen={(project,milestoneId)=>setSelectedProject({project,milestoneId})}/></DashboardSection>:<DashboardSection icon={<BriefcaseBusiness size={18} />} title="我的專案進度" count={projectCards.length} className={`${mobilePage === 'projects' ? 'block' : 'hidden'} md:block`}>
+        {projectManagement?<DashboardSection icon={<BriefcaseBusiness size={18}/>} title="案件進度" count={projects.length} className={`${mobilePage==='projects'?'block':'hidden'} md:block`}><ProjectOverviewCards projects={projects} milestones={overviewMilestones} today={today} onOpen={(project,milestoneId)=>setSelectedProject({project,milestoneId})}/></DashboardSection>:<DashboardSection icon={<BriefcaseBusiness size={18} />} title="我的專案進度" count={projectCards.length} className={`${mobilePage === 'projects' ? 'block' : 'hidden'} md:block`}>
           {projectCards.length === 0 ? <EmptyState text="目前沒有指派中的專案" /> : (
             <div className="space-y-3">
               {projectCards.map(card => {
@@ -399,16 +404,16 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
 
         }
         <div className={`${mobilePage === 'todos' ? 'block' : 'hidden'} space-y-5 md:col-span-2 md:block min-[1100px]:col-span-1 min-[1100px]:grid min-[1100px]:h-full min-[1100px]:min-h-0 min-[1100px]:grid-rows-2 min-[1100px]:gap-5 min-[1100px]:space-y-0 min-[1100px]:overflow-hidden`}>
-          <nav className="grid grid-cols-2 rounded-xl border border-theme-border bg-card p-1 md:hidden" aria-label="TODO 類型" role="tablist">
+          <nav className="grid grid-cols-2 rounded-xl border border-theme-border bg-card p-1 md:hidden" aria-label="TO DO 類型" role="tablist">
             <MobileTab active={mobileTodoPage === 'private'} onClick={() => setMobileTodoPage('private')}>我的</MobileTab>
             <MobileTab active={mobileTodoPage === 'team'} onClick={() => setMobileTodoPage('team')}>團隊</MobileTab>
           </nav>
-          <DashboardSection icon={<ListTodo size={18} />} title="我的 TODO" count={visiblePrivateTodos.length} headerAccessory={<HideCompletedToggle checked={hideCompletedPrivate} onChange={setHideCompletedPrivate} />} className={`${mobileTodoPage === 'private' ? 'block' : 'hidden'} md:block min-[1100px]:min-h-0 min-[1100px]:overflow-y-auto`}>
+          <DashboardSection icon={<ListTodo size={18} />} title="我的 TO DO" count={visiblePrivateTodos.length} headerAccessory={<HideCompletedToggle checked={hideCompletedPrivate} onChange={setHideCompletedPrivate} />} className={`${mobileTodoPage === 'private' ? 'block' : 'hidden'} md:block min-[1100px]:min-h-0 min-[1100px]:overflow-y-auto`}>
             <TodoQuickComposer value={privateTitle} onChange={setPrivateTitle} onSubmit={createPrivateTodo} placeholder="新增私人記事…" disabled={!canMutateTodos} isSaving={savingKey === 'private-new'} />
             <TodoList actor={currentUser} todos={visiblePrivateTodos} emptyText={hideCompletedPrivate ? '沒有未完成的私人記事' : '目前沒有私人記事'} savingKey={savingKey} onComplete={completePrivateTodo} onEdit={setEditingTodo} onDelete={deleteTodo} onSaved={loadDashboard} disabled={!canMutateTodos} />
           </DashboardSection>
 
-          <DashboardSection icon={<Users size={18} />} title="團隊 TODO" count={visibleTeamTodos.length} actionHref="/schedule" actionLabel="週排程待辦" className={`${mobileTodoPage === 'team' ? 'block' : 'hidden'} md:block min-[1100px]:min-h-0 min-[1100px]:overflow-y-auto`}>
+          <DashboardSection icon={<Users size={18} />} title="團隊 TO DO" count={visibleTeamTodos.length} actionHref="/schedule" actionLabel="週排程待辦" className={`${mobileTodoPage === 'team' ? 'block' : 'hidden'} md:block min-[1100px]:min-h-0 min-[1100px]:overflow-y-auto`}>
             <TodoQuickComposer value={teamTitle} onChange={setTeamTitle} onSubmit={createTeamTodo} placeholder="新增團隊待辦…" disabled={!canMutateTodos} isSaving={savingKey === 'team-new'} />
             <TodoList
               actor={currentUser}

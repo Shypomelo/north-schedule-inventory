@@ -18,3 +18,5 @@ tsconfig.tsbuildinfo
 .codex-logs/
 supabase/.temp/
 scripts/diagnose-supabase.mjs
+.vercel
+.env*

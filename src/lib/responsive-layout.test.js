@@ -45,7 +45,7 @@ test('dashboard uses mobile pages below 768px and three columns from 1100px', ()
   const dashboard = read('app/page.tsx');
   assert.match(dashboard, /type MobileDashboardPage = 'schedule' \| 'projects' \| 'todos'/);
   assert.match(dashboard, /aria-label="工程儀表頁面"/);
-  assert.match(dashboard, /aria-label="TODO 類型"/);
+  assert.match(dashboard, /aria-label="TO DO 類型"/);
   assert.match(dashboard, /md:grid-cols-2/);
   assert.match(dashboard, /min-\[1100px\]:grid-cols-/);
   assert.match(dashboard, /mobilePage === 'schedule'/);
