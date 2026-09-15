@@ -32,6 +32,16 @@ export function allowsScheduleTaskWithoutSite(taskType: string | null | undefine
     || semanticType === 'other';
 }
 
+export function usesScheduleProjectBinding(taskType: string | null | undefined): boolean {
+  const semanticType = getScheduleTaskSemanticType(taskType);
+  return semanticType === 'maintenance' || semanticType === 'site-work';
+}
+
+export function allowsScheduleTaskLocation(taskType: string | null | undefined): boolean {
+  const semanticType = getScheduleTaskSemanticType(taskType);
+  return semanticType === 'meeting' || semanticType === 'other';
+}
+
 export function isMaintenanceScheduleTask(task: Pick<ScheduleTask, 'task_type'>): boolean {
   return getScheduleTaskSemanticType(task.task_type) === 'maintenance';
 }

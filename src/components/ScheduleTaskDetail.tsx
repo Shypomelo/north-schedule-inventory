@@ -38,6 +38,9 @@ export function ScheduleTaskDetail({
   onClose: () => void;
 }) {
   const display = getScheduleTaskPresentation(task, projects, users, members, workGroups);
+  const formattedTime = formatScheduleTaskTime(task);
+  const detailHeading = display.projectName || display.cardDetail;
+  const detailSubtitle = display.projectName ? display.cardDetail : '';
   const audit = getScheduleAuditPresentation(task, activityLogs);
   const historyEntries = useMemo(() => getScheduleHistoryEntries(task, activityLogs), [activityLogs, task]);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -66,8 +69,8 @@ export function ScheduleTaskDetail({
         <header className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-4 py-4 sm:px-6">
           <div className="min-w-0">
             <p className="text-xs font-semibold text-[var(--accent)]">排程完整資訊</p>
-            <h2 className="mt-1 break-words text-xl font-bold">{display.projectName}</h2>
-            <p className="mt-1 break-words text-sm text-[var(--modal-muted)]">[{task.task_type}] {task.title || '無標題'}</p>
+            <h2 className="mt-1 break-words text-xl font-bold">{detailHeading}</h2>
+            {detailSubtitle && <p className="mt-1 break-words text-sm text-[var(--modal-muted)]">{detailSubtitle}</p>}
           </div>
           <button type="button" onClick={onClose} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-[var(--surface-secondary)]" aria-label="關閉排程完整資訊"><X size={22} /></button>
         </header>
@@ -75,15 +78,15 @@ export function ScheduleTaskDetail({
         <div className="overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
           <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
             <DetailRow icon={<CalendarDays size={17} />} label="日期" value={task.task_date} />
-            <DetailRow icon={<Clock3 size={17} />} label="時間" value={formatScheduleTaskTime(task)} />
-            <DetailRow label="主要負責人" value={display.mainAssigneeName || '未指定'} />
-            <DetailRow icon={<Users size={17} />} label="協同人員" value={display.collaboratorNames.join('、') || '無'} />
+            {formattedTime && <DetailRow icon={<Clock3 size={17} />} label="時間" value={formattedTime} />}
+            {display.mainAssigneeName && <DetailRow label="主要負責人" value={display.mainAssigneeName} />}
+            {display.collaboratorNames.length > 0 && <DetailRow icon={<Users size={17} />} label="協同人員" value={display.collaboratorNames.join('、')} />}
             <DetailRow label="天氣" value={weather ? `${weather.icon} ${weather.label}` : '無可用天氣資料'} />
             <DetailRow label="狀態" value={task.status || '未設定'} />
             <DetailRow label="排程群組" value={display.workGroupName} />
           </dl>
 
-          <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface-secondary)]/50 p-4">
+          {display.mapUrl && <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface-secondary)]/50 p-4">
             <div className="flex items-start gap-2 text-sm">
               <MapPin className="mt-0.5 shrink-0 text-[var(--accent)]" size={17} />
               <div className="min-w-0 flex-1">
@@ -92,7 +95,7 @@ export function ScheduleTaskDetail({
                 <a href={display.mapUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex min-h-11 items-center rounded-lg border border-[var(--accent)] px-4 text-sm font-bold text-[var(--accent)] hover:bg-[var(--surface-secondary)]">MAP</a>
               </div>
             </div>
-          </div>
+          </div>}
 
           <div className="mt-4 rounded-xl border border-[var(--border)] p-4 text-sm">
             <div className="font-semibold">說明</div>

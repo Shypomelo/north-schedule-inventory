@@ -383,12 +383,15 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
                 const display = getScheduleTaskPresentation(task, projects, allUsers, taskMembers, workGroups);
                 const weather = getTaskWeatherDisplay(task);
                 const isDone = task.status === '完成' || task.status === '已完成';
+                const timeLabel = formatScheduleTaskTime(task);
+                const heading = display.projectName || display.cardDetail;
+                const detail = display.projectName ? display.cardDetail : '';
                 return (
                   <article
                     key={task.id}
                     role="button"
                     tabIndex={0}
-                    aria-label={`查看排程：${display.projectName}`}
+                    aria-label={`查看排程：${heading}`}
                     onClick={() => setSelectedTask(task)}
                     onKeyDown={event => {
                       if (event.key === 'Enter' || event.key === ' ') {
@@ -400,25 +403,25 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="truncate font-semibold">{display.projectName}</div>
+                        <div className="truncate font-semibold">{heading}</div>
                         <div className="mt-0.5 flex min-w-0 items-center gap-2">
-                          <span className="truncate text-sm font-medium text-accent">[{task.task_type}] {task.title || '無標題'}</span>
+                          {detail && <span className="truncate text-sm font-medium text-accent">{detail}</span>}
                           <span className="shrink-0 rounded-full border border-theme-border px-1.5 py-0.5 text-[10px] font-semibold text-secondary">{display.workGroupName}</span>
                         </div>
                       </div>
-                      <span className="shrink-0 rounded-full bg-page px-2 py-1 text-xs font-semibold text-secondary">{formatScheduleTaskTime(task)}</span>
+                      {timeLabel && <span className="shrink-0 rounded-full bg-page px-2 py-1 text-xs font-semibold text-secondary">{timeLabel}</span>}
                     </div>
-                    <div className="mt-2 min-w-0 text-xs leading-5 text-secondary">
-                      <div className="truncate">{display.assigneeDisplay}</div>
-                      <div className="flex min-w-0 items-center justify-between gap-2">
-                        <span className="min-w-0 truncate">{display.collaboratorDisplay || '協同：無'}</span>
-                        <span className="shrink-0 whitespace-nowrap" aria-label={`天氣：${weather?.label || '無資料'}`}>
-                          {weather ? `${weather.icon} ${weather.label}` : '天氣：—'}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="mt-2 flex items-center justify-between gap-2 border-t border-theme-border/60 pt-2">
-                      <a
+                    {(display.assigneeDisplay || display.collaboratorDisplay || weather) && <div className="mt-2 min-w-0 text-xs leading-5 text-secondary">
+                      {display.assigneeDisplay && <div className="truncate">{display.assigneeDisplay}</div>}
+                      {(display.collaboratorDisplay || weather) && <div className="flex min-w-0 items-center justify-between gap-2">
+                        {display.collaboratorDisplay && <span className="min-w-0 truncate">{display.collaboratorDisplay}</span>}
+                        {weather && <span className="shrink-0 whitespace-nowrap" aria-label={`天氣：${weather.label}`}>
+                          {weather.icon} {weather.label}
+                        </span>}
+                      </div>}
+                    </div>}
+                    <div className={`mt-2 flex items-center gap-2 border-t border-theme-border/60 pt-2 ${display.mapUrl ? 'justify-between' : 'justify-end'}`}>
+                      {display.mapUrl ? <a
                         href={display.mapUrl}
                         target="_blank"
                         rel="noopener noreferrer"
@@ -427,7 +430,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
                         className="inline-flex min-h-10 items-center gap-1 rounded-lg px-2 text-xs font-bold text-accent hover:bg-page"
                       >
                         <MapPin size={14} /> MAP
-                      </a>
+                      </a> : null}
                       <span className="text-[11px] font-medium text-secondary">點擊查看完整資訊</span>
                     </div>
                   </article>

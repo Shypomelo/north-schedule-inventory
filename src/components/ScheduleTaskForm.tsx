@@ -9,7 +9,11 @@ import { addHours, format, parse } from 'date-fns';
 import { useScheduleTaskTypes } from '@/hooks/useScheduleTaskTypes';
 import { selectActiveWorkGroups } from '@/lib/work-groups';
 import { selectSchedulePrimaryCandidates } from '@/lib/schedule-selectors';
-import { allowsScheduleTaskWithoutSite } from '@/lib/schedule-task-semantics';
+import {
+  allowsScheduleTaskLocation,
+  getScheduleTaskSemanticType,
+  usesScheduleProjectBinding,
+} from '@/lib/schedule-task-semantics';
 import { formatScheduleAuditValue, getScheduleHistoryEntries } from '@/lib/schedule-audit';
 import { ChevronLeft, ChevronRight, History, X } from 'lucide-react';
 
@@ -41,6 +45,10 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
   const { currentUser } = useUser();
   const isViewer = currentUser?.role === 'VIEWER';
   const isCreateMode = !initialData?.id;
+  const initialSemanticType = getScheduleTaskSemanticType(initialData?.task_type);
+  const initialProjectNameInput = initialSemanticType === 'meeting' || initialSemanticType === 'other'
+    ? (initialData?.project_name || initialData?.address || '')
+    : (initialData?.project_name || '');
   const [projects, setProjects] = useState<Project[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]);
@@ -78,7 +86,7 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [memberIds, setMemberIds] = useState<string[]>(initialMemberIds || []);
-  const [projectNameInput, setProjectNameInput] = useState(initialData?.project_name || '');
+  const [projectNameInput, setProjectNameInput] = useState(initialProjectNameInput);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -255,6 +263,26 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
     setFormData(prev => ({ ...prev, project_name: val, project_id: null, address: null }));
   };
 
+  const handleTaskTypeChange = (taskType: string) => {
+    const previousUsesProjectBinding = usesScheduleProjectBinding(formData.task_type);
+    const nextUsesProjectBinding = usesScheduleProjectBinding(taskType);
+    const nextAllowsLocation = allowsScheduleTaskLocation(taskType);
+    const keepLocation = nextAllowsLocation && allowsScheduleTaskLocation(formData.task_type);
+    const nextProjectName = (nextUsesProjectBinding && previousUsesProjectBinding) || keepLocation
+      ? projectNameInput
+      : '';
+
+    setProjectNameInput(nextProjectName);
+    setIsDropdownOpen(false);
+    setFormData(prev => ({
+      ...prev,
+      task_type: taskType,
+      project_id: nextUsesProjectBinding && previousUsesProjectBinding ? prev.project_id : null,
+      project_name: nextProjectName || null,
+      address: nextUsesProjectBinding && previousUsesProjectBinding ? prev.address : null,
+    }));
+  };
+
   const selectProject = (p: Project) => {
     setProjectNameInput(p.name);
     setFormData(prev => ({ ...prev, project_name: p.name, project_id: p.id, address: p.address }));
@@ -297,10 +325,14 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
       }
     }
 
+    const taskUsesProjectBinding = usesScheduleProjectBinding(formData.task_type);
+    const taskAllowsLocation = allowsScheduleTaskLocation(formData.task_type);
+    const submittedLocation = projectNameInput.trim();
     await onSubmit({
       ...formData,
-      project_id: projectNameInput.trim() ? formData.project_id : null,
-      project_name: formData.project_name?.trim() || null,
+      project_id: taskUsesProjectBinding && submittedLocation ? formData.project_id : null,
+      project_name: (taskUsesProjectBinding || taskAllowsLocation) && submittedLocation ? submittedLocation : null,
+      address: taskUsesProjectBinding ? formData.address : null,
       main_assignee_id: formData.main_assignee_id || null,
     }, memberIds);
   };
@@ -312,6 +344,8 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
     isEditingExistingTask ? formData.main_assignee_id : null,
   );
   const coworkerUsers = users;
+  const taskUsesProjectBinding = usesScheduleProjectBinding(formData.task_type);
+  const taskAllowsLocation = allowsScheduleTaskLocation(formData.task_type);
   const startTimeParts = splitTime(formData.start_time);
   const endTimeParts = splitTime(formData.end_time);
   const creatorName = formData.created_by_name?.trim() || '未知';
@@ -357,12 +391,12 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
         
-        {/* 第一列：案場 */}
-        <div className="flex flex-col gap-1 md:col-span-2 relative" ref={wrapperRef}>
+        {/* 第一列：只有工程工作使用案場綁定；開會／其他使用獨立地點。 */}
+        {taskUsesProjectBinding && <div className="flex flex-col gap-1 md:col-span-2 relative" ref={wrapperRef}>
           <span className="font-semibold text-[var(--modal-text)]">
             案場（選填，可快選既有案場或手動輸入）
           </span>
-          {initialData?.google_event_id && !formData.project_id && !formData.project_name && !allowsScheduleTaskWithoutSite(formData.task_type) && (
+          {initialData?.google_event_id && !formData.project_id && !formData.project_name && (
             <span className="text-xs font-semibold text-amber-400">目前：未匹配案場</span>
           )}
           <input 
@@ -407,7 +441,23 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
               })}
             </div>
           )}
-        </div>
+        </div>}
+        {taskAllowsLocation && (
+          <label className="flex flex-col gap-1 md:col-span-2">
+            <span className="font-semibold text-[var(--modal-text)]">地點（選填）</span>
+            <input
+              type="text"
+              className="bg-[var(--input-bg)] text-[var(--input-text)] border border-[var(--input-border)] rounded p-1.5 focus:border-[var(--accent)] outline-none w-full placeholder:text-[var(--input-placeholder)]"
+              placeholder="輸入地點"
+              value={projectNameInput}
+              onChange={event => {
+                const location = event.target.value;
+                setProjectNameInput(location);
+                setFormData(prev => ({ ...prev, project_id: null, project_name: location, address: null }));
+              }}
+            />
+          </label>
+        )}
 
         {/* 第二列：任務類型 + 任務標題 */}
         <label className="flex flex-col gap-1 mt-1">
@@ -416,7 +466,7 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
             required
             disabled={taskTypesLoading || Boolean(taskTypesError)}
             className="bg-[var(--input-bg)] text-[var(--input-text)] border border-[var(--input-border)] rounded p-1.5 focus:border-[var(--accent)] outline-none"
-            value={formData.task_type} onChange={e => setFormData({...formData, task_type: e.target.value})} 
+            value={formData.task_type} onChange={e => handleTaskTypeChange(e.target.value)}
           >
             {taskTypesLoading && <option value="">載入中...</option>}
             {taskTypesError && <option value="">{taskTypesError}</option>}

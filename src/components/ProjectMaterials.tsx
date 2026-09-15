@@ -385,19 +385,17 @@ function BatchCard({ batch, projectName, materials, catalog, groups, canEdit, is
       </div>}
       {showRegularAdd && <div className="border-b border-accent/25 bg-accent/5 p-2">
         <div className="mb-2 flex items-center justify-between gap-2"><span className="text-xs font-medium text-primary">快速新增常規物料（空白格不會建立資料）</span><button type="button" onClick={() => setShowRegularAdd(false)} className="text-xs text-secondary hover:text-primary">ESC 關閉</button></div>
-        <div className="overflow-x-auto"><div className="min-w-[48rem] space-y-1">
-          <div className="grid grid-cols-[2rem_9rem_minmax(12rem,1.2fr)_minmax(10rem,1fr)_7rem_5rem] gap-1 px-2 text-[11px] font-medium text-secondary"><span>#</span><span>群組</span><span>品項名稱</span><span>型號／規格</span><span>數量／單位</span><span>狀態</span></div>
+        <div className="overflow-x-auto"><div className="min-w-[32rem] space-y-1">
+          <div className="grid grid-cols-[2rem_9rem_minmax(14rem,1.5fr)_7rem] gap-1 px-2 text-[11px] font-medium text-secondary"><span>#</span><span>群組</span><span>品項／型號</span><span>數量</span></div>
           {quickSlots.map((slot, index) => {
             const groupItems = slot.groupId ? filterMaterialCatalogByGroupId(catalog, slot.groupId) : [];
             const selectedItem = catalog.find(item => item.id === slot.catalogItemId);
             const createdMaterial = materials.find(material => material.id === slot.materialId);
-            return <div key={slot.id} className="grid grid-cols-[2rem_9rem_minmax(12rem,1.2fr)_minmax(10rem,1fr)_7rem_5rem] items-center gap-1 rounded-md bg-card/50 px-2 py-1">
+            return <div key={slot.id} className="grid grid-cols-[2rem_9rem_minmax(14rem,1.5fr)_7rem] items-center gap-1 rounded-md bg-card/50 px-2 py-1">
               <span className="text-xs text-secondary">{index + 1}</span>
               <select aria-label={`第${index + 1}格物料群組`} disabled={Boolean(slot.materialId) || slot.state === 'saving'} value={slot.groupId} onChange={event => updateQuickSlot(slot.id, { groupId: event.target.value, catalogItemId: '' })} className={compactInputClass}><option value="">選群組</option>{activeGroups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select>
               <select aria-label={`第${index + 1}格常備品項`} disabled={!slot.groupId || Boolean(slot.materialId) || slot.state === 'saving'} value={slot.catalogItemId} onChange={event => void chooseQuickItem(slot, event.target.value)} className={compactInputClass}><option value="">選品項／型號</option>{groupItems.map(item => <option key={item.id} value={item.id}>{item.name}{item.default_specification ? `｜${item.default_specification}` : ''}</option>)}</select>
-              <span className="truncate px-2 text-xs text-primary">{selectedItem?.default_specification || '—'}</span>
               <div className="flex items-center gap-1"><input type="number" min="0.001" step="any" disabled={!createdMaterial} value={createdMaterial?.quantity ?? 1} onChange={event => createdMaterial && onMaterialChange(createdMaterial.id, { quantity: Number(event.target.value) })} onBlur={() => createdMaterial && onMaterialBlur(createdMaterial.id)} className={compactInputClass} /><span className="shrink-0 text-xs text-secondary">{selectedItem?.default_unit || ''}</span></div>
-              <AutosaveStatus state={slot.state === 'saved' && createdMaterial ? materialStateFor(createdMaterial.id) : slot.state} compact />
             </div>;
           })}
           <button type="button" onClick={() => setQuickSlots(current => [...current, ...createQuickSlots(5)])} className="ml-2 mt-1 h-8 rounded-md border border-theme-border px-3 text-xs text-primary hover:bg-card"><Plus size={13} className="mr-1 inline" />再加 5 格</button>

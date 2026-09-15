@@ -699,6 +699,7 @@ export default function SchedulePage() {
     const display = getScheduleTaskPresentation(task, projects, users, members);
     return {
       projName: display.projectName,
+      cardDetail: display.cardDetail,
       assigneeDisplay: display.assigneeDisplay,
       coworkerDisplay: display.collaboratorDisplay,
       district: display.district,
@@ -748,8 +749,9 @@ export default function SchedulePage() {
             </div>
             <div className={`flex-1 min-h-0 flex flex-col overflow-y-auto ${presentationMode ? 'gap-[clamp(0.65rem,0.8vw,1.25rem)] p-[clamp(0.65rem,0.85vw,1.25rem)]' : 'gap-2 p-2'}`}>
               {displayTasks.map(task => {
-                const { projName, assigneeDisplay, coworkerDisplay, district, mapUrl } = getTaskDisplay(task);
+                const { projName, cardDetail, assigneeDisplay, coworkerDisplay, mapUrl } = getTaskDisplay(task);
                 const weatherDisplay = getTaskWeatherDisplay(task);
+                const primaryLabel = [projName, formatTaskTime(task)].filter(Boolean).join(' ');
                 const isDone = task.status === '完成' || task.status === '已完成';
                 const isRescheduled = task.status === '改期';
 
@@ -774,20 +776,20 @@ export default function SchedulePage() {
                       'bg-[var(--surface-secondary)] border-[var(--accent)]'
                     }`}
                   >
-                    <div className={`${displayFontSizeClasses.primary} font-semibold ${presentationMode ? 'whitespace-normal break-words' : 'truncate'} ${isDone || isRescheduled ? 'text-[var(--text-muted)]' : task.is_tentative ? 'text-[var(--warning)]' : 'text-[var(--text-primary)]'}`}>
-                      {isDone ? '✓ ' : ''}{isRescheduled ? '【改期】 ' : ''}{task.is_tentative ? '[暫] ' : ''}{projName} {formatTaskTime(task)}
-                    </div>
-                    <div className={`${displayFontSizeClasses.secondary} mt-0.5 font-bold ${presentationMode ? 'whitespace-normal break-words' : 'truncate'} ${isDone || isRescheduled ? 'text-[var(--text-muted)]' : 'text-[var(--accent)]'}`}>
-                      {district}[{task.task_type}] {task.title || '無標題'}
-                    </div>
+                    {primaryLabel && <div className={`${displayFontSizeClasses.primary} font-semibold ${presentationMode ? 'whitespace-normal break-words' : 'truncate'} ${isDone || isRescheduled ? 'text-[var(--text-muted)]' : task.is_tentative ? 'text-[var(--warning)]' : 'text-[var(--text-primary)]'}`}>
+                      {isDone ? '✓ ' : ''}{isRescheduled ? '【改期】 ' : ''}{task.is_tentative ? '[暫] ' : ''}{primaryLabel}
+                    </div>}
+                    {cardDetail && <div className={`${displayFontSizeClasses.secondary} mt-0.5 font-bold ${presentationMode ? 'whitespace-normal break-words' : 'truncate'} ${isDone || isRescheduled ? 'text-[var(--text-muted)]' : 'text-[var(--accent)]'}`}>
+                      {cardDetail}
+                    </div>}
                     {(assigneeDisplay || coworkerDisplay) && (
                       <div className={`${displayFontSizeClasses.people} mt-0.5 space-y-0.5 ${isDone || isRescheduled ? 'text-[var(--text-muted)]' : 'text-[var(--text-secondary)]'}`}>
                         {assigneeDisplay && <div className={presentationMode ? 'whitespace-normal break-words' : 'truncate'}>{assigneeDisplay}</div>}
                         {coworkerDisplay && <div className={presentationMode ? 'whitespace-normal break-words' : 'truncate'}>{coworkerDisplay}</div>}
                       </div>
                     )}
-                    <div className={`${displayFontSizeClasses.footer} mt-1 flex items-center justify-between gap-2`}>
-                      {!presentationMode ? <a
+                    {((!presentationMode && mapUrl) || weatherDisplay) && <div className={`${displayFontSizeClasses.footer} mt-1 flex items-center justify-between gap-2`}>
+                      {!presentationMode && mapUrl ? <a
                         href={mapUrl}
                         target="_blank"
                         rel="noopener noreferrer"
@@ -795,7 +797,7 @@ export default function SchedulePage() {
                         className="underline font-bold text-[var(--accent)] hover:text-[var(--accent-hover)] transition-colors"
                       >
                         MAP
-                      </a> : <span />}
+                      </a> : null}
                       {weatherDisplay && (
                         <span
                           className="text-[var(--text-secondary)] whitespace-nowrap"
@@ -805,7 +807,7 @@ export default function SchedulePage() {
                           {weatherDisplay.icon}<span className="hidden 2xl:inline"> {weatherDisplay.label}</span>
                         </span>
                       )}
-                    </div>
+                    </div>}
                   </div>
                 );
               })}
@@ -1063,8 +1065,9 @@ export default function SchedulePage() {
                                 </div>
                                 <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1">
                                   {dayTasks.slice(0, DAILY_TASK_DISPLAY_LIMIT).map(task => {
-                                    const { projName, assigneeDisplay, coworkerDisplay, district, mapUrl } = getTaskDisplay(task);
+                                    const { projName, cardDetail, assigneeDisplay, coworkerDisplay, mapUrl } = getTaskDisplay(task);
                                     const weatherDisplay = getTaskWeatherDisplay(task);
+                                    const primaryLabel = [projName, formatTaskTime(task)].filter(Boolean).join(' ');
                                     const isDone = task.status === '完成';
                                     const isRescheduled = task.status === '改期';
                                     return (
@@ -1088,14 +1091,14 @@ export default function SchedulePage() {
                                           'bg-[var(--surface-secondary)] text-[var(--text-primary)] border border-[var(--accent)]'
                                         }`}
                                       >
-                                        <div className="font-semibold truncate">
-                                          {isDone ? '✓ ' : ''}{isRescheduled ? '【改期】 ' : ''}{task.is_tentative ? '[暫] ' : ''}{projName} {formatTaskTime(task)}
-                                        </div>
-                                        <div className="truncate opacity-80">{district}[{task.task_type}] {task.title || '無標題'}</div>
+                                        {primaryLabel && <div className="font-semibold truncate">
+                                          {isDone ? '✓ ' : ''}{isRescheduled ? '【改期】 ' : ''}{task.is_tentative ? '[暫] ' : ''}{primaryLabel}
+                                        </div>}
+                                        {cardDetail && <div className="truncate opacity-80">{cardDetail}</div>}
                                         {assigneeDisplay && <div className="truncate opacity-80">{assigneeDisplay}</div>}
                                         {coworkerDisplay && <div className="truncate opacity-80">{coworkerDisplay}</div>}
-                                        <div className="mt-0.5 flex items-center justify-between gap-1">
-                                          <a
+                                        {(mapUrl || weatherDisplay) && <div className="mt-0.5 flex items-center justify-between gap-1">
+                                          {mapUrl && <a
                                             href={mapUrl}
                                             target="_blank"
                                             rel="noopener noreferrer"
@@ -1103,13 +1106,13 @@ export default function SchedulePage() {
                                             className="underline font-bold text-[var(--accent)]"
                                           >
                                             MAP
-                                          </a>
+                                          </a>}
                                           {weatherDisplay && (
                                             <span title={weatherDisplay.label} aria-label={`天氣：${weatherDisplay.label}`}>
                                               {weatherDisplay.icon}
                                             </span>
                                           )}
-                                        </div>
+                                        </div>}
                                       </div>
                                     );
                                   })}
@@ -1164,8 +1167,9 @@ export default function SchedulePage() {
               <div className="text-[var(--text-muted)] text-center mt-10">尚無排程任務</div>
             ) : (
               selectedDayTasks.tasks.map(task => {
-                const { projName, assigneeDisplay, coworkerDisplay, district, mapUrl } = getTaskDisplay(task);
+                const { projName, cardDetail, assigneeDisplay, coworkerDisplay, mapUrl } = getTaskDisplay(task);
                 const weatherDisplay = getTaskWeatherDisplay(task);
+                const primaryLabel = [projName, formatTaskTime(task)].filter(Boolean).join(' ');
                 return (
                   <div key={task.id} className={`bg-[var(--surface-secondary)] border border-[var(--border)] rounded-lg p-4 ${task.status === '完成' ? 'opacity-50' : ''}`}>
                     <div className="flex justify-end items-start mb-2">
@@ -1186,22 +1190,22 @@ export default function SchedulePage() {
                         </button>
                       </div>
                     </div>
-                    <div className={`${fontSizeClasses.primary} font-semibold truncate ${task.status === '完成' ? 'line-through text-[var(--text-muted)]' : 'text-[var(--text-primary)]'}`}>
-                      {task.status === '完成' ? '✓ ' : ''}{task.is_tentative ? '[暫] ' : ''}{projName} {formatTaskTime(task)}
-                    </div>
-                    <div className={`${fontSizeClasses.secondary} text-[var(--accent)] mt-1 font-bold truncate`}>{district}[{task.task_type}] {task.title || '無標題'}</div>
+                    {primaryLabel && <div className={`${fontSizeClasses.primary} font-semibold truncate ${task.status === '完成' ? 'line-through text-[var(--text-muted)]' : 'text-[var(--text-primary)]'}`}>
+                      {task.status === '完成' ? '✓ ' : ''}{task.is_tentative ? '[暫] ' : ''}{primaryLabel}
+                    </div>}
+                    {cardDetail && <div className={`${fontSizeClasses.secondary} text-[var(--accent)] mt-1 font-bold truncate`}>{cardDetail}</div>}
                     <div className={`${fontSizeClasses.people} text-[var(--text-secondary)] mt-1`}>
                       {assigneeDisplay && <div className="truncate">{assigneeDisplay}</div>}
                       {coworkerDisplay && <div className="truncate">{coworkerDisplay}</div>}
                     </div>
-                    <div className={`${fontSizeClasses.footer} mt-1 flex items-center justify-between gap-2`}>
-                      <a 
+                    {(mapUrl || weatherDisplay) && <div className={`${fontSizeClasses.footer} mt-1 flex items-center justify-between gap-2`}>
+                      {mapUrl && <a
                         href={mapUrl}
                         target="_blank" 
                         rel="noopener noreferrer"
                         onClick={e => e.stopPropagation()} 
                         className="text-[var(--accent)] hover:text-[var(--accent-hover)] underline font-bold"
-                      >MAP</a>
+                      >MAP</a>}
                       {weatherDisplay && (
                         <span
                           className="text-[var(--text-secondary)] whitespace-nowrap"
@@ -1211,7 +1215,7 @@ export default function SchedulePage() {
                           {weatherDisplay.icon} {weatherDisplay.label}
                         </span>
                       )}
-                    </div>
+                    </div>}
                     <div className="text-xs text-[var(--text-muted)] mt-2 flex items-center gap-2">
                       <span className="px-2 py-0.5 rounded-full bg-[var(--surface)]">{task.status || '正常'}</span>
                     </div>

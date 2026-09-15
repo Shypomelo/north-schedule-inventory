@@ -484,10 +484,72 @@ test('Schedule form allows empty project and primary member values', () => {
     path.join(__dirname, '..', 'components', 'ScheduleTaskForm.tsx'),
     'utf8',
   );
+  const formFile = ts.createSourceFile(
+    'ScheduleTaskForm.tsx',
+    formSource,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  let submitHandler;
 
-  assert.equal(formSource.includes("if (!formData.project_name"), false);
-  assert.equal(formSource.includes("if (!formData.main_assignee_id"), false);
-  assert.equal(formSource.includes('required={!canRemainUnassigned}'), false);
-  assert.ok(formSource.includes('project_name: formData.project_name?.trim() || null'));
-  assert.ok(formSource.includes('main_assignee_id: formData.main_assignee_id || null'));
+  const findSubmitHandler = node => {
+    if (
+      ts.isVariableDeclaration(node)
+      && ts.isIdentifier(node.name)
+      && node.name.text === 'handleSubmit'
+      && node.initializer
+      && ts.isArrowFunction(node.initializer)
+    ) {
+      submitHandler = node.initializer;
+    }
+    ts.forEachChild(node, findSubmitHandler);
+  };
+  findSubmitHandler(formFile);
+  assert.ok(submitHandler, 'Schedule form must keep a submit handler');
+
+  let submittedPayload;
+  const blockingFields = new Set();
+  const inspectSubmit = node => {
+    if (ts.isIfStatement(node)) {
+      const condition = node.expression.getText(formFile);
+      for (const field of ['project_id', 'project_name', 'main_assignee_id']) {
+        if (condition.includes(field)) blockingFields.add(field);
+      }
+    }
+    if (
+      ts.isCallExpression(node)
+      && ts.isIdentifier(node.expression)
+      && node.expression.text === 'onSubmit'
+      && ts.isObjectLiteralExpression(node.arguments[0])
+    ) {
+      submittedPayload = node.arguments[0];
+    }
+    ts.forEachChild(node, inspectSubmit);
+  };
+  inspectSubmit(submitHandler);
+
+  assert.deepEqual([...blockingFields], [], 'empty project/site or primary member must not block submit');
+  assert.ok(submittedPayload, 'Schedule form must submit a normalized payload');
+
+  const submittedProperty = name => submittedPayload.properties.find(property => (
+    ts.isPropertyAssignment(property)
+    && ts.isIdentifier(property.name)
+    && property.name.text === name
+  ));
+  const hasNullFallback = property => {
+    let found = false;
+    const visit = node => {
+      if (node.kind === ts.SyntaxKind.NullKeyword) found = true;
+      ts.forEachChild(node, visit);
+    };
+    visit(property.initializer);
+    return found;
+  };
+
+  for (const field of ['project_id', 'project_name', 'main_assignee_id']) {
+    const property = submittedProperty(field);
+    assert.ok(property, `submitted payload must normalize ${field}`);
+    assert.equal(hasNullFallback(property), true, `${field} must allow an empty value as null`);
+  }
 });

@@ -78,7 +78,7 @@ export function selectMaintenanceScheduleTasks(
 export function formatScheduleTaskTime(task: ScheduleTask) {
   if (task.is_all_day) return '全天';
   if (task.start_time && task.end_time) return `${task.start_time}–${task.end_time}`;
-  return task.start_time || '未指定時間';
+  return task.start_time || '';
 }
 
 export function selectTodayMemberSchedule({

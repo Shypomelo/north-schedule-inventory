@@ -47,6 +47,10 @@ test('schedule project suggestions stay closed until the first nonblank characte
 
 test('material selection uses canonical groups, five quick slots, ESC, and inline custom drafts', () => {
   const projectMaterials = read('../components/ProjectMaterials.tsx');
+  const quickAdd = projectMaterials.slice(
+    projectMaterials.indexOf('min-w-[32rem]'),
+    projectMaterials.indexOf('min-w-[62rem]'),
+  );
   const catalogAdmin = read('../app/admin/materials/page.tsx');
   assert.match(projectMaterials, /dbAdapter\.listMaterialGroups\(false\)/);
   assert.match(projectMaterials, /createQuickSlots\(5\)/);
@@ -54,6 +58,9 @@ test('material selection uses canonical groups, five quick slots, ESC, and inlin
   assert.match(projectMaterials, /event\.key === 'Escape'/);
   assert.match(projectMaterials, /再加 5 格/);
   assert.match(projectMaterials, /buildProjectMaterialFromCatalog/);
+  assert.match(quickAdd, /品項／型號/);
+  assert.match(quickAdd, /selectedItem\?\.default_unit/);
+  assert.doesNotMatch(quickAdd, /型號／規格/);
   assert.match(projectMaterials, /buildCustomProjectMaterial/);
   assert.match(projectMaterials, /CustomDraftGridRow/);
   assert.match(catalogAdmin, /dbAdapter\.createMaterialGroup/);

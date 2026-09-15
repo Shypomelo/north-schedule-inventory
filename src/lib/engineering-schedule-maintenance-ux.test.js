@@ -6,6 +6,7 @@ const test = require('node:test');
 const load = file => require('./test-load-ts.cjs')(path.join(__dirname, file));
 const { getScheduleTaskPresentation } = load('schedule-presentation.ts');
 const {
+  formatScheduleTaskTime,
   selectMaintenanceScheduleTasks,
 } = load('schedule-selectors.ts');
 
@@ -34,11 +35,55 @@ test('no-site presentation follows canonical task type semantics without guessin
   assert.equal(projectName(task({ task_type: '內勤', title: '整理文件' })), '內勤');
   assert.equal(projectName(task({ task_type: '內部', title: '整理文件' })), '內勤');
   assert.equal(projectName(task({ task_type: '休假', title: '特休' })), '休假');
-  assert.equal(projectName(task({ task_type: '其他', title: '教育訓練' })), '教育訓練');
+  assert.equal(projectName(task({ task_type: '其他', title: '教育訓練' })), '其他');
   assert.equal(projectName(task({ task_type: '開會' })), '開會');
   assert.equal(projectName(task({ task_type: '開會', project_name: '總公司會議室' })), '總公司會議室');
   assert.equal(projectName(task({ task_type: '開會', address: '台北辦公室' })), '台北辦公室');
-  assert.equal(projectName(task({ task_type: '施工', title: '內勤' })), '未匹配案場');
+  assert.equal(projectName(task({ task_type: '施工', title: '內勤' })), '');
+});
+
+test('schedule presentation omits absent values and maps only valid locations', () => {
+  const users = [{ id: 'user-1', name: '柚子' }];
+  const leave = getScheduleTaskPresentation(task({
+    task_type: '休假',
+    project_name: '中秋節',
+    address: '中秋節',
+    start_time: null,
+    end_time: null,
+    main_assignee_id: 'user-1',
+  }), [], users, []);
+  assert.equal(leave.projectName, '休假');
+  assert.equal(leave.cardDetail, '');
+  assert.equal(leave.assigneeDisplay, '主要：柚子');
+  assert.equal(leave.mapUrl, '');
+  assert.equal(formatScheduleTaskTime(task({ start_time: null, end_time: null })), '');
+
+  const maintenance = getScheduleTaskPresentation(task({ task_type: '維修', start_time: null, end_time: null }), [], [], []);
+  assert.equal(maintenance.projectName, '');
+  assert.equal(maintenance.cardDetail, '[維修]');
+  assert.equal(maintenance.assigneeDisplay, '');
+  assert.equal(maintenance.collaboratorDisplay, '');
+
+  const meeting = getScheduleTaskPresentation(task({ task_type: '開會', project_name: '會議室 A' }), [], [], []);
+  assert.match(meeting.mapUrl, /google\.com\/maps/);
+
+  const withBothPeople = getScheduleTaskPresentation(
+    task({ main_assignee_id: 'user-1' }),
+    [],
+    [...users, { id: 'user-2', name: '育丞' }],
+    [{ task_id: 'task', user_id: 'user-2' }],
+  );
+  assert.equal(withBothPeople.assigneeDisplay, '主要：柚子');
+  assert.equal(withBothPeople.collaboratorDisplay, '協同：育丞');
+
+  const collaboratorOnly = getScheduleTaskPresentation(
+    task(),
+    [],
+    [{ id: 'user-2', name: '育丞' }],
+    [{ task_id: 'task', user_id: 'user-2' }],
+  );
+  assert.equal(collaboratorOnly.assigneeDisplay, '');
+  assert.equal(collaboratorOnly.collaboratorDisplay, '協同：育丞');
 });
 
 test('formal project binding wins over no-site fallback', () => {
@@ -64,12 +109,20 @@ test('maintenance perspectives filter the canonical schedule list and completion
 
 test('schedule input and presentation UI keep one canonical data flow', () => {
   const form = fs.readFileSync(path.join(__dirname, '..', 'components', 'ScheduleTaskForm.tsx'), 'utf8');
+  const detail = fs.readFileSync(path.join(__dirname, '..', 'components', 'ScheduleTaskDetail.tsx'), 'utf8');
   const dashboard = fs.readFileSync(path.join(__dirname, '..', 'app', 'page.tsx'), 'utf8');
   const schedule = fs.readFileSync(path.join(__dirname, '..', 'app', 'schedule', 'page.tsx'), 'utf8');
 
   assert.match(form, /setIsDropdownOpen\(Boolean\(val\.trim\(\)\)\)/);
   assert.match(form, /if \(!projectNameInput\.trim\(\)\) return \[\]/);
   assert.match(form, /onFocus=\{\(\) => setIsDropdownOpen\(Boolean\(projectNameInput\.trim\(\)\)\)\}/);
+  assert.match(form, /usesScheduleProjectBinding\(formData\.task_type\)/);
+  assert.match(form, /allowsScheduleTaskLocation\(formData\.task_type\)/);
+  assert.doesNotMatch(form, /semanticTaskType !== 'leave'/);
+  for (const source of [dashboard, schedule, detail]) {
+    assert.doesNotMatch(source, /主要：未指定負責人/);
+    assert.doesNotMatch(source, /task\.title \|\| '無標題'/);
+  }
 
   assert.match(dashboard, /selectMaintenanceScheduleTasks\(/);
   assert.match(dashboard, /<ScheduleTaskDetail/);
