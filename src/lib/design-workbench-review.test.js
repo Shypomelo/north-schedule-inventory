@@ -8,7 +8,8 @@ test('Design Workbench loads PROJECT Team Todo below global private Todo',()=>{
   const source=read('../components/DesignWorkbench.tsx');
   assert.match(source,/group\.is_active&&group\.key==='PROJECT'/);
   assert.match(source,/projectGroup\?dbAdapter\.getTodos\(projectGroup\.id\)/);
-  assert.match(source,/我的 TODO[\s\S]*團隊 TODO/);
+  assert.match(source,/我的 TO DO[\s\S]*團隊 TO DO/);
+  assert.doesNotMatch(source,/TODO/);
 });
 
 test('quick Todo omits date input and adapter defaults received_at now without changing created_at',()=>{
