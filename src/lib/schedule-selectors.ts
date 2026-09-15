@@ -1,5 +1,14 @@
 import type { ScheduleTask, ScheduleTaskMember, User, WorkGroup, WorkGroupKey } from './db/types';
 import { type MemberWorkGroup, resolveParticipantWorkGroups } from './work-groups';
+import { isMaintenanceScheduleTask } from './schedule-task-semantics';
+
+export type MaintenanceScheduleFilter = 'week' | 'incomplete' | 'completed';
+
+const scheduleTimeWeight = (task: Pick<ScheduleTask, 'start_time' | 'is_all_day'>) => {
+  if (task.start_time) return task.start_time;
+  if (task.is_all_day) return '25:00';
+  return '26:00';
+};
 
 export function selectScheduleTasksByWorkGroup(
   tasks: ScheduleTask[],
@@ -37,13 +46,33 @@ export function selectSchedulePrimaryCandidates(
 export function sortScheduleTasks(taskList: ScheduleTask[]) {
   return [...taskList].filter(task => task.status !== '取消').sort((a, b) => {
     if (a.is_tentative !== b.is_tentative) return a.is_tentative ? 1 : -1;
-    const timeWeight = (task: ScheduleTask) => {
-      if (task.start_time) return task.start_time;
-      if (task.is_all_day) return '25:00';
-      return '26:00';
-    };
-    return timeWeight(a).localeCompare(timeWeight(b));
+    return scheduleTimeWeight(a).localeCompare(scheduleTimeWeight(b));
   });
+}
+
+export function isScheduleTaskCompleted(task: Pick<ScheduleTask, 'status'>): boolean {
+  return task.status === '完成' || task.status === '已完成';
+}
+
+export function selectMaintenanceScheduleTasks(
+  tasks: ScheduleTask[],
+  filter: MaintenanceScheduleFilter,
+  weekRange: { start: string; end: string },
+): ScheduleTask[] {
+  const maintenanceTasks = tasks.filter(task => (
+    task.status !== '取消'
+    && isMaintenanceScheduleTask(task)
+    && (filter !== 'week' || (task.task_date >= weekRange.start && task.task_date <= weekRange.end))
+    && (filter !== 'incomplete' || !isScheduleTaskCompleted(task))
+    && (filter !== 'completed' || isScheduleTaskCompleted(task))
+  ));
+
+  return maintenanceTasks.sort((a, b) => (
+    a.task_date.localeCompare(b.task_date)
+    || (a.is_tentative === b.is_tentative ? 0 : a.is_tentative ? 1 : -1)
+    || scheduleTimeWeight(a).localeCompare(scheduleTimeWeight(b))
+    || a.title.localeCompare(b.title, 'zh-Hant')
+  ));
 }
 
 export function formatScheduleTaskTime(task: ScheduleTask) {

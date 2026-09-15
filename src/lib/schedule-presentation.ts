@@ -1,5 +1,6 @@
 import type { Project, ScheduleTask, ScheduleTaskMember, User, WorkGroup } from '@/lib/db/types';
 import { parseTaiwanProjectLocation } from '@/lib/project-location';
+import { getScheduleTaskSemanticType } from '@/lib/schedule-task-semantics';
 
 const CREATION_SOURCE_LABELS: Record<NonNullable<ScheduleTask['creation_source']>, string> = {
   APP: '系統排程',
@@ -24,7 +25,20 @@ export function getScheduleTaskPresentation(
   workGroups: WorkGroup[] = [],
 ) {
   const project = projects.find(candidate => candidate.id === task.project_id);
-  const projectName = task.project_name || project?.short_name || project?.name || '未匹配案場';
+  const canonicalTaskType = getScheduleTaskSemanticType(task.task_type);
+  const storedProjectName = task.project_name?.trim() || '';
+  const formalProjectName = project?.short_name || project?.name || storedProjectName;
+  const projectName = task.project_id
+    ? (formalProjectName || '未匹配案場')
+    : canonicalTaskType === 'internal'
+      ? '內勤'
+      : canonicalTaskType === 'leave'
+        ? '休假'
+        : canonicalTaskType === 'meeting'
+          ? (storedProjectName || task.address?.trim() || '開會')
+          : canonicalTaskType === 'other'
+            ? (task.title?.trim() || task.task_type.trim() || '其他')
+            : (storedProjectName || '未匹配案場');
   const mainAssigneeName = users.find(user => user.id === task.main_assignee_id)?.name || '';
   const collaboratorIds = members
     .filter(member => member.task_id === task.id)

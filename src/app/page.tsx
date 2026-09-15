@@ -1,9 +1,9 @@
 "use client";
 
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
-import { format } from 'date-fns';
+import { addDays, format, startOfWeek } from 'date-fns';
 import { zhTW } from 'date-fns/locale';
-import { ArrowUpRight, BriefcaseBusiness, CalendarDays, CheckCircle2, Circle, ListTodo, Loader2, MapPin, Users } from 'lucide-react';
+import { ArrowUpRight, BriefcaseBusiness, CalendarDays, CheckCircle2, Circle, LayoutDashboard, ListTodo, Loader2, MapPin, Users, Wrench } from 'lucide-react';
 import { ProjectDetailModal } from '@/components/ProjectDetailModal';
 import { ScheduleTaskDetail } from '@/components/ScheduleTaskDetail';
 import { ScheduleTaskFormDialog } from '@/components/ScheduleTaskFormDialog';
@@ -22,7 +22,14 @@ import { dbAdapter } from '@/lib/db';
 import type { ActivityLog, MemberProjectResponsibility, Project, ScheduleTask, ScheduleTaskMember, Todo, User, WorkGroup } from '@/lib/db/types';
 import { buildDashboardProjectCards } from '@/lib/engineering-dashboard';
 import { presentBusinessDate } from '@/lib/date-presentation';
-import { formatScheduleTaskTime, selectTodayMemberSchedule } from '@/lib/schedule-selectors';
+import {
+  formatScheduleTaskTime,
+  isScheduleTaskCompleted,
+  type MaintenanceScheduleFilter,
+  selectMaintenanceScheduleTasks,
+  selectScheduleTasksByWorkGroup,
+  selectTodayMemberSchedule,
+} from '@/lib/schedule-selectors';
 import { getScheduleTaskPresentation } from '@/lib/schedule-presentation';
 import { isActiveProject, selectActiveProjects } from '@/lib/project-selectors';
 import { selectActiveTeamTodos } from '@/lib/todo-selectors';
@@ -36,9 +43,17 @@ import {
   deleteScheduleTaskWithActivity,
   updateScheduleTaskWithActivity,
 } from '@/lib/schedule-task-actions';
+import type { MemberWorkGroup } from '@/lib/work-groups';
 
 type MobileDashboardPage = 'schedule' | 'projects' | 'todos';
 type MobileTodoPage = 'private' | 'team';
+type EngineeringDashboardView = 'overview' | 'maintenance';
+
+const MAINTENANCE_TABS: { key: MaintenanceScheduleFilter; label: string }[] = [
+  { key: 'week', label: '本週' },
+  { key: 'incomplete', label: '未完成' },
+  { key: 'completed', label: '已完成' },
+];
 
 export default function DashboardPage() {
   const {selected,loading,error}=useDashboardView();
@@ -55,6 +70,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
   const [taskMembers, setTaskMembers] = useState<ScheduleTaskMember[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]);
+  const [groupMemberships, setGroupMemberships] = useState<MemberWorkGroup[]>([]);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [responsibilities, setResponsibilities] = useState<MemberProjectResponsibility[]>([]);
   const [privateTodos, setPrivateTodos] = useState<Todo[]>([]);
@@ -74,6 +90,8 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
   const [taskActionPending, setTaskActionPending] = useState(false);
   const [mobilePage, setMobilePage] = useState<MobileDashboardPage>('schedule');
   const [mobileTodoPage, setMobileTodoPage] = useState<MobileTodoPage>('private');
+  const [dashboardView, setDashboardView] = useState<EngineeringDashboardView>('overview');
+  const [maintenanceFilter, setMaintenanceFilter] = useState<MaintenanceScheduleFilter>('week');
   const today = useMemo(() => format(new Date(), 'yyyy-MM-dd'), []);
   const canMutateTodos = canCreateTodo(currentUser);
 
@@ -84,7 +102,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
       const groups = await dbAdapter.getWorkGroups();
       const engineeringGroup = groups.find(group => group.is_active && group.key === todoGroupKey);
       if (!engineeringGroup) throw new Error('找不到工程工作群組');
-      const [taskRows, memberRows, projectRows, responsibilityRows, privateRows, teamRows, workGroupRows, activityRows, workItemRows] = await Promise.all([
+      const [taskRows, memberRows, projectRows, responsibilityRows, privateRows, teamRows, workGroupRows, activityRows, workItemRows, membershipRows] = await Promise.all([
         dbAdapter.getScheduleTasks(),
         dbAdapter.getScheduleTaskMembers(),
         dbAdapter.getProjects(),
@@ -94,6 +112,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
         Promise.resolve(groups),
         dbAdapter.getActivityLogs(),
         workbenchAdapter.getItems(currentUser.id),
+        dbAdapter.getMemberWorkGroups(),
       ]);
       setTasks(taskRows);
       setTaskMembers(memberRows);
@@ -104,6 +123,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
       setPrivateTodos(privateRows);
       setTeamTodos(teamRows);
       setWorkGroups(workGroupRows.filter(group => group.is_active));
+      setGroupMemberships(membershipRows);
       setActivityLogs(activityRows);
       setWorkItems(workItemRows);
     } catch (loadError) {
@@ -124,6 +144,22 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
     memberId: currentUser.id,
     today,
   }) : [], [currentUser, taskMembers, tasks, today]);
+  const dashboardWorkGroup = workGroups.find(group => group.key === todoGroupKey);
+  const dashboardTasks = useMemo(() => selectScheduleTasksByWorkGroup(
+    tasks,
+    dashboardWorkGroup?.id,
+    { members: taskMembers, users: allUsers, memberships: groupMemberships, groups: workGroups },
+  ), [allUsers, dashboardWorkGroup?.id, groupMemberships, taskMembers, tasks, workGroups]);
+  const maintenanceWeekStart = useMemo(() => startOfWeek(new Date(), { weekStartsOn: 1 }), []);
+  const maintenanceWeekRange = useMemo(() => ({
+    start: format(maintenanceWeekStart, 'yyyy-MM-dd'),
+    end: format(addDays(maintenanceWeekStart, 5), 'yyyy-MM-dd'),
+  }), [maintenanceWeekStart]);
+  const maintenanceTasks = useMemo(() => selectMaintenanceScheduleTasks(
+    dashboardTasks,
+    maintenanceFilter,
+    maintenanceWeekRange,
+  ), [dashboardTasks, maintenanceFilter, maintenanceWeekRange]);
   const getTaskWeatherDisplay = useScheduleWeather(todayTasks, projects);
   const projectCards = useMemo(
     () => buildDashboardProjectCards(responsibilities, today),
@@ -225,7 +261,11 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
     if (!selectedTask || !canMutateTodos) return;
     setTaskActionPending(true);
     try {
-      await completeScheduleTaskWithActivity(selectedTask, scheduleActor);
+      await completeScheduleTaskWithActivity(selectedTask, scheduleActor, {
+        projects,
+        users: allUsers,
+        memberIds: taskMembers.filter(member => member.task_id === selectedTask.id).map(member => member.user_id),
+      });
       setSelectedTask(null);
       await loadDashboard();
     } catch (mutationError) {
@@ -249,7 +289,14 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
     if (!editingTask || !canMutateTodos) return;
     setTaskActionPending(true);
     try {
-      await updateScheduleTaskWithActivity({ task: editingTask, data, memberIds, actor: scheduleActor });
+      await updateScheduleTaskWithActivity({
+        task: editingTask,
+        data,
+        memberIds,
+        previousMemberIds: editingTaskMemberIds,
+        actor: scheduleActor,
+        auditContext: { projects, users: allUsers },
+      });
       setEditingTask(null);
       setEditingTaskMemberIds([]);
       await loadDashboard();
@@ -265,7 +312,11 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
     if (!selectedTask || !canMutateTodos || !confirmScheduleTaskDeletion()) return;
     setTaskActionPending(true);
     try {
-      await deleteScheduleTaskWithActivity(selectedTask, scheduleActor);
+      await deleteScheduleTaskWithActivity(selectedTask, scheduleActor, {
+        projects,
+        users: allUsers,
+        memberIds: taskMembers.filter(member => member.task_id === selectedTask.id).map(member => member.user_id),
+      });
       setSelectedTask(null);
       await loadDashboard();
     } catch (mutationError) {
@@ -292,15 +343,39 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
         </div>
       </header>
 
+      {!projectManagement ? (
+        <nav className="mb-4 flex w-fit rounded-xl border border-theme-border bg-card p-1" aria-label="工程儀表功能" role="tablist">
+          <button type="button" role="tab" aria-selected={dashboardView === 'overview'} onClick={() => setDashboardView('overview')} className={`inline-flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-bold transition ${dashboardView === 'overview' ? 'bg-accent text-white shadow-sm' : 'text-secondary hover:text-primary'}`}>
+            <LayoutDashboard size={16} />儀表總覽
+          </button>
+          <button type="button" role="tab" aria-selected={dashboardView === 'maintenance'} onClick={() => setDashboardView('maintenance')} className={`inline-flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-bold transition ${dashboardView === 'maintenance' ? 'bg-accent text-white shadow-sm' : 'text-secondary hover:text-primary'}`}>
+            <Wrench size={16} />維修清單
+          </button>
+        </nav>
+      ) : null}
+
       {error ? <div className="mb-5 rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">{error}</div> : null}
 
-      <nav className="mb-4 grid grid-cols-3 rounded-xl border border-theme-border bg-card p-1 md:hidden" aria-label="工程儀表頁面" role="tablist">
+      {dashboardView === 'maintenance' && !projectManagement ? (
+        <MaintenanceList
+          tasks={maintenanceTasks}
+          projects={projects}
+          users={allUsers}
+          members={taskMembers}
+          workGroups={workGroups}
+          filter={maintenanceFilter}
+          weekRange={maintenanceWeekRange}
+          onFilterChange={setMaintenanceFilter}
+          onOpenTask={setSelectedTask}
+        />
+      ) : <>
+        <nav className="mb-4 grid grid-cols-3 rounded-xl border border-theme-border bg-card p-1 md:hidden" aria-label="工程儀表頁面" role="tablist">
         <MobileTab active={mobilePage === 'schedule'} onClick={() => setMobilePage('schedule')}>今日排程</MobileTab>
         <MobileTab active={mobilePage === 'projects'} onClick={() => setMobilePage('projects')}>{projectManagement?'案件進度':'專案進度'}</MobileTab>
         <MobileTab active={mobilePage === 'todos'} onClick={() => setMobilePage('todos')}>TO DO</MobileTab>
-      </nav>
+        </nav>
 
-      <div className="grid items-start gap-5 md:grid-cols-2 min-[1100px]:h-[calc(100%-5rem)] min-[1100px]:min-h-0 min-[1100px]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.25fr)_minmax(0,0.9fr)] min-[1100px]:items-stretch">
+      <div className={`grid items-start gap-5 md:grid-cols-2 min-[1100px]:min-h-0 min-[1100px]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.25fr)_minmax(0,0.9fr)] min-[1100px]:items-stretch ${projectManagement ? 'min-[1100px]:h-[calc(100%-5rem)]' : 'min-[1100px]:h-[calc(100%-8.5rem)]'}`}>
         <DashboardSection icon={<CalendarDays size={18} />} title="今日排程" count={todayTasks.length} actionHref="/schedule" actionLabel="查看排程" className={`${mobilePage === 'schedule' ? 'block' : 'hidden'} md:block min-[1100px]:sticky min-[1100px]:top-6`}>
           {todayTasks.length === 0 ? <EmptyState text="今天暫時沒有排程" /> : (
             <div className="space-y-2.5">
@@ -433,7 +508,8 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
             />
           </DashboardSection>
         </div>
-      </div>
+        </div>
+      </>}
 
       {editingTodo && <TodoTextEditDialog todo={editingTodo} onClose={() => setEditingTodo(null)} onSaved={loadDashboard} />}
       {selectedProject ? (
@@ -476,6 +552,86 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
         />
       ) : null}
     </div>
+  );
+}
+
+function MaintenanceList({
+  tasks,
+  projects,
+  users,
+  members,
+  workGroups,
+  filter,
+  weekRange,
+  onFilterChange,
+  onOpenTask,
+}: {
+  tasks: ScheduleTask[];
+  projects: Project[];
+  users: User[];
+  members: ScheduleTaskMember[];
+  workGroups: WorkGroup[];
+  filter: MaintenanceScheduleFilter;
+  weekRange: { start: string; end: string };
+  onFilterChange: (filter: MaintenanceScheduleFilter) => void;
+  onOpenTask: (task: ScheduleTask) => void;
+}) {
+  return (
+    <section className="rounded-2xl border border-theme-border bg-card/70 p-4 shadow-sm backdrop-blur-sm md:p-5 min-[1100px]:h-[calc(100%-8.5rem)] min-[1100px]:overflow-y-auto" role="tabpanel" aria-label="維修清單">
+      <div className="flex flex-col gap-3 border-b border-theme-border pb-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/10 text-accent"><Wrench size={18} /></span>
+            <div>
+              <h2 className="text-lg font-bold">維修清單</h2>
+              <p className="text-xs text-secondary">沿用工程排程資料，點選項目可開啟既有排程明細。</p>
+            </div>
+            <span className="rounded-full bg-page px-2 py-0.5 text-xs font-semibold text-secondary">{tasks.length}</span>
+          </div>
+        </div>
+        <nav className="grid grid-cols-3 rounded-lg border border-theme-border bg-page p-1" aria-label="維修清單篩選" role="tablist">
+          {MAINTENANCE_TABS.map(tab => (
+            <button key={tab.key} type="button" role="tab" aria-selected={filter === tab.key} onClick={() => onFilterChange(tab.key)} className={`min-h-9 rounded-md px-4 text-sm font-bold transition ${filter === tab.key ? 'bg-accent text-white shadow-sm' : 'text-secondary hover:text-primary'}`}>
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+      </div>
+
+      {filter === 'week' ? <p className="mt-3 text-xs font-medium text-secondary">週期：{weekRange.start.replaceAll('-', '/')}－{weekRange.end.replaceAll('-', '/')}</p> : null}
+
+      {tasks.length === 0 ? <div className="mt-3"><EmptyState text={`目前沒有${MAINTENANCE_TABS.find(tab => tab.key === filter)?.label || ''}維修排程`} /></div> : (
+        <div className="mt-3 overflow-x-auto rounded-xl border border-theme-border">
+          <div className="min-w-[64rem]">
+            <div className="grid grid-cols-[9rem_minmax(10rem,1.1fr)_minmax(15rem,1.8fr)_9rem_minmax(10rem,1fr)_7rem] gap-3 bg-page px-4 py-2 text-xs font-bold text-secondary" aria-hidden="true">
+              <span>日期／時間</span><span>案場</span><span>維修內容</span><span>主要負責人</span><span>協同</span><span>狀態</span>
+            </div>
+            <div className="divide-y divide-theme-border/70">
+              {tasks.map(task => {
+                const display = getScheduleTaskPresentation(task, projects, users, members, workGroups);
+                const completed = isScheduleTaskCompleted(task);
+                return (
+                  <button
+                    key={task.id}
+                    type="button"
+                    onClick={() => onOpenTask(task)}
+                    className="grid w-full grid-cols-[9rem_minmax(10rem,1.1fr)_minmax(15rem,1.8fr)_9rem_minmax(10rem,1fr)_7rem] gap-3 px-4 py-3 text-left text-sm transition hover:bg-page/80 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-accent/60"
+                    aria-label={`查看維修排程：${display.projectName} ${task.title || ''}`}
+                  >
+                    <span><span className="block font-semibold">{task.task_date}</span><span className="text-xs text-secondary">{formatScheduleTaskTime(task)}</span></span>
+                    <span className="truncate font-semibold">{display.projectName}</span>
+                    <span className="truncate">{task.title?.trim() || task.description?.trim() || '—'}</span>
+                    <span className="truncate">{display.mainAssigneeName || '未指定'}</span>
+                    <span className="truncate text-secondary">{display.collaboratorNames.join('、') || '無'}</span>
+                    <span className={`w-fit rounded-full px-2 py-1 text-xs font-bold ${completed ? 'bg-accent/10 text-accent' : 'bg-warning/10 text-warning'}`}>{completed ? '已完成' : (task.status || '未開始')}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { ScheduleTask, Project, User, TaskStatus, WorkGroup } from '@/lib/db/types';
+import { ActivityLog, ScheduleTask, Project, User, TaskStatus, WorkGroup } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { getProjectLocationLabel, getProjectSearchScore } from '@/lib/project-location';
 import { useUser } from './UserContext';
@@ -9,6 +9,9 @@ import { addHours, format, parse } from 'date-fns';
 import { useScheduleTaskTypes } from '@/hooks/useScheduleTaskTypes';
 import { selectActiveWorkGroups } from '@/lib/work-groups';
 import { selectSchedulePrimaryCandidates } from '@/lib/schedule-selectors';
+import { allowsScheduleTaskWithoutSite } from '@/lib/schedule-task-semantics';
+import { formatScheduleAuditValue, getScheduleHistoryEntries } from '@/lib/schedule-audit';
+import { ChevronLeft, ChevronRight, History, X } from 'lucide-react';
 
 const PRIMARY_TIME_HOURS = [
   '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18',
@@ -76,6 +79,10 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [memberIds, setMemberIds] = useState<string[]>(initialMemberIds || []);
   const [projectNameInput, setProjectNameInput] = useState(initialData?.project_name || '');
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyIndex, setHistoryIndex] = useState(0);
   const isEditingExistingTask = Boolean(initialData?.id);
   const {
     activeTaskTypes,
@@ -124,6 +131,33 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
   }, [initialData?.id, initialMemberIds]);
 
   useEffect(() => {
+    const taskId = initialData?.id;
+    if (!taskId) {
+      setActivityLogs([]);
+      return;
+    }
+
+    let active = true;
+    setHistoryLoading(true);
+    dbAdapter.getActivityLogs()
+      .then(logs => {
+        if (!active) return;
+        setActivityLogs(logs.filter(log => log.target_type === 'ScheduleTask' && log.target_id === taskId));
+      })
+      .catch(historyError => {
+        console.error('讀取排程歷程失敗', historyError);
+        if (active) setActivityLogs([]);
+      })
+      .finally(() => {
+        if (active) setHistoryLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [initialData?.id]);
+
+  useEffect(() => {
     if (taskTypesLoading || isEditingExistingTask) return;
     const currentIsActive = activeTaskTypes.some(taskType => taskType.name === formData.task_type);
     if (!currentIsActive && defaultTaskType) {
@@ -134,13 +168,14 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (isDropdownOpen) setIsDropdownOpen(false);
+        if (historyOpen) setHistoryOpen(false);
+        else if (isDropdownOpen) setIsDropdownOpen(false);
         else onCancel();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onCancel, isDropdownOpen]);
+  }, [historyOpen, onCancel, isDropdownOpen]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -281,6 +316,23 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
   const endTimeParts = splitTime(formData.end_time);
   const creatorName = formData.created_by_name?.trim() || '未知';
   const creationSourceLabel = CREATION_SOURCE_LABELS[formData.creation_source || 'LEGACY'];
+  const historyEntries = useMemo(
+    () => initialData?.id ? getScheduleHistoryEntries(initialData as ScheduleTask, activityLogs) : [],
+    [activityLogs, initialData],
+  );
+  const currentHistory = historyEntries[historyIndex] || null;
+  const formatHistoryTime = (value: string) => new Intl.DateTimeFormat('zh-TW', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date(value));
+  const openHistory = () => {
+    setHistoryIndex(Math.max(historyEntries.length - 1, 0));
+    setHistoryOpen(true);
+  };
   const timeSelectClassName = "bg-[var(--input-bg)] text-[var(--input-text)] border border-[var(--input-border)] rounded p-1.5 focus:border-[var(--accent)] outline-none font-mono text-center";
 
   return (
@@ -310,7 +362,7 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
           <span className="font-semibold text-[var(--modal-text)]">
             案場（選填，可快選既有案場或手動輸入）
           </span>
-          {initialData?.google_event_id && !formData.project_id && !formData.project_name && (
+          {initialData?.google_event_id && !formData.project_id && !formData.project_name && !allowsScheduleTaskWithoutSite(formData.task_type) && (
             <span className="text-xs font-semibold text-amber-400">目前：未匹配案場</span>
           )}
           <input 
@@ -541,16 +593,28 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
 
       </div>
 
-      <dl aria-label="建立資訊" className="grid grid-cols-1 gap-2 rounded border border-[var(--border)] bg-[var(--surface-secondary)]/40 px-3 py-2 text-xs text-[var(--modal-muted)] sm:grid-cols-2">
-        <div className="flex gap-2">
-          <dt className="font-semibold text-[var(--modal-text)]">建立者：</dt>
-          <dd>{creatorName}</dd>
-        </div>
-        <div className="flex gap-2">
-          <dt className="font-semibold text-[var(--modal-text)]">來源：</dt>
-          <dd>{creationSourceLabel}</dd>
-        </div>
-      </dl>
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-[var(--border)] bg-[var(--surface-secondary)]/40 px-3 py-2 text-xs text-[var(--modal-muted)]">
+        <dl aria-label="建立資訊" className="flex flex-wrap gap-x-5 gap-y-1">
+          <div className="flex gap-2">
+            <dt className="font-semibold text-[var(--modal-text)]">建立者：</dt>
+            <dd>{creatorName}</dd>
+          </div>
+          <div className="flex gap-2">
+            <dt className="font-semibold text-[var(--modal-text)]">來源：</dt>
+            <dd>{creationSourceLabel}</dd>
+          </div>
+        </dl>
+        {isEditingExistingTask ? (
+          <button
+            type="button"
+            onClick={openHistory}
+            disabled={historyLoading}
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 font-bold text-[var(--modal-text)] hover:bg-[var(--surface-secondary)] disabled:opacity-45"
+          >
+            <History size={15} />歷程
+          </button>
+        ) : null}
+      </div>
 
       <div className="flex justify-between items-center mt-3 pt-3 border-t border-[var(--border)]">
         <div className="text-[var(--danger)] text-sm font-semibold">{errorMsg || ''}</div>
@@ -563,6 +627,61 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
           </button>
         </div>
       </div>
+
+      {historyOpen && currentHistory ? (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/55 p-4" role="dialog" aria-modal="true" aria-label="排程異動歷程">
+          <section className="flex max-h-[75dvh] w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--modal-bg)] text-[var(--modal-text)] shadow-2xl">
+            <header className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
+              <div className="flex items-center gap-2 font-bold">
+                <History size={17} className="text-[var(--accent)]" />排程歷程
+              </div>
+              <button type="button" onClick={() => setHistoryOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-[var(--surface-secondary)]" aria-label="關閉歷程">
+                <X size={19} />
+              </button>
+            </header>
+
+            <div className="flex-1 overflow-y-auto p-4">
+              <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
+                <dt className="font-semibold text-[var(--modal-muted)]">操作者</dt>
+                <dd className="font-medium">{currentHistory.actorName}</dd>
+                <dt className="font-semibold text-[var(--modal-muted)]">修改時間</dt>
+                <dd>{formatHistoryTime(currentHistory.occurredAt)}</dd>
+                <dt className="font-semibold text-[var(--modal-muted)]">Action</dt>
+                <dd className="font-bold text-[var(--accent)]">{currentHistory.actionLabel}</dd>
+              </dl>
+
+              <div className="mt-4 border-t border-[var(--border)] pt-4">
+                {currentHistory.changes.length > 0 ? (
+                  <dl className="space-y-3">
+                    {currentHistory.changes.map(change => (
+                      <div key={change.field} className="rounded-xl border border-[var(--border)] p-3 text-sm">
+                        <dt className="text-xs font-bold text-[var(--modal-muted)]">{change.label}</dt>
+                        <dd className="mt-1 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
+                          <span className="whitespace-pre-wrap break-words text-[var(--modal-muted)]">{formatScheduleAuditValue(change.before)}</span>
+                          <span aria-hidden="true">→</span>
+                          <span className="whitespace-pre-wrap break-words font-medium">{formatScheduleAuditValue(change.after)}</span>
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : (
+                  <p className="rounded-xl border border-dashed border-[var(--border)] p-3 text-sm text-[var(--modal-muted)]">這筆早期紀錄沒有可顯示的欄位差異。</p>
+                )}
+              </div>
+            </div>
+
+            <footer className="grid grid-cols-[1fr_auto_1fr] items-center border-t border-[var(--border)] px-4 py-3">
+              <button type="button" onClick={() => setHistoryIndex(index => Math.max(0, index - 1))} disabled={historyIndex === 0} className="flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--border)] disabled:opacity-35" aria-label="上一筆歷程">
+                <ChevronLeft size={20} />
+              </button>
+              <span className="text-sm font-semibold">{historyIndex + 1} / {historyEntries.length}</span>
+              <button type="button" onClick={() => setHistoryIndex(index => Math.min(historyEntries.length - 1, index + 1))} disabled={historyIndex === historyEntries.length - 1} className="ml-auto flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--border)] disabled:opacity-35" aria-label="下一筆歷程">
+                <ChevronRight size={20} />
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
     </form>
   );
 }
