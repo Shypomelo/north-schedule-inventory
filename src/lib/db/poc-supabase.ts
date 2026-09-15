@@ -326,6 +326,7 @@ const mapActivityLog = (row: any): ActivityLog => ({
   before_value: row.before_value || (row.changes?.before ? JSON.stringify(row.changes.before) : null),
   after_value: row.after_value || (row.changes?.after ? JSON.stringify(row.changes.after) : null),
   message: row.message || row.description || null,
+  changes: row.changes && typeof row.changes === 'object' ? row.changes : null,
   created_at: row.created_at || new Date().toISOString(),
 });
 
@@ -350,7 +351,7 @@ const buildActivityLogPayload = (log: Omit<ActivityLog, 'id' | 'created_at'>): R
     target_type: log.target_type,
     target_id: log.target_id,
     description: log.message || log.target_label || null,
-    changes: {
+    changes: log.changes || {
       before: beforeJson,
       after: afterJson,
     },
@@ -1259,6 +1260,22 @@ const fetchActivityLogsFromSupabase = async (): Promise<ActivityLog[]> => {
 
   if (error) {
     console.error('Error fetching activity_logs:', error);
+    throw error;
+  }
+
+  return (data || []).map(mapActivityLog);
+};
+
+const fetchScheduleDeletedActivityLogsFromSupabase = async (): Promise<ActivityLog[]> => {
+  const { data, error } = await supabase
+    .from('activity_logs')
+    .select('*')
+    .eq('target_type', 'ScheduleTask')
+    .eq('action', 'DELETE_TASK')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching Schedule deletion activity_logs:', error);
     throw error;
   }
 
@@ -2866,6 +2883,7 @@ export const pocSupabaseAdapter = {
   getInventoryMonthlyClosings: fetchInventoryMonthlyClosingsFromSupabase,
   getInventoryMonthlyClosingItems: fetchInventoryMonthlyClosingItemsFromSupabase,
   getActivityLogs: fetchActivityLogsFromSupabase,
+  getScheduleDeletedActivityLogs: fetchScheduleDeletedActivityLogsFromSupabase,
   logActivity: logActivityInSupabase,
   getSESupplyRecords: fetchSESupplyRecordsFromSupabase,
   createSESupplyRecord: createSESupplyRecordInSupabase,

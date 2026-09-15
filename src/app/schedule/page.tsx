@@ -1,14 +1,10 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { ScheduleTask, ScheduleTaskMember, Project, User, Todo, TaskStatus, WorkGroup, WorkGroupKey } from '@/lib/db/types';
+import { ActivityLog, ScheduleTask, ScheduleTaskMember, Project, User, Todo, TaskStatus, WorkGroup, WorkGroupKey } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { ScheduleTaskFormDialog } from '@/components/ScheduleTaskFormDialog';
-import {
-  GoogleCalendarSyncSummaryDialog,
-  type GoogleCalendarSyncFailure,
-  type GoogleCalendarSyncSummary,
-} from '@/components/GoogleCalendarSyncDialogs';
+import { ScheduleDeletedAuditDialog } from '@/components/ScheduleDeletedAuditDialog';
 import { TodoForm } from '@/components/TodoForm';
 import { TodoInlineText } from '@/components/TodoInlineText';
 import { TodoContextMenu } from '@/components/TodoContextMenu';
@@ -16,7 +12,7 @@ import { TodoRow } from '@/components/TodoRow';
 import { useWorkGroups } from '@/hooks/useWorkGroups';
 import { requireTodoWorkGroup } from '@/lib/work-groups';
 import { startOfWeek, endOfWeek, addDays, subDays, format, isSameDay, startOfMonth, endOfMonth } from 'date-fns';
-import { ChevronLeft, ChevronRight, Plus, X, ArrowLeft, RefreshCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, X, ArrowLeft, Maximize2, Minimize2, Trash2 } from 'lucide-react';
 import { useUser } from '@/components/UserContext';
 import { getDatabaseErrorMessage, isMissingCoreTablesError } from '@/lib/db/supabase-errors';
 import { supabase } from '@/lib/db/supabaseClient';
@@ -30,6 +26,7 @@ import {
   completeScheduleTaskWithActivity,
   confirmScheduleTaskDeletion,
   deleteScheduleTaskWithActivity,
+  logScheduleTaskCreation,
   updateScheduleTaskWithActivity,
 } from '@/lib/schedule-task-actions';
 import {
@@ -83,12 +80,7 @@ type ReconcileResult = {
   unmatchedProjectImported?: number;
   unassignedMemberImported?: number;
   failed?: number;
-  failures?: GoogleCalendarSyncFailure[];
   error?: string;
-};
-
-type ReconcileOptions = {
-  force?: boolean;
 };
 
 const RECONCILE_COOLDOWN_MS = 30000;
@@ -110,6 +102,7 @@ export default function SchedulePage() {
   const [viewMode, setViewMode] = useState<ViewMode>('week');
   const [scheduleFontSize, setScheduleFontSize] = useState<ScheduleFontSize>('medium');
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [isPresentationMode, setIsPresentationMode] = useState(false);
   const [expandedMonthWeeks, setExpandedMonthWeeks] = useState<Set<string>>(collapseExpandedMonthWeeks);
   const visibleMonthKey = format(currentDate, 'yyyy-MM');
 
@@ -139,7 +132,9 @@ export default function SchedulePage() {
   const [editingTaskMembers, setEditingTaskMembers] = useState<string[]>([]);
   const [convertingTodoId, setConvertingTodoId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [googleSyncSummary, setGoogleSyncSummary] = useState<GoogleCalendarSyncSummary | null>(null);
+  const [isDeletedAuditOpen, setIsDeletedAuditOpen] = useState(false);
+  const [deletedAuditLogs, setDeletedAuditLogs] = useState<ActivityLog[]>([]);
+  const [isDeletedAuditLoading, setIsDeletedAuditLoading] = useState(false);
   const [selectedDayTasks, setSelectedDayTasks] = useState<{date: Date, tasks: ScheduleTask[]} | null>(null);
 
   // Todo creation modal; existing Todo text stays inline.
@@ -165,6 +160,20 @@ export default function SchedulePage() {
     }
   }, []);
 
+  useEffect(() => {
+    if (!isPresentationMode) return;
+    const previousOverflow = document.body.style.overflow;
+    const handlePresentationKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsPresentationMode(false);
+    };
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', handlePresentationKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handlePresentationKeyDown);
+    };
+  }, [isPresentationMode]);
+
   const handleScheduleFontSizeChange = (fontSize: ScheduleFontSize) => {
     setScheduleFontSize(fontSize);
     window.localStorage.setItem(SCHEDULE_FONT_SIZE_STORAGE_KEY, fontSize);
@@ -172,12 +181,12 @@ export default function SchedulePage() {
 
   const [error, setError] = useState<string | null>(null);
 
-  const reconcileGoogleCalendar = useCallback(async (options: ReconcileOptions = {}) => {
+  const reconcileGoogleCalendar = useCallback(async () => {
     if (currentUser?.role?.toUpperCase() === 'VIEWER') return null;
 
     const now = Date.now();
     if (reconcileInFlight) return reconcileInFlight;
-    if (!options.force && now - lastReconcileAt < RECONCILE_COOLDOWN_MS) return null;
+    if (now - lastReconcileAt < RECONCILE_COOLDOWN_MS) return null;
 
     const reconcilePromise = supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session?.access_token) return;
@@ -212,34 +221,6 @@ export default function SchedulePage() {
     reconcileInFlight = reconcilePromise;
     return reconcilePromise;
   }, [currentUser?.role]);
-
-  const handleManualSync = async () => {
-    try {
-      setIsLoading(true);
-      const res = await reconcileGoogleCalendar({ force: true });
-      if (res) {
-        if (res.success === false) {
-          alert(`同步失敗：${res.error || '未知錯誤'}`);
-        } else {
-          setGoogleSyncSummary({
-            imported: res.imported || 0,
-            updated: res.updated || 0,
-            unmatchedProjectImported: res.unmatchedProjectImported || 0,
-            unassignedMemberImported: res.unassignedMemberImported || 0,
-            failed: res.failed || 0,
-            failures: res.failures || [],
-          });
-        }
-        await fetchData(false);
-      } else {
-        alert('目前同步暫時無法執行，請稍後再試');
-      }
-    } catch (e: any) {
-      alert(`同步失敗：${e.message}`);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const fetchData = useCallback(async (showLoading = true) => {
     if (showLoading) setIsLoading(true);
@@ -369,6 +350,24 @@ export default function SchedulePage() {
     ]);
   };
 
+  const getTaskMemberIds = (taskId: string) => (
+    members.filter(member => member.task_id === taskId).map(member => member.user_id)
+  );
+
+  const openDeletedAudit = async () => {
+    if (currentUser?.role !== 'ADMIN') return;
+    setIsDeletedAuditOpen(true);
+    setIsDeletedAuditLoading(true);
+    try {
+      setDeletedAuditLogs(await dbAdapter.getScheduleDeletedActivityLogs());
+    } catch (auditError) {
+      console.error('讀取排程刪除紀錄失敗', auditError);
+      setDeletedAuditLogs([]);
+    } finally {
+      setIsDeletedAuditLoading(false);
+    }
+  };
+
   const handleCreateOrUpdateTask = async (data: Omit<ScheduleTask, 'id' | 'created_at' | 'updated_at'>, newMemberIds: string[]) => {
     setIsSubmitting(true);
     try {
@@ -388,6 +387,7 @@ export default function SchedulePage() {
             memberIds: newMemberIds,
             previousMemberIds: editingTaskMembers,
             actor: { id: currentUser?.id, name: currentUser?.name },
+            auditContext: { projects, users },
           });
           replaceTaskMembers(editingTask.id, newMemberIds);
         } catch (error) {
@@ -422,11 +422,11 @@ export default function SchedulePage() {
           setTasks(prev => prev.map(t => t.id === tempId ? newTask : t));
           replaceTaskMembers(newTask.id, newMemberIds);
 
-          await dbAdapter.logActivity({
-            actor_user_id: currentUser?.id || 'system', actor_name: currentUser?.name || 'System',
-            action_type: 'CREATE_TASK', target_type: 'ScheduleTask', target_id: newTask.id, target_label: data.title,
-            project_id: data.project_id, project_name: '', before_value: null, after_value: null, message: '建立排程任務'
-          });
+          await logScheduleTaskCreation(
+            newTask,
+            { id: currentUser?.id, name: currentUser?.name },
+            { projects, users, memberIds: newMemberIds },
+          );
 
           if (convertingTodoId) {
             await dbAdapter.updateTodo(convertingTodoId, { status: '已排程', converted_task_id: newTask.id });
@@ -616,6 +616,7 @@ export default function SchedulePage() {
             previousMemberIds: taskMemberIds,
             actionType: 'DRAG_MOVE_TASK',
             actor: {id:currentUser?.id,name:currentUser?.name},
+            auditContext: { projects, users },
           });
           // Optimistic update succeeded, we can fetch later silently
           fetchData(false);
@@ -667,11 +668,19 @@ export default function SchedulePage() {
       } else if (action === 'COMPLETE_TASK') {
         setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: '完成' } : t));
         if (task.source_todo_id) setTodos(prev => prev.map(td => td.id === task.source_todo_id ? { ...td, status: '已完成' } : td));
-        await completeScheduleTaskWithActivity(task, { id: currentUser?.id, name: currentUser?.name });
+        await completeScheduleTaskWithActivity(task, { id: currentUser?.id, name: currentUser?.name }, {
+          projects,
+          users,
+          memberIds: getTaskMemberIds(task.id),
+        });
       } else if (action === 'DELETE_TASK') {
         if (!confirmScheduleTaskDeletion()) return;
         setTasks(prev => prev.filter(t => t.id !== task.id));
-        await deleteScheduleTaskWithActivity(task, { id: currentUser?.id, name: currentUser?.name });
+        await deleteScheduleTaskWithActivity(task, { id: currentUser?.id, name: currentUser?.name }, {
+          projects,
+          users,
+          memberIds: getTaskMemberIds(task.id),
+        });
       }
       await fetchData(false);
       if (selectedDayTasks) {
@@ -698,21 +707,31 @@ export default function SchedulePage() {
     };
   };
 
-  const renderWeeklySchedule = (days: Date[], includeTodoColumn: boolean) => (
-    <div className={`grid min-w-[72rem] ${includeTodoColumn ? 'grid-cols-7 flex-1' : 'grid-cols-6'} border border-[var(--border)] rounded-xl bg-[var(--surface)] overflow-hidden`}>
+  const renderWeeklySchedule = (days: Date[], includeTodoColumn: boolean, presentationMode = false) => {
+    const displayFontSizeClasses = presentationMode ? {
+      primary: 'text-[clamp(1rem,1.35vw,1.75rem)] leading-[clamp(1.35rem,1.8vw,2.2rem)]',
+      secondary: 'text-[clamp(0.9rem,1.12vw,1.4rem)] leading-[clamp(1.2rem,1.5vw,1.8rem)]',
+      people: 'text-[clamp(0.82rem,0.98vw,1.2rem)] leading-[clamp(1.1rem,1.3vw,1.55rem)]',
+      footer: 'text-[clamp(0.78rem,0.88vw,1.05rem)] leading-[clamp(1rem,1.15vw,1.35rem)]',
+    } : fontSizeClasses;
+    return (
+    <div
+      data-schedule-presentation={presentationMode || undefined}
+      className={`grid ${presentationMode ? 'h-full min-w-[72rem] border-0' : 'min-w-[72rem] rounded-xl border'} ${includeTodoColumn ? 'grid-cols-7 flex-1' : 'grid-cols-6'} border-[var(--border)] bg-[var(--surface)] overflow-hidden`}
+    >
       {days.map(day => {
         const dateStr = format(day, 'yyyy-MM-dd');
         const dayTasks = sortTasks(groupTasks.filter(task => task.task_date === dateStr));
-        const displayTasks = dayTasks.slice(0, DAILY_TASK_DISPLAY_LIMIT);
-        const hiddenCount = dayTasks.length - DAILY_TASK_DISPLAY_LIMIT;
+        const displayTasks = presentationMode ? dayTasks : dayTasks.slice(0, DAILY_TASK_DISPLAY_LIMIT);
+        const hiddenCount = presentationMode ? 0 : dayTasks.length - DAILY_TASK_DISPLAY_LIMIT;
 
         return (
           <div
             key={dateStr}
             className="min-h-0 border-r border-[var(--border)] flex flex-col"
-            onDragOver={event => event.preventDefault()}
-            onDrop={event => handleDropToDate(event, dateStr)}
-            onContextMenu={event => {
+            onDragOver={presentationMode ? undefined : event => event.preventDefault()}
+            onDrop={presentationMode ? undefined : event => handleDropToDate(event, dateStr)}
+            onContextMenu={presentationMode ? undefined : event => {
               event.preventDefault();
               if (currentUser?.role === 'VIEWER') return;
               setContextMenu(null);
@@ -721,54 +740,54 @@ export default function SchedulePage() {
             }}
           >
             <div
-              className={`text-center py-3 border-b border-[var(--border)] font-semibold cursor-pointer hover:bg-[var(--surface-secondary)] transition ${isSameDay(day, new Date()) ? 'text-[var(--accent)] bg-[var(--surface-secondary)]' : 'text-[var(--text-primary)]'}`}
-              onClick={() => setSelectedDayTasks({ date: day, tasks: dayTasks })}
+              className={`text-center border-b border-[var(--border)] font-semibold ${presentationMode ? 'cursor-default py-[clamp(0.75rem,1.25vh,1.5rem)]' : 'cursor-pointer py-3 hover:bg-[var(--surface-secondary)] transition'} ${isSameDay(day, new Date()) ? 'text-[var(--accent)] bg-[var(--surface-secondary)]' : 'text-[var(--text-primary)]'}`}
+              onClick={presentationMode ? undefined : () => setSelectedDayTasks({ date: day, tasks: dayTasks })}
             >
-              <div className="text-sm">週{['日','一','二','三','四','五','六'][day.getDay()]}</div>
-              <div className="text-xl">{format(day, 'd')}</div>
+              <div className={presentationMode ? 'text-[clamp(1rem,1.3vw,1.65rem)] leading-tight' : 'text-sm'}>週{['日','一','二','三','四','五','六'][day.getDay()]}</div>
+              <div className={presentationMode ? 'text-[clamp(1.8rem,2.75vw,3.5rem)] leading-none' : 'text-xl'}>{format(day, 'd')}</div>
             </div>
-            <div className="flex-1 min-h-0 p-2 flex flex-col gap-2 overflow-y-auto">
+            <div className={`flex-1 min-h-0 flex flex-col overflow-y-auto ${presentationMode ? 'gap-[clamp(0.65rem,0.8vw,1.25rem)] p-[clamp(0.65rem,0.85vw,1.25rem)]' : 'gap-2 p-2'}`}>
               {displayTasks.map(task => {
                 const { projName, assigneeDisplay, coworkerDisplay, district, mapUrl } = getTaskDisplay(task);
                 const weatherDisplay = getTaskWeatherDisplay(task);
-                const isDone = task.status === '完成';
+                const isDone = task.status === '完成' || task.status === '已完成';
                 const isRescheduled = task.status === '改期';
 
                 return (
                   <div
                     key={task.id}
-                    draggable={currentUser?.role !== 'VIEWER'}
-                    onDragStart={event => handleDragStart(event, task.id, 'task')}
-                    onContextMenu={event => {
+                    draggable={!presentationMode && currentUser?.role !== 'VIEWER'}
+                    onDragStart={presentationMode ? undefined : event => handleDragStart(event, task.id, 'task')}
+                    onContextMenu={presentationMode ? undefined : event => {
                       if (currentUser?.role === 'VIEWER') return;
                       handleContextMenu(event, task.id);
                     }}
-                    onClick={() => {
+                    onClick={presentationMode ? undefined : () => {
                       setEditingTask(task);
                       setEditingTaskMembers(members.filter(member => member.task_id === task.id).map(member => member.user_id));
                       setIsFormOpen(true);
                     }}
-                    className={`shrink-0 p-2 rounded cursor-pointer border shadow-sm transition transform hover:scale-[1.02] active:scale-95 ${
+                    className={`shrink-0 rounded border shadow-sm ${presentationMode ? 'cursor-default rounded-[clamp(0.5rem,0.65vw,0.9rem)] p-[clamp(0.7rem,0.9vw,1.35rem)]' : 'cursor-pointer p-2 transition transform hover:scale-[1.02] active:scale-95'} ${
                       isDone ? 'bg-[var(--surface-secondary)] border-[var(--border)] opacity-50' :
                       isRescheduled ? 'bg-[var(--surface-secondary)] border-dashed border-[var(--text-muted)] opacity-60' :
                       task.is_tentative ? 'bg-[var(--surface-secondary)] border-[var(--warning)]' :
                       'bg-[var(--surface-secondary)] border-[var(--accent)]'
                     }`}
                   >
-                    <div className={`${fontSizeClasses.primary} font-semibold truncate ${isDone || isRescheduled ? 'text-[var(--text-muted)]' : task.is_tentative ? 'text-[var(--warning)]' : 'text-[var(--text-primary)]'}`}>
+                    <div className={`${displayFontSizeClasses.primary} font-semibold ${presentationMode ? 'whitespace-normal break-words' : 'truncate'} ${isDone || isRescheduled ? 'text-[var(--text-muted)]' : task.is_tentative ? 'text-[var(--warning)]' : 'text-[var(--text-primary)]'}`}>
                       {isDone ? '✓ ' : ''}{isRescheduled ? '【改期】 ' : ''}{task.is_tentative ? '[暫] ' : ''}{projName} {formatTaskTime(task)}
                     </div>
-                    <div className={`${fontSizeClasses.secondary} mt-0.5 font-bold truncate ${isDone || isRescheduled ? 'text-[var(--text-muted)]' : 'text-[var(--accent)]'}`}>
+                    <div className={`${displayFontSizeClasses.secondary} mt-0.5 font-bold ${presentationMode ? 'whitespace-normal break-words' : 'truncate'} ${isDone || isRescheduled ? 'text-[var(--text-muted)]' : 'text-[var(--accent)]'}`}>
                       {district}[{task.task_type}] {task.title || '無標題'}
                     </div>
                     {(assigneeDisplay || coworkerDisplay) && (
-                      <div className={`${fontSizeClasses.people} mt-0.5 space-y-0.5 ${isDone || isRescheduled ? 'text-[var(--text-muted)]' : 'text-[var(--text-secondary)]'}`}>
-                        {assigneeDisplay && <div className="truncate">{assigneeDisplay}</div>}
-                        {coworkerDisplay && <div className="truncate">{coworkerDisplay}</div>}
+                      <div className={`${displayFontSizeClasses.people} mt-0.5 space-y-0.5 ${isDone || isRescheduled ? 'text-[var(--text-muted)]' : 'text-[var(--text-secondary)]'}`}>
+                        {assigneeDisplay && <div className={presentationMode ? 'whitespace-normal break-words' : 'truncate'}>{assigneeDisplay}</div>}
+                        {coworkerDisplay && <div className={presentationMode ? 'whitespace-normal break-words' : 'truncate'}>{coworkerDisplay}</div>}
                       </div>
                     )}
-                    <div className={`${fontSizeClasses.footer} mt-1 flex items-center justify-between gap-2`}>
-                      <a
+                    <div className={`${displayFontSizeClasses.footer} mt-1 flex items-center justify-between gap-2`}>
+                      {!presentationMode ? <a
                         href={mapUrl}
                         target="_blank"
                         rel="noopener noreferrer"
@@ -776,7 +795,7 @@ export default function SchedulePage() {
                         className="underline font-bold text-[var(--accent)] hover:text-[var(--accent-hover)] transition-colors"
                       >
                         MAP
-                      </a>
+                      </a> : <span />}
                       {weatherDisplay && (
                         <span
                           className="text-[var(--text-secondary)] whitespace-nowrap"
@@ -856,15 +875,15 @@ export default function SchedulePage() {
         </div>
       )}
     </div>
-  );
+    );
+  };
 
   return (
     <div className="mx-auto flex h-full min-w-0 flex-col p-3 sm:p-5 lg:p-8">
-      <div className="mb-4 flex flex-col items-stretch justify-between gap-3 lg:mb-6 lg:flex-row lg:items-center">
-        <div className="flex flex-wrap items-center gap-3 lg:gap-6">
-          <h1 className="w-full text-2xl font-bold text-[var(--text-primary)] sm:w-auto sm:text-3xl">排程管理</h1>
+      <div data-schedule-toolbar className="mb-3 flex flex-wrap items-center gap-2 lg:mb-4">
+          <h1 className="mr-1 w-full text-2xl font-bold text-[var(--text-primary)] sm:w-auto sm:text-3xl">排程管理</h1>
 
-          {!workspace.configurationRequired && <div className="flex rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1" role="tablist" aria-label="排程群組">
+          {!workspace.configurationRequired && <div className="flex shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1" role="tablist" aria-label="排程群組">
             {workGroups.filter(group => group.key === 'ENGINEERING' || group.key === 'PROJECT').map(group => (
               <button
                 key={group.id}
@@ -879,7 +898,7 @@ export default function SchedulePage() {
             ))}
           </div>}
           
-          <div className="flex bg-[var(--surface)] rounded-lg p-1 border border-[var(--border)]">
+          <div className="flex shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1">
             <button 
               onClick={() => {
                 setViewMode('week');
@@ -900,7 +919,7 @@ export default function SchedulePage() {
             </button>
           </div>
 
-          <div className="flex items-center bg-[var(--surface)] rounded-lg p-1 border border-[var(--border)]">
+          <div className="flex shrink-0 items-center rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1">
             <span className="px-2 text-xs font-semibold text-[var(--text-secondary)]">字體</span>
             {([
               ['small', '小'],
@@ -919,7 +938,7 @@ export default function SchedulePage() {
             ))}
           </div>
 
-          <div className="flex items-center gap-2 bg-[var(--surface)] border border-[var(--border)] rounded-lg p-1">
+          <div className="flex shrink-0 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1">
             <button 
               onClick={() => {
                 setCurrentDate(viewMode === 'week' ? subDays(currentDate, 7) : addDays(currentDate, -30));
@@ -944,26 +963,35 @@ export default function SchedulePage() {
               <ChevronRight size={20}/>
             </button>
           </div>
-        </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={handleManualSync}
-            disabled={currentUser?.role === 'VIEWER' || isLoading}
-            className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded border border-[var(--accent)] bg-[var(--surface)] px-4 py-2 text-[var(--text-primary)] shadow transition hover:bg-[var(--surface-secondary)] disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
-          >
-            <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
-            重新同步 Google 日曆
-          </button>
+          {viewMode === 'week' ? (
+            <button
+              type="button"
+              onClick={() => setIsPresentationMode(true)}
+              className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded border border-[var(--border)] bg-[var(--surface)] px-4 py-2 font-semibold text-[var(--text-primary)] shadow transition hover:bg-[var(--surface-secondary)] sm:flex-none"
+            >
+              <Maximize2 size={17} />
+              全螢幕
+            </button>
+          ) : null}
+          {currentUser?.role === 'ADMIN' ? (
+            <button
+              type="button"
+              onClick={() => void openDeletedAudit()}
+              className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded border border-[var(--border)] bg-[var(--surface)] px-4 py-2 font-semibold text-[var(--text-primary)] shadow transition hover:bg-[var(--surface-secondary)] sm:flex-none"
+            >
+              <Trash2 size={16} />
+              刪除紀錄
+            </button>
+          ) : null}
           <button
             onClick={() => { setEditingTask({ work_group_id: activeWorkGroup?.id || '' }); setConvertingTodoId(null); setEditingTaskMembers([]); setIsFormOpen(true); }}
             disabled={currentUser?.role === 'VIEWER' || !activeWorkGroup || !workspace.ready}
             className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded bg-[var(--accent)] px-4 py-2 text-[var(--accent-text)] shadow transition hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
           >
             <Plus size={20} />
-            新增任務
+            新增
           </button>
-        </div>
       </div>
 
       {error || workspace.error ? (
@@ -979,7 +1007,7 @@ export default function SchedulePage() {
           {currentUser?.role === 'ADMIN' ? '目前沒有有效工作群組，請至人員管理設定。' : '目前沒有可用的工作群組，請聯絡管理員完成設定。'}
         </div>
       ) : groupTasks.length === 0 && viewMode === 'week' ? (
-        <div className="flex-1 flex items-center justify-center text-[var(--text-secondary)]">目前沒有{activeWorkGroupKey === 'ENGINEERING' ? '工程' : '專案'}排程，點擊右上角「新增任務」開始排程。</div>
+        <div className="flex-1 flex items-center justify-center text-[var(--text-secondary)]">目前沒有{activeWorkGroupKey === 'ENGINEERING' ? '工程' : '專案'}排程，點擊上方「新增」開始排程。</div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col overflow-auto">
           {viewMode === 'week' ? (
@@ -1195,6 +1223,40 @@ export default function SchedulePage() {
         </div>
       )}
 
+      {isPresentationMode ? (
+        <div className="fixed inset-0 z-[120] flex flex-col bg-page text-[var(--text-primary)]" role="dialog" aria-modal="true" aria-label="週排程全螢幕展示">
+          <header className="flex flex-wrap items-center justify-between gap-[clamp(0.75rem,1vw,1.5rem)] border-b border-[var(--border)] bg-[var(--surface)] px-[clamp(1rem,1.5vw,2rem)] py-[clamp(0.75rem,1.1vh,1.25rem)] shadow-sm">
+            <div className="flex min-w-0 items-center gap-4">
+              <div>
+                <p className="text-[clamp(0.7rem,0.7vw,0.95rem)] font-bold uppercase tracking-[0.18em] text-[var(--accent)]">Weekly presentation</p>
+                <h2 className="text-[clamp(1.25rem,1.65vw,2.2rem)] leading-tight font-bold">{activeWorkGroupKey === 'ENGINEERING' ? '工程' : '專案'}週排程</h2>
+              </div>
+              <span className="hidden text-[clamp(0.95rem,1.05vw,1.35rem)] font-semibold text-[var(--text-secondary)] sm:inline">
+                {format(weekStart, 'yyyy/MM/dd')}－{format(addDays(weekStart, 5), 'yyyy/MM/dd')}
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={() => setCurrentDate(subDays(currentDate, 7))} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-[var(--border)] px-3 font-semibold hover:bg-[var(--surface-secondary)]" aria-label="上一週">
+                <ChevronLeft size={20} />上一週
+              </button>
+              <button type="button" onClick={() => setCurrentDate(new Date())} className="min-h-10 rounded-lg border border-[var(--border)] px-3 font-semibold hover:bg-[var(--surface-secondary)]">
+                回到本週
+              </button>
+              <button type="button" onClick={() => setCurrentDate(addDays(currentDate, 7))} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-[var(--border)] px-3 font-semibold hover:bg-[var(--surface-secondary)]" aria-label="下一週">
+                下一週<ChevronRight size={20} />
+              </button>
+              <button type="button" onClick={() => setIsPresentationMode(false)} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[var(--accent)] px-4 font-bold text-[var(--accent-text)] hover:bg-[var(--accent-hover)]">
+                <Minimize2 size={18} />離開全螢幕
+              </button>
+            </div>
+          </header>
+          <div className="min-h-0 flex-1 overflow-auto bg-page p-3">
+            {renderWeeklySchedule(weekDays, false, true)}
+          </div>
+          <div className="border-t border-[var(--border)] bg-[var(--surface)] px-5 py-1.5 text-right text-xs text-[var(--text-secondary)]">按 ESC 離開全螢幕展示</div>
+        </div>
+      ) : null}
+
       {contextMenu && (
         <div 
           className="fixed bg-[var(--surface)] text-[var(--text-primary)] border border-[var(--border)] shadow-xl rounded py-1 z-50 min-w-[120px]"
@@ -1262,12 +1324,13 @@ export default function SchedulePage() {
         />
       )}
 
-      {googleSyncSummary && (
-        <GoogleCalendarSyncSummaryDialog
-          summary={googleSyncSummary}
-          onClose={() => setGoogleSyncSummary(null)}
+      {isDeletedAuditOpen ? (
+        <ScheduleDeletedAuditDialog
+          logs={deletedAuditLogs}
+          loading={isDeletedAuditLoading}
+          onClose={() => setIsDeletedAuditOpen(false)}
         />
-      )}
+      ) : null}
 
       {isTodoFormOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">

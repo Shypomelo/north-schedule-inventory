@@ -54,6 +54,10 @@ export interface ActivityLog {
   before_value: string | null;
   after_value: string | null;
   message: string | null;
+  changes?: {
+    before?: unknown;
+    after?: unknown;
+  } | null;
   created_at: string;
 }
 

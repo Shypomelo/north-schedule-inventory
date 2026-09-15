@@ -889,6 +889,9 @@ export const mockDbAdapter = {
 
   // --- Activity Logs ---
   getActivityLogs: async () => [...db.activity_logs].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
+  getScheduleDeletedActivityLogs: async () => db.activity_logs
+    .filter(log => log.target_type === 'ScheduleTask' && log.action_type === 'DELETE_TASK')
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
   logActivity: async (log: Omit<ActivityLog, 'id' | 'created_at'>) => {
     const newLog: ActivityLog = {
       ...log,

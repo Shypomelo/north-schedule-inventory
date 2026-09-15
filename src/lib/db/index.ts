@@ -349,5 +349,6 @@ export const dbAdapter = {
   ...inventoryAdapter,
   ...seSupplyAdapter,
   getActivityLogs: hasSupabase ? pocSupabaseAdapter.getActivityLogs : mockDbAdapter.getActivityLogs,
+  getScheduleDeletedActivityLogs: hasSupabase ? pocSupabaseAdapter.getScheduleDeletedActivityLogs : mockDbAdapter.getScheduleDeletedActivityLogs,
   logActivity: hasSupabase ? pocSupabaseAdapter.logActivity : mockDbAdapter.logActivity,
 };
