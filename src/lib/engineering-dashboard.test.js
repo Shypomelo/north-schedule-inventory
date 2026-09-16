@@ -8,7 +8,7 @@ function loadTypeScript(relativePath) {
 }
 
 const { selectTodayMemberSchedule } = loadTypeScript('schedule-selectors.ts');
-const { buildDashboardProjectCards } = loadTypeScript('engineering-dashboard.ts');
+const { buildDashboardProjectCards, selectDashboardPositionProgress } = loadTypeScript('engineering-dashboard.ts');
 
 const scheduleTask = (id, overrides = {}) => ({
   id,
@@ -37,16 +37,29 @@ test('today schedule selects primary and collaborator only for today', () => {
   assert.deepEqual(result.map(task => task.id), ['primary', 'collaborator']);
 });
 
-const milestone = (id, plannedDate = null) => ({ id, label: id, planned_date: plannedDate });
-const responsibility = (projectId, projectName, positionId, current, previous = null) => ({
+let milestoneOrder = 0;
+const milestone = (id, plannedDate = null, overrides = {}) => ({
+  id,
+  label: id,
+  planned_date: plannedDate,
+  actual_date: null,
+  status: 'NOT_STARTED',
+  responsible_position_id: '工程',
+  sort_order: ++milestoneOrder * 10,
+  created_at: `2026-09-01T00:00:${String(milestoneOrder).padStart(2, '0')}Z`,
+  ...overrides,
+});
+const responsibility = (projectId, projectName, positionId, current, previous = null, workflow = null) => ({
   project: { id: projectId, name: projectName, is_active: true },
   position: { id: positionId, name: positionId, sort_order: 1 },
+  milestones: current ? [current] : [],
+  workflow_milestones: workflow ?? [previous, current].filter(Boolean),
   current_milestone: current,
   previous_milestone: previous,
 });
 
 test('project progress groups multiple positions into one card and retains cross-position previous milestone', () => {
-  const previous = milestone('previous-other-position');
+  const previous = milestone('previous-other-position', null, { status: 'COMPLETED', responsible_position_id: 'admin' });
   const cards = buildDashboardProjectCards([
     responsibility('p1', 'Project One', '工程', milestone('engineering-current', '2026-09-10'), previous),
     responsibility('p1', 'Project One', '結構設計', milestone('design-current', '2026-09-12')),
@@ -64,6 +77,51 @@ test('project cards sort overdue, nearest dated, then no date', () => {
     responsibility('near', 'Near', '工程', milestone('near', '2026-09-10')),
   ], '2026-09-09');
   assert.deepEqual(cards.map(card => card.project.id), ['overdue', 'near', 'later', 'none']);
+});
+
+test('project progress hides work that is still behind another incomplete responsibility node', () => {
+  const otherCurrent = milestone('other-current', null, { responsible_position_id: 'admin' });
+  const mineLater = milestone('mine-later', null, { responsible_position_id: 'engineering' });
+  const result = selectDashboardPositionProgress(
+    responsibility('p1', 'Project One', 'engineering', mineLater, null, [otherCurrent, mineLater]),
+  );
+  assert.equal(result, null);
+});
+
+test('project progress shows upcoming, current, completion context, and exits after handoff', () => {
+  const previous = milestone('previous', null, { responsible_position_id: 'admin', status: 'COMPLETED' });
+  const mine = milestone('mine', null, { responsible_position_id: 'engineering' });
+  const upcoming = selectDashboardPositionProgress(
+    responsibility('p1', 'Project One', 'engineering', mine, previous, [previous, mine]),
+  );
+  assert.equal(upcoming.state, 'UPCOMING');
+  assert.equal(upcoming.previous.id, 'previous');
+
+  const activeMine = { ...mine, status: 'IN_PROGRESS' };
+  const current = selectDashboardPositionProgress(
+    responsibility('p1', 'Project One', 'engineering', activeMine, previous, [previous, activeMine]),
+  );
+  assert.equal(current.state, 'CURRENT');
+
+  const nextOwner = milestone('next-owner', null, { responsible_position_id: 'admin' });
+  const completedMine = { ...mine, status: 'COMPLETED' };
+  const handedOff = selectDashboardPositionProgress(
+    responsibility('p1', 'Project One', 'engineering', completedMine, mine, [
+      previous,
+      completedMine,
+      nextOwner,
+    ]),
+  );
+  assert.equal(handedOff, null);
+
+  const completed = selectDashboardPositionProgress(
+    responsibility('p1', 'Project One', 'engineering', completedMine, mine, [
+      previous,
+      completedMine,
+    ]),
+  );
+  assert.equal(completed.state, 'COMPLETED');
+  assert.equal(completed.current.id, 'mine');
 });
 
 test('Todo adapter uses Supabase scoped sources and never falls back to localStorage Todo methods', () => {
@@ -97,7 +155,7 @@ test('Dashboard uses the shared Todo adapters and keeps the route responsive', (
   assert.match(dashboard, /!hideCompletedPrivate \|\| todo\.status !== '已完成'/);
   assert.match(dashboard, /selectActiveTeamTodos\(/);
   assert.doesNotMatch(layout, /min-w-\[1400px\]/);
-  assert.match(layout, /pt-14 md:pt-0/);
+  assert.match(layout, /pt-\[calc\(2\.5rem\+env\(safe-area-inset-top\)\)\] md:pt-0/);
 });
 
 test('Dashboard today schedule reuses Schedule presentation, weather, member, map, and detail sources', () => {

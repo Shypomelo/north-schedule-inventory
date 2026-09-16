@@ -34,7 +34,7 @@ export function LayoutContent({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-full min-w-0 w-full">
       {!isLoginPage && <Sidebar />}
-      <main className={`relative h-full min-w-0 flex-1 overflow-auto custom-scrollbar ${isLoginPage ? '' : 'pt-14 md:pt-0'}`}>
+      <main className={`relative h-full min-w-0 flex-1 overflow-auto custom-scrollbar ${isLoginPage ? '' : 'pt-[calc(2.5rem+env(safe-area-inset-top))] md:pt-0'}`}>
         <div className="h-full min-w-0">
           {isLoginPage ? children : <WorkspaceContent>{children}</WorkspaceContent>}
         </div>

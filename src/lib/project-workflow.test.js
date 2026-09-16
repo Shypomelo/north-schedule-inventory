@@ -287,3 +287,21 @@ test('workflow refresh uses an in-app missing-step confirmation dialog', () => {
   assert.match(workflowComponent, /role="dialog"[\s\S]*將新增：[\s\S]*preview\.missing_steps\.map/);
   assert.doesNotMatch(workflowComponent, /confirm\([^)]*重製流程/);
 });
+
+test('workflow autosave keeps the active row in place without replaying target scrolling', () => {
+  assert.match(workflowComponent, /scrolledTargetRef\.current === targetMilestoneId/);
+  assert.match(workflowComponent, /\}, \[isLoading, targetMilestoneId\]\);/);
+  assert.doesNotMatch(
+    workflowComponent,
+    /scrollIntoView\([\s\S]*?\}, \[isLoading, targetMilestoneId, visibleMilestones\]\);/,
+  );
+  assert.match(workflowComponent, /disabled=\{!canEdit\} aria-label=\{[^\n]*實際日期/);
+});
+
+test('workflow quick complete uses one canonical update with the Taiwan business date', () => {
+  const quickComplete = workflowComponent.match(/const quickComplete =[\s\S]*?\n  \};/)[0];
+  assert.match(quickComplete, /milestone\.status === 'COMPLETED'/);
+  assert.match(quickComplete, /persistMilestone\([\s\S]*status: 'COMPLETED', actual_date: getConstructionToday\(\)/);
+  assert.match(workflowComponent, /onClick=\{\(\) => void quickComplete\(milestone\)\}/);
+  assert.doesNotMatch(quickComplete, /loadWorkflow|router\.refresh|new Date\(\)\.toISOString/);
+});

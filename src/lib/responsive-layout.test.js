@@ -10,12 +10,14 @@ test('application shell exposes mobile navigation without a global desktop minim
   const sidebar = read('components/SidebarV3.tsx');
   assert.doesNotMatch(layout, /min-w-\[1400px\]/);
   assert.match(layout, /min-w-0/);
-  assert.match(layout, /pt-14 md:pt-0/);
+  assert.match(layout, /pt-\[calc\(2\.5rem\+env\(safe-area-inset-top\)\)\] md:pt-0/);
   assert.match(sidebar, /開啟導覽選單/);
   assert.match(sidebar, /aria-modal="true"/);
   assert.match(sidebar, /isMobileNavigationEdgeSwipe/);
   assert.match(sidebar, /md:hidden/);
   assert.match(sidebar, /md:flex/);
+  assert.match(sidebar, /h-\[calc\(2\.5rem\+env\(safe-area-inset-top\)\)\]/);
+  assert.match(sidebar, /pt-\[env\(safe-area-inset-top\)\]/);
 });
 
 test('login card fits mobile dynamic viewport without changing the auth flow', () => {
@@ -41,14 +43,15 @@ test('schedule detail fits the mobile viewport and retains readable information 
   assert.match(detail, /<History size=\{16\} \/>歷程/);
 });
 
-test('dashboard uses mobile pages below 768px and three columns from 1100px', () => {
+test('engineering dashboard uses four mobile tabs and four desktop columns', () => {
   const dashboard = read('app/page.tsx');
-  assert.match(dashboard, /type MobileDashboardPage = 'schedule' \| 'projects' \| 'todos'/);
+  assert.match(dashboard, /type MobileDashboardPage = 'schedule' \| 'projects' \| 'receipts' \| 'todos'/);
   assert.match(dashboard, /aria-label="工程儀表頁面"/);
   assert.match(dashboard, /aria-label="TO DO 類型"/);
   assert.match(dashboard, /md:grid-cols-2/);
-  assert.match(dashboard, /min-\[1100px\]:grid-cols-/);
+  assert.match(dashboard, /min-\[1100px\]:grid-cols-\[minmax\(0,1fr\)_minmax\(0,1\.12fr\)_minmax\(0,0\.88fr\)_minmax\(0,0\.93fr\)\]/);
   assert.match(dashboard, /mobilePage === 'schedule'/);
+  assert.match(dashboard, /mobilePage === 'receipts'/);
   assert.match(dashboard, /mobileTodoPage === 'private'/);
   assert.match(dashboard, /mobileTodoPage === 'team'/);
 });

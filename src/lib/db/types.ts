@@ -292,6 +292,7 @@ export interface ScheduleTask {
   created_by_name: string | null;
   creation_source: ScheduleCreationSource;
   source_todo_id: string | null;
+  source_material_batch_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -410,6 +411,8 @@ export interface ProjectMaterialBatch {
   project_id: string;
   batch_name: string;
   ordered_at: string | null;
+  planned_receipt_at: string | null;
+  received_at: string | null;
   notes: string | null;
   created_by: string;
   created_at: string;
@@ -766,6 +769,7 @@ export interface MemberProjectResponsibility {
   project: Project;
   position: Position;
   milestones: ProjectMilestone[];
+  workflow_milestones: ProjectMilestone[];
   current_milestone: ProjectMilestone | null;
   previous_milestone: ProjectMilestone | null;
   current_planned_date: string | null;

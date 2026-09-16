@@ -49,7 +49,7 @@ test('material selection uses canonical groups, five quick slots, ESC, and inlin
   const projectMaterials = read('../components/ProjectMaterials.tsx');
   const quickAdd = projectMaterials.slice(
     projectMaterials.indexOf('min-w-[32rem]'),
-    projectMaterials.indexOf('min-w-[62rem]'),
+    projectMaterials.indexOf('min-w-[50rem]'),
   );
   const catalogAdmin = read('../app/admin/materials/page.tsx');
   assert.match(projectMaterials, /dbAdapter\.listMaterialGroups\(false\)/);

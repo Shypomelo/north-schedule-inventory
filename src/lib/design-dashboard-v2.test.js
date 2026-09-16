@@ -33,16 +33,19 @@ test('actual Dashboard render path uses the canonical Work Item-aware TO DO pool
  assert.match(dashboard,/workbenchAdapter\.getItems\(currentUser\.id\)/);
  assert.match(dashboard,/selectTodoPool\(privateTodos, workItems\)/);
  assert.match(dashboard,/selectTodoPool\(selectActiveTeamTodos\([\s\S]*?\), workItems\)/);
- assert.match(dashboard,/我的 TO DO[\s\S]*團隊 TO DO/);
+ assert.match(dashboard,/aria-label="TO DO 類型"[\s\S]*>我的<[\s\S]*>團隊</);
+ assert.equal((dashboard.match(/title="TO DO"/g)||[]).length,2);
  assert.doesNotMatch(dashboard,/TODO/);
 });
 
-test('Design status tabs use canonical Work Items for active and completed',()=>{
+test('Design fixed completed view uses canonical Work Items without duplicating the TO DO status tabs',()=>{
  const source=read('../components/DesignWorkbench.tsx');
  assert.match(source,/key:'active',label:'進行中'/);
  assert.doesNotMatch(source,/label:'已收納'/);
- assert.match(source,/todoView==='active'\?ordered\.filter\(item=>item\.status!=='已完成'\)/);
- assert.match(source,/todoView==='completed'\?ordered\.filter\(item=>item\.status==='已完成'\)/);
+ assert.doesNotMatch(source,/key:'completed',label:'已完成'/);
+ assert.match(source,/\['zones','工作區'\],\['timeline','時間軸'\],\['completed','已完工'\]/);
+ assert.match(source,/completedItems=useMemo\(\(\)=>items\.filter\(item=>item\.status==='已完成'\)\.sort\(\(a,b\)=>\(b\.completed_at\|\|''\)\.localeCompare\(a\.completed_at\|\|''\)\)/);
+ assert.match(source,/zoneItems=activeItems\.filter/);
 });
 
 test('Design cards reuse engineering date presentation for Work Items and project milestones',()=>{

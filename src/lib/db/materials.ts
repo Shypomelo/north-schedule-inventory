@@ -81,6 +81,8 @@ const cleanBatchCreate = (input: ProjectMaterialBatchCreateInput) => ({
 
 const cleanBatchUpdate = (input: ProjectMaterialBatchUpdateInput) => {
   const payload: Record<string, unknown> = { ...input };
+  delete payload.planned_receipt_at;
+  delete payload.received_at;
   if (input.batch_name !== undefined) payload.batch_name = input.batch_name.trim();
   if (input.notes !== undefined) payload.notes = cleanNullableText(input.notes);
   return payload;
@@ -160,6 +162,31 @@ export const createMaterialsAdapter = (client: SupabaseClient) => ({
     return data as ProjectMaterialBatch;
   },
 
+  updateMaterialReceiptPlan: async (
+    batchId: string,
+    plannedReceiptAt: string | null,
+  ): Promise<ProjectMaterialBatch> => {
+    const { data, error } = await client
+      .rpc('update_material_receipt_plan', {
+        p_batch_id: batchId,
+        p_planned_receipt_at: plannedReceiptAt,
+      })
+      .single();
+    if (error) throw error;
+    return data as ProjectMaterialBatch;
+  },
+
+  completeMaterialReceiptSchedule: async (
+    scheduleTaskId: string,
+    completedAt: string,
+  ): Promise<void> => {
+    const { error } = await client.rpc('complete_material_receipt_schedule', {
+      p_schedule_task_id: scheduleTaskId,
+      p_completed_at: completedAt,
+    });
+    if (error) throw error;
+  },
+
   deleteProjectMaterialBatch: async (id: string): Promise<void> => {
     const { error } = await client.from('project_material_batches').delete().eq('id', id);
     if (error) throw error;
@@ -208,6 +235,36 @@ export const createMaterialsAdapter = (client: SupabaseClient) => ({
       .from('project_materials')
       .select('*')
       .eq('project_id', projectId)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
+    if (error) throw error;
+    return (data ?? []) as ProjectMaterial[];
+  },
+
+  listProjectMaterialBatchesForReminder: async (
+    projectIds: string[],
+    through: string,
+  ): Promise<ProjectMaterialBatch[]> => {
+    if (projectIds.length === 0) return [];
+    const { data, error } = await client
+      .from('project_material_batches')
+      .select('*')
+      .in('project_id', projectIds)
+      .not('planned_receipt_at', 'is', null)
+      .lte('planned_receipt_at', through)
+      .is('received_at', null)
+      .order('planned_receipt_at', { ascending: true })
+      .order('id', { ascending: true });
+    if (error) throw error;
+    return (data ?? []) as ProjectMaterialBatch[];
+  },
+
+  listProjectMaterialsByBatchIds: async (batchIds: string[]): Promise<ProjectMaterial[]> => {
+    if (batchIds.length === 0) return [];
+    const { data, error } = await client
+      .from('project_materials')
+      .select('*')
+      .in('batch_id', batchIds)
       .order('created_at', { ascending: true })
       .order('id', { ascending: true });
     if (error) throw error;

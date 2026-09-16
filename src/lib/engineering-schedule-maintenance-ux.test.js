@@ -8,6 +8,7 @@ const { getScheduleTaskPresentation } = load('schedule-presentation.ts');
 const {
   formatScheduleTaskTime,
   selectMaintenanceScheduleTasks,
+  getDefaultMaintenanceDateRange,
 } = load('schedule-selectors.ts');
 
 const task = (overrides = {}) => ({
@@ -103,8 +104,12 @@ test('maintenance perspectives filter the canonical schedule list and completion
   const range = { start: '2026-09-14', end: '2026-09-19' };
 
   assert.deepEqual(selectMaintenanceScheduleTasks(rows, 'week', range).map(row => row.id), ['week-open', 'week-done']);
-  assert.deepEqual(selectMaintenanceScheduleTasks(rows, 'incomplete', range).map(row => row.id), ['week-open', 'future-open']);
-  assert.deepEqual(selectMaintenanceScheduleTasks(rows, 'completed', range).map(row => row.id), ['old-done', 'week-done']);
+  assert.deepEqual(selectMaintenanceScheduleTasks(rows, 'incomplete', range).map(row => row.id), ['week-open']);
+  assert.deepEqual(selectMaintenanceScheduleTasks(rows, 'completed', range).map(row => row.id), ['week-done']);
+  assert.deepEqual(getDefaultMaintenanceDateRange(new Date('2026-09-16T04:00:00Z')), {
+    start: '2026-09-07',
+    end: '2026-09-20',
+  });
 });
 
 test('schedule input and presentation UI keep one canonical data flow', () => {
@@ -125,6 +130,10 @@ test('schedule input and presentation UI keep one canonical data flow', () => {
   }
 
   assert.match(dashboard, /selectMaintenanceScheduleTasks\(/);
+  assert.match(dashboard, /起始日期/);
+  assert.match(dashboard, /結束日期/);
+  assert.match(dashboard, /預設兩週/);
+  assert.match(dashboard, /onResetDateRange/);
   assert.match(dashboard, /<ScheduleTaskDetail/);
   assert.match(dashboard, /<ScheduleTaskFormDialog/);
   assert.doesNotMatch(dashboard, /title\.includes\(['"]維修/);

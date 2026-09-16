@@ -141,9 +141,9 @@ export function Sidebar() {
 
   return (
     <>
-      <header className="fixed inset-x-0 top-0 z-40 flex h-14 items-center justify-between border-b border-[var(--sidebar-border)] bg-[var(--bg-sidebar)] px-4 text-[var(--sidebar-text)] md:hidden">
-        <button type="button" onClick={() => setIsMobileOpen(true)} className="flex h-10 w-10 items-center justify-center rounded-lg hover:bg-[var(--sidebar-hover)]" aria-label="開啟導覽選單"><Menu size={22} /></button>
-        <div className="truncate px-3 text-sm font-bold text-[var(--sidebar-brand)]">北部工程排程系統</div><div className="w-10" />
+      <header className="fixed inset-x-0 top-0 z-40 flex h-[calc(2.5rem+env(safe-area-inset-top))] items-center justify-between border-b border-[var(--sidebar-border)] bg-[var(--bg-sidebar)] px-3 pt-[env(safe-area-inset-top)] text-[var(--sidebar-text)] md:hidden">
+        <button type="button" onClick={() => setIsMobileOpen(true)} className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-[var(--sidebar-hover)]" aria-label="開啟導覽選單"><Menu size={20} /></button>
+        <div className="truncate px-2 text-sm font-bold leading-none text-[var(--sidebar-brand)]">北部工程排程系統</div><div className="w-9" />
       </header>
       <aside className={`relative hidden h-[100dvh] shrink-0 flex-col gap-4 border-r border-[var(--sidebar-border)] bg-[var(--bg-sidebar)] transition-all [--text-primary:var(--sidebar-text)] [--text-secondary:var(--sidebar-muted)] md:flex ${isCollapsed ? 'w-16 items-center p-2' : 'w-64 p-4'}`}>
         <button type="button" onClick={() => setIsCollapsed(value => !value)} className="absolute -right-3 top-6 z-50 flex h-6 w-6 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--bg-card)] text-[var(--text-secondary)]" aria-label={isCollapsed ? '展開側欄' : '收合側欄'}>{isCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}</button>

@@ -117,6 +117,12 @@ export function buildMemberProjectResponsibilities({
         project,
         position,
         milestones: projectMilestones.sort(byWorkflowOrder),
+        workflow_milestones: milestones
+          .filter(milestone => milestone.project_id === project.id
+            && milestone.is_applicable
+            && milestone.deleted_at === null
+            && !milestone.archived_at)
+          .sort(byWorkflowOrder),
         ...progress,
       }];
     })

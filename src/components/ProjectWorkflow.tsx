@@ -68,6 +68,7 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [menuId, setMenuId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const scrolledTargetRef = useRef<string | null>(null);
   const [editingCustom, setEditingCustom] = useState<ProjectMilestone | null>(null);
   const [hideCompleted, setHideCompleted] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
@@ -135,7 +136,13 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
   );
 
   useEffect(() => {
-    if (isLoading || !targetMilestoneId) return;
+    scrolledTargetRef.current = null;
+  }, [projectId, targetMilestoneId]);
+
+  useEffect(() => {
+    if (isLoading || !targetMilestoneId || scrolledTargetRef.current === targetMilestoneId) return;
+    if (!document.getElementById(`workflow-milestone-${targetMilestoneId}`)) return;
+    scrolledTargetRef.current = targetMilestoneId;
     const frame = window.requestAnimationFrame(() => {
       document.getElementById(`workflow-milestone-${targetMilestoneId}`)?.scrollIntoView({
         behavior: 'smooth',
@@ -143,7 +150,7 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
       });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [isLoading, targetMilestoneId, visibleMilestones]);
+  }, [isLoading, targetMilestoneId]);
 
   const activityLog = (
     action: WorkflowMutationAction,
@@ -286,6 +293,15 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
   const changeStatus = async (milestone: ProjectMilestone, status: ProjectMilestoneStatus) => {
     const completion = normalizeMilestoneCompletion(status, milestone.actual_date, getConstructionToday());
     await persistMilestone(milestone, completion, 'WORKFLOW_STATUS_CHANGED');
+  };
+
+  const quickComplete = async (milestone: ProjectMilestone) => {
+    if (milestone.status === 'COMPLETED') return;
+    await persistMilestone(
+      milestone,
+      { status: 'COMPLETED', actual_date: getConstructionToday() },
+      'WORKFLOW_STATUS_CHANGED',
+    );
   };
 
   const changeActualDate = async (milestone: ProjectMilestone, actualDate: string | null) => {
@@ -498,18 +514,17 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
                     <span className="truncate font-medium text-primary" title={milestone.label}>{milestone.label}</span>
                     <span className="w-fit rounded-full border border-accent/25 bg-accent/10 px-2 py-1 text-xs text-accent">{milestone.type_name_snapshot}</span>
                     <div className="flex items-center gap-1">
-                      <select value={milestone.status} onChange={event => void changeStatus(milestone, event.target.value as ProjectMilestoneStatus)} disabled={!canEdit || isSaving} aria-label={`${milestone.label}狀態`} className="min-w-0 flex-1 rounded-md border border-theme-border bg-page px-2 py-1.5 text-xs text-primary outline-none focus:border-accent disabled:opacity-50">
+                      <select value={milestone.status} onChange={event => void changeStatus(milestone, event.target.value as ProjectMilestoneStatus)} disabled={!canEdit} aria-label={`${milestone.label}狀態`} className="min-w-0 flex-1 rounded-md border border-theme-border bg-page px-2 py-1.5 text-xs text-primary outline-none focus:border-accent disabled:opacity-50">
                         {STATUS_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
                       </select>
                       {milestone.status === 'NOT_STARTED' ? (
                         <button type="button" onClick={() => void changeStatus(milestone, 'IN_PROGRESS')} disabled={!canEdit || isSaving} aria-label={`開始${milestone.label}`} title="開始" className="rounded-md border border-accent/30 p-1.5 text-accent hover:bg-accent/10 disabled:opacity-50"><Play size={14} /></button>
-                      ) : milestone.status === 'IN_PROGRESS' ? (
-                        <button type="button" onClick={() => void changeStatus(milestone, 'COMPLETED')} disabled={!canEdit || isSaving} aria-label={`完成${milestone.label}`} title="完成" className="rounded-md border border-success/30 p-1.5 text-success hover:bg-success/10 disabled:opacity-50"><Check size={14} /></button>
                       ) : null}
+                      {milestone.status !== 'COMPLETED' ? <button type="button" onClick={() => void quickComplete(milestone)} disabled={!canEdit || isSaving} aria-label={`快速完成${milestone.label}`} title="完成並填入今天" className="rounded-md border border-success/30 p-1.5 text-success hover:bg-success/10 disabled:opacity-50"><Check size={14} /></button> : <span role="img" aria-label={`${milestone.label}已完成`} title="已完成" className="rounded-md border border-success/30 bg-success/10 p-1.5 text-success"><Check size={14} /></span>}
                     </div>
-                    <input type="date" value={milestone.planned_date ?? ''} onChange={event => void persistMilestone(milestone, { planned_date: event.target.value || null }, 'WORKFLOW_PLANNED_DATE_CHANGED')} disabled={!canEdit || isSaving} aria-label={`${milestone.label}預計日期`} className="w-full rounded-md border border-theme-border bg-page px-2 py-1.5 text-xs text-primary outline-none focus:border-accent disabled:opacity-50" />
-                    <input type="date" value={milestone.actual_date ?? ''} onChange={event => void changeActualDate(milestone, event.target.value || null)} disabled={!canEdit || isSaving} aria-label={`${milestone.label}實際日期`} className="w-full rounded-md border border-theme-border bg-page px-2 py-1.5 text-xs text-primary outline-none focus:border-accent disabled:opacity-50" />
-                    <input type="text" value={notesDrafts[milestone.id] ?? ''} onChange={event => setNotesDrafts(current => ({ ...current, [milestone.id]: event.target.value }))} onBlur={() => void saveNotes(milestone)} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} disabled={!canEdit || isSaving} aria-label={`${milestone.label}備註`} placeholder="輸入備註" className="w-full rounded-md border border-theme-border bg-page px-2 py-1.5 text-xs text-primary outline-none focus:border-accent disabled:opacity-50" />
+                    <input type="date" value={milestone.planned_date ?? ''} onChange={event => void persistMilestone(milestone, { planned_date: event.target.value || null }, 'WORKFLOW_PLANNED_DATE_CHANGED')} disabled={!canEdit} aria-label={`${milestone.label}預計日期`} className="w-full rounded-md border border-theme-border bg-page px-2 py-1.5 text-xs text-primary outline-none focus:border-accent disabled:opacity-50" />
+                    <input type="date" value={milestone.actual_date ?? ''} onChange={event => void changeActualDate(milestone, event.target.value || null)} disabled={!canEdit} aria-label={`${milestone.label}實際日期`} className="w-full rounded-md border border-theme-border bg-page px-2 py-1.5 text-xs text-primary outline-none focus:border-accent disabled:opacity-50" />
+                    <input type="text" value={notesDrafts[milestone.id] ?? ''} onChange={event => setNotesDrafts(current => ({ ...current, [milestone.id]: event.target.value }))} onBlur={() => void saveNotes(milestone)} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} disabled={!canEdit} aria-label={`${milestone.label}備註`} placeholder="輸入備註" className="w-full rounded-md border border-theme-border bg-page px-2 py-1.5 text-xs text-primary outline-none focus:border-accent disabled:opacity-50" />
                     <div ref={menuId === milestone.id ? menuRef : undefined} className="relative flex justify-end">
                       {canEdit ? <button type="button" onClick={() => setMenuId(current => current === milestone.id ? null : milestone.id)} aria-label={`${milestone.label}操作`} aria-haspopup="menu" aria-expanded={menuId === milestone.id} className="rounded-md p-1.5 text-secondary hover:bg-page hover:text-primary"><MoreHorizontal size={17} /></button> : null}
                       {menuId === milestone.id ? (

@@ -52,9 +52,10 @@ test('Dashboard and Schedule use shared TodoRow and TodoContextMenu presentation
   assert.match(read('../components/DesignWorkbench.tsx'), /rounded-lg border border-theme-border\/70 bg-page\/45 p-3/);
 });
 
-test('Dashboard Todo columns use equal independent desktop rows and mobile flow', () => {
+test('Dashboard Todo uses one desktop column with private/team switching and scoped scrolling', () => {
   const source = read('../app/page.tsx');
-  assert.match(source, /min-\[1100px\]:grid-rows-2/);
-  assert.match(source, /min-\[1100px\]:overflow-hidden/);
+  assert.match(source, /aria-label="TO DO 類型"/);
+  assert.match(source, /mobileTodoPage === 'private'/);
+  assert.match(source, /mobileTodoPage === 'team'/);
   assert.match(source, /min-\[1100px\]:overflow-y-auto/);
 });

@@ -33,9 +33,10 @@ interface Props {
   projectId: string;
   projectName: string;
   canEdit: boolean;
+  onChanged?: () => void | Promise<void>;
 }
 
-export function ProjectMaterials({ projectId, projectName, canEdit }: Props) {
+export function ProjectMaterials({ projectId, projectName, canEdit, onChanged }: Props) {
   const { currentUser } = useUser();
   const [batches, setBatches] = useState<ProjectMaterialBatch[]>([]);
   const [materials, setMaterials] = useState<ProjectMaterial[]>([]);
@@ -45,6 +46,7 @@ export function ProjectMaterials({ projectId, projectName, canEdit }: Props) {
   const [showBatchCreate, setShowBatchCreate] = useState(false);
   const [newBatchName, setNewBatchName] = useState('');
   const [newBatchOrderedAt, setNewBatchOrderedAt] = useState('');
+  const [newBatchPlannedReceiptAt, setNewBatchPlannedReceiptAt] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -85,11 +87,18 @@ export function ProjectMaterials({ projectId, projectName, canEdit }: Props) {
   const batchAutosave = useRowAutosave({
     rows: batches,
     setRows: setBatches,
-    saveRow: useCallback(async (batch: ProjectMaterialBatch) => dbAdapter.updateProjectMaterialBatch(batch.id, {
-      batch_name: batch.batch_name,
-      ordered_at: batch.ordered_at,
-      notes: batch.notes,
-    }), []),
+    saveRow: useCallback(async (batch: ProjectMaterialBatch) => {
+      const saved = await dbAdapter.updateProjectMaterialBatch(batch.id, {
+        batch_name: batch.batch_name,
+        ordered_at: batch.ordered_at,
+        notes: batch.notes,
+      });
+      const result = saved.planned_receipt_at === batch.planned_receipt_at
+        ? saved
+        : await dbAdapter.updateMaterialReceiptPlan(batch.id, batch.planned_receipt_at);
+      await onChanged?.();
+      return result;
+    }, [onChanged]),
     validate: batch => batch.batch_name.trim() ? null : '批次名稱不可留白。',
     onError: handleAutosaveError,
     delay: 700,
@@ -139,6 +148,8 @@ export function ProjectMaterials({ projectId, projectName, canEdit }: Props) {
         project_id: projectId,
         batch_name: newBatchName,
         ordered_at: fromDatetimeLocalValue(newBatchOrderedAt),
+        planned_receipt_at: fromDatetimeLocalValue(newBatchPlannedReceiptAt),
+        received_at: null,
         notes: null,
         created_by: currentUser.id,
       });
@@ -147,6 +158,7 @@ export function ProjectMaterials({ projectId, projectName, canEdit }: Props) {
       setShowBatchCreate(false);
       setNewBatchName('');
       setNewBatchOrderedAt('');
+      setNewBatchPlannedReceiptAt('');
       setNotice('叫料批次已新增。');
     } catch (createError) {
       setError(getDatabaseErrorMessage(createError, '新增叫料批次失敗。'));
@@ -158,6 +170,7 @@ export function ProjectMaterials({ projectId, projectName, canEdit }: Props) {
   const openBatchCreate = () => {
     setNewBatchName(`第 ${batches.length + 1} 次叫料`);
     setNewBatchOrderedAt(toDatetimeLocalValue(new Date().toISOString()));
+    setNewBatchPlannedReceiptAt(toDatetimeLocalValue(new Date().toISOString()));
     setShowBatchCreate(true);
     setError(null);
   };
@@ -208,7 +221,11 @@ export function ProjectMaterials({ projectId, projectName, canEdit }: Props) {
     setBusyId(`add-${input.batch_id}`);
     setError(null);
     try {
-      const created = await dbAdapter.createProjectMaterial(input);
+      const batch = batches.find(row => row.id === input.batch_id);
+      const created = await dbAdapter.createProjectMaterial({
+        ...input,
+        expected_delivery_at: batch?.planned_receipt_at ?? input.expected_delivery_at,
+      });
       setMaterials(current => [...current, created]);
       setNotice(`已加入「${created.item_name}」。`);
       return created;
@@ -234,11 +251,12 @@ export function ProjectMaterials({ projectId, projectName, canEdit }: Props) {
       <div><h3 className="flex items-center gap-2 font-semibold text-primary"><PackagePlus size={18} className="text-accent" />叫料批次</h3><p className="mt-1 text-xs text-secondary">{batches.length} 個批次，{materials.length} 筆物料</p></div>
       {canEdit && <button type="button" onClick={openBatchCreate} className="flex min-h-10 items-center gap-2 rounded-lg bg-accent px-3 text-sm font-semibold text-white hover:bg-accent-hover"><Plus size={16} />新增叫料批次</button>}
     </div>
-    {showBatchCreate && <form onSubmit={createBatch} className="grid gap-3 rounded-xl border border-accent/30 bg-accent/5 p-4 sm:grid-cols-[minmax(12rem,1fr)_12rem_auto_auto] sm:items-end">
+    {showBatchCreate && <form onSubmit={createBatch} className="grid gap-3 rounded-xl border border-accent/30 bg-accent/5 p-4 sm:grid-cols-[minmax(12rem,1fr)_12rem_12rem_auto_auto] sm:items-end">
       <label className="text-xs text-secondary">批次名稱<input autoFocus value={newBatchName} onChange={event => setNewBatchName(event.target.value)} className={`${compactInputClass} mt-1 h-10`} /></label>
       <label className="text-xs text-secondary">叫料日期＋時間<input type="datetime-local" step="60" value={newBatchOrderedAt} onChange={event => setNewBatchOrderedAt(event.target.value)} className={`${compactInputClass} mt-1 h-10`} /></label>
+      <label className="text-xs text-secondary">預計收料日期＋時間<input required type="datetime-local" step="60" value={newBatchPlannedReceiptAt} onChange={event => setNewBatchPlannedReceiptAt(event.target.value)} className={`${compactInputClass} mt-1 h-10`} /></label>
       <button type="button" onClick={() => setShowBatchCreate(false)} className="h-10 rounded-lg border border-theme-border px-4 text-sm text-secondary hover:bg-page">取消</button>
-      <button type="submit" disabled={!newBatchName.trim() || busyId !== null} className="h-10 rounded-lg bg-accent px-4 text-sm font-semibold text-white disabled:opacity-50">{busyId === 'new-batch' ? '新增中...' : '新增批次'}</button>
+      <button type="submit" disabled={!newBatchName.trim() || !newBatchPlannedReceiptAt || busyId !== null} className="h-10 rounded-lg bg-accent px-4 text-sm font-semibold text-white disabled:opacity-50">{busyId === 'new-batch' ? '新增中...' : '新增批次'}</button>
     </form>}
     {error && <div className="rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger">{error}</div>}
     {notice && <div className="rounded-lg border border-success/30 bg-success/10 p-3 text-sm text-success">{notice}</div>}
@@ -287,7 +305,6 @@ interface CustomMaterialDraft {
   specification: string;
   quantity: number;
   unit: string;
-  expected_delivery_at: string | null;
   received_at: string | null;
 }
 
@@ -305,7 +322,6 @@ const createCustomDraft = (): CustomMaterialDraft => ({
   specification: '',
   quantity: 1,
   unit: '式',
-  expected_delivery_at: null,
   received_at: null,
 });
 
@@ -362,7 +378,7 @@ function BatchCard({ batch, projectName, materials, catalog, groups, canEdit, is
     <div className="flex flex-wrap items-center gap-3 p-3">
       <button type="button" onClick={onToggle} className="flex min-w-0 flex-1 items-center gap-2 text-left">
         {isExpanded ? <ChevronDown size={18} className="shrink-0 text-secondary" /> : <ChevronRight size={18} className="shrink-0 text-secondary" />}
-        <span className="min-w-0"><span className="block truncate text-sm font-semibold text-primary">{batch.batch_name}</span><span className="block text-xs text-secondary">{batch.ordered_at ? `叫料 ${toDatetimeLocalValue(batch.ordered_at).replace('T', ' ')}` : '尚未填叫料時間'}</span></span>
+        <span className="min-w-0"><span className="block truncate text-sm font-semibold text-primary">{batch.batch_name}</span><span className="block text-xs text-secondary">{batch.planned_receipt_at ? `預計收料 ${toDatetimeLocalValue(batch.planned_receipt_at).replace('T', ' ')}` : '尚未填預計收料時間'}</span></span>
       </button>
       <span className={`rounded-full border px-2 py-1 text-xs ${statusClass[summary.status]}`}>{getProcurementStatusLabel(summary.status)}</span>
       <span className="text-xs text-secondary">{summary.received} / {summary.total} 筆已到貨</span>
@@ -372,6 +388,8 @@ function BatchCard({ batch, projectName, materials, catalog, groups, canEdit, is
         <div className="absolute right-0 z-20 mt-2 w-72 space-y-3 rounded-xl border border-theme-border bg-card p-3 shadow-xl">
           <label className="block text-xs text-secondary">批次名稱<input value={batch.batch_name} onChange={event => onBatchChange({ batch_name: event.target.value })} className={`${compactInputClass} mt-1`} /></label>
           <label className="block text-xs text-secondary">叫料日期＋時間<input type="datetime-local" step="60" value={toDatetimeLocalValue(batch.ordered_at)} onChange={event => onBatchChange({ ordered_at: fromDatetimeLocalValue(event.target.value) })} className={`${compactInputClass} mt-1`} /></label>
+          <label className="block text-xs text-secondary">預計收料日期＋時間<input type="datetime-local" step="60" disabled={Boolean(batch.received_at)} value={toDatetimeLocalValue(batch.planned_receipt_at)} onChange={event => onBatchChange({ planned_receipt_at: fromDatetimeLocalValue(event.target.value) })} className={`${compactInputClass} mt-1`} /></label>
+          {batch.received_at ? <p className="text-xs font-semibold text-success">已收料 {toDatetimeLocalValue(batch.received_at).replace('T', ' ')}</p> : null}
           <label className="block text-xs text-secondary">備註<input value={batch.notes || ''} onChange={event => onBatchChange({ notes: event.target.value || null })} className={`${compactInputClass} mt-1`} /></label>
           <div className="flex items-center justify-between"><AutosaveStatus state={batchSaveState} /><button type="button" disabled={isBusy} onClick={onDeleteBatch} className="flex items-center gap-1 text-xs text-danger"><Trash2 size={14} />刪除批次</button></div>
         </div>
@@ -401,8 +419,8 @@ function BatchCard({ batch, projectName, materials, catalog, groups, canEdit, is
           <button type="button" onClick={() => setQuickSlots(current => [...current, ...createQuickSlots(5)])} className="ml-2 mt-1 h-8 rounded-md border border-theme-border px-3 text-xs text-primary hover:bg-card"><Plus size={13} className="mr-1 inline" />再加 5 格</button>
         </div></div>
       </div>}
-      <div className="overflow-x-auto"><div className="min-w-[62rem]">
-        <div className="grid grid-cols-[2rem_minmax(9rem,1.2fr)_minmax(9rem,1fr)_7rem_11rem_11rem_4rem] gap-1 border-b border-theme-border bg-page/35 px-2 py-1.5 text-[11px] font-medium text-secondary"><span>請購</span><span>品項名稱</span><span>型號／規格</span><span>數量／單位</span><span>預計到貨</span><span>實際到貨</span><span></span></div>
+      <div className="overflow-x-auto"><div className="min-w-[50rem]">
+        <div className="grid grid-cols-[2rem_minmax(9rem,1.2fr)_minmax(9rem,1fr)_7rem_11rem_4rem] gap-1 border-b border-theme-border bg-page/35 px-2 py-1.5 text-[11px] font-medium text-secondary"><span>請購</span><span>品項名稱</span><span>型號／規格</span><span>數量／單位</span><span>實際到貨</span><span></span></div>
         {materials.length === 0 && customDrafts.length === 0 ? <div className="p-6 text-center text-sm text-secondary">此批次尚無物料。</div> : <>
           {materials.map(material => <MaterialGridRow key={material.id} material={material} batch={batch} canEdit={canEdit} isBusy={isBusy} saveState={materialStateFor(material.id)} onChange={updates => onMaterialChange(material.id, updates)} onBlur={() => onMaterialBlur(material.id)} onDelete={() => onDeleteMaterial(material)} />)}
           {customDrafts.map(draft => <CustomDraftGridRow key={draft.id} draft={draft} batch={batch} currentUserId={currentUserId} onAddMaterial={onAddMaterial} onCreated={() => setCustomDrafts(current => current.filter(row => row.id !== draft.id))} onRemove={() => setCustomDrafts(current => current.filter(row => row.id !== draft.id))} />)}
@@ -418,12 +436,11 @@ function MaterialGridRow({ material, batch, canEdit, isBusy, saveState, onChange
     if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); }
   };
   return <div className="border-b border-theme-border/70 last:border-b-0" onBlur={onBlur}>
-    <div className="grid grid-cols-[2rem_minmax(9rem,1.2fr)_minmax(9rem,1fr)_7rem_11rem_11rem_4rem] items-center gap-1 px-2 py-1">
+    <div className="grid grid-cols-[2rem_minmax(9rem,1.2fr)_minmax(9rem,1fr)_7rem_11rem_4rem] items-center gap-1 px-2 py-1">
       <input type="checkbox" disabled={!canEdit} checked={material.include_in_purchase_request} onChange={event => onChange({ include_in_purchase_request: event.target.checked })} className="h-4 w-4 accent-accent" aria-label={`${material.item_name}納入請購`} />
       <input disabled={!canEdit} value={material.item_name} onChange={event => onChange({ item_name: event.target.value })} onKeyDown={finishOnEnter} className={compactInputClass} aria-label="品項名稱" />
       <input disabled={!canEdit} value={material.specification || ''} onChange={event => onChange({ specification: event.target.value || null })} onKeyDown={finishOnEnter} className={compactInputClass} aria-label="型號／規格" />
       <div className="flex items-center gap-1"><input type="number" min="0.001" step="any" disabled={!canEdit} value={material.quantity} onChange={event => onChange({ quantity: Number(event.target.value) })} onKeyDown={finishOnEnter} className={compactInputClass} aria-label="數量" /><span className="max-w-10 truncate text-xs text-secondary" title={material.unit}>{material.unit}</span></div>
-      <input type="datetime-local" step="60" disabled={!canEdit} value={toDatetimeLocalValue(material.expected_delivery_at)} onChange={event => onChange({ expected_delivery_at: fromDatetimeLocalValue(event.target.value) })} onKeyDown={finishOnEnter} className={compactInputClass} aria-label="預計到貨" />
       <input type="datetime-local" step="60" disabled={!canEdit} value={toDatetimeLocalValue(material.received_at)} onChange={event => { const receivedAt = fromDatetimeLocalValue(event.target.value); onChange({ received_at: receivedAt, procurement_status: receivedAt ? 'RECEIVED' : material.procurement_status === 'RECEIVED' ? (batch.ordered_at ? 'ORDERED' : 'NOT_ORDERED') : material.procurement_status }); }} onKeyDown={finishOnEnter} className={compactInputClass} aria-label="實際到貨" />
       <button type="button" onClick={() => setShowDetails(current => !current)} className="flex h-8 items-center justify-center rounded-md text-secondary hover:bg-page" aria-label={`${material.item_name}更多設定`}><MoreHorizontal size={16} /></button>
     </div>
@@ -487,12 +504,11 @@ function CustomDraftGridRow({ draft: initialDraft, batch, currentUserId, onAddMa
   };
 
   return <div className="border-b border-accent/20 bg-accent/5" onBlur={() => void persist()}>
-    <div className="grid grid-cols-[2rem_minmax(9rem,1.2fr)_minmax(9rem,1fr)_7rem_11rem_11rem_4rem] items-center gap-1 px-2 py-1">
+    <div className="grid grid-cols-[2rem_minmax(9rem,1.2fr)_minmax(9rem,1fr)_7rem_11rem_4rem] items-center gap-1 px-2 py-1">
       <input type="checkbox" checked readOnly className="h-4 w-4 accent-accent" aria-label="自訂物料納入請購" />
       <input autoFocus value={draft.item_name} onChange={event => updateDraft({ item_name: event.target.value })} onKeyDown={finishOnEnter} className={compactInputClass} placeholder="品項名稱" aria-label="自訂品項名稱" />
       <input value={draft.specification} onChange={event => updateDraft({ specification: event.target.value })} onKeyDown={finishOnEnter} className={compactInputClass} placeholder="型號／規格" aria-label="自訂型號／規格" />
       <div className="flex items-center gap-1"><input type="number" min="0.001" step="any" value={draft.quantity} onChange={event => updateDraft({ quantity: Number(event.target.value) })} onKeyDown={finishOnEnter} className={compactInputClass} aria-label="自訂數量" /><input value={draft.unit} onChange={event => updateDraft({ unit: event.target.value })} onKeyDown={finishOnEnter} className={`${compactInputClass} w-12 px-1`} aria-label="自訂單位" /></div>
-      <input type="datetime-local" step="60" value={toDatetimeLocalValue(draft.expected_delivery_at)} onChange={event => updateDraft({ expected_delivery_at: fromDatetimeLocalValue(event.target.value) })} onKeyDown={finishOnEnter} className={compactInputClass} aria-label="自訂預計到貨" />
       <input type="datetime-local" step="60" value={toDatetimeLocalValue(draft.received_at)} onChange={event => updateDraft({ received_at: fromDatetimeLocalValue(event.target.value) })} onKeyDown={finishOnEnter} className={compactInputClass} aria-label="自訂實際到貨" />
       <button type="button" onClick={onRemove} className="flex h-8 items-center justify-center rounded-md text-secondary hover:bg-page" aria-label="移除空白自訂列"><Trash2 size={15} /></button>
     </div>

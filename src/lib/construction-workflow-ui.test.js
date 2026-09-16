@@ -331,10 +331,11 @@ test('construction phase integration reuses the supplied section without milesto
   assert.doesNotMatch(workflowSource, /planned_start_date|planned_end_date|actual_completed_date/);
 });
 
-test('Project Detail tab contract is Workflow, Basic, Materials, Notes and resets per project', () => {
+test('Project Detail tab contract is Workflow, Basic, Materials, Notes and supports a scoped initial tab', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'components', 'ProjectDetailModal.tsx'), 'utf8');
   const pageSource = fs.readFileSync(path.join(__dirname, '..', 'app', 'projects', '[[...filter]]', 'page.tsx'), 'utf8');
-  assert.match(source, /useState<TabType>\('workflow'\)/);
+  assert.match(source, /initialTab\?: TabType/);
+  assert.match(source, /useState<TabType>\(initialTab \?\? 'workflow'\)/);
   assert.match(pageSource, /<ProjectDetailModal\s+key=\{viewingProject\.id\}/);
   assert.ok(source.indexOf("id: 'workflow'") < source.indexOf("id: 'basic'"));
   assert.ok(source.indexOf("id: 'basic'") < source.indexOf("id: 'materials'"));

@@ -25,8 +25,8 @@ import { canDeleteTodo } from '@/lib/todo-text-actions';
 import {
   completeScheduleTaskWithActivity,
   confirmScheduleTaskDeletion,
+  createScheduleTaskWithActivity,
   deleteScheduleTaskWithActivity,
-  logScheduleTaskCreation,
   updateScheduleTaskWithActivity,
 } from '@/lib/schedule-task-actions';
 import {
@@ -416,17 +416,16 @@ export default function SchedulePage() {
         setTasks(prev => [...prev, tempTask]);
         
         try {
-          const newTask = await dbAdapter.createScheduleTask(payload, newMemberIds);
+          const newTask = await createScheduleTaskWithActivity({
+            data: payload,
+            memberIds: newMemberIds,
+            actor: { id: currentUser?.id, name: currentUser?.name },
+            auditContext: { projects, users },
+          });
           
           // Replace temp with real
           setTasks(prev => prev.map(t => t.id === tempId ? newTask : t));
           replaceTaskMembers(newTask.id, newMemberIds);
-
-          await logScheduleTaskCreation(
-            newTask,
-            { id: currentUser?.id, name: currentUser?.name },
-            { projects, users, memberIds: newMemberIds },
-          );
 
           if (convertingTodoId) {
             await dbAdapter.updateTodo(convertingTodoId, { status: '已排程', converted_task_id: newTask.id });

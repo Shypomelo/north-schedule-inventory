@@ -16,6 +16,7 @@ import { ProjectMaterials } from './ProjectMaterials';
 interface Props {
   project: Project;
   initialMilestoneId?: string | null;
+  initialTab?: TabType;
   onClose: () => void;
   onUpdate: () => Promise<void>;
   onConstructionUpdated: (result: ConstructionMutationResult) => void;
@@ -24,9 +25,9 @@ interface Props {
 
 type TabType = 'workflow' | 'basic' | 'materials' | 'notes';
 
-export function ProjectDetailModal({ project, initialMilestoneId, onClose, onUpdate, onConstructionUpdated, onMilestoneUpdated }: Props) {
+export function ProjectDetailModal({ project, initialMilestoneId, initialTab, onClose, onUpdate, onConstructionUpdated, onMilestoneUpdated }: Props) {
   const { currentUser } = useUser();
-  const [activeTab, setActiveTab] = useState<TabType>('workflow');
+  const [activeTab, setActiveTab] = useState<TabType>(initialTab ?? 'workflow');
   const [editedProject, setEditedProject] = useState<Project>(project);
   
   const construction = useConstructionProgress(project.id, Boolean(currentUser && currentUser.role !== 'VIEWER'), onConstructionUpdated);
@@ -203,7 +204,7 @@ export function ProjectDetailModal({ project, initialMilestoneId, onClose, onUpd
           <div className="min-w-0 flex-1 overflow-y-auto bg-page/30 p-3 sm:p-6">
             {activeTab === 'basic' && renderBasicInfo()}
             {activeTab === 'workflow' && <ProjectWorkflow projectId={project.id} projectName={editedProject.name} targetMilestoneId={initialMilestoneId} actor={currentUser ? { id: currentUser.id, name: currentUser.name } : null} canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')} canRefresh={currentUser?.role === 'ADMIN'} construction={<ConstructionProgressSection model={construction} />} onUpdate={onUpdate} onMilestoneUpdated={onMilestoneUpdated} />}
-            {activeTab === 'materials' && <ProjectMaterials projectId={project.id} projectName={editedProject.name} canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')} />}
+            {activeTab === 'materials' && <ProjectMaterials projectId={project.id} projectName={editedProject.name} canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')} onChanged={onUpdate} />}
             {activeTab === 'notes' && renderNotes()}
           </div>
         </div>

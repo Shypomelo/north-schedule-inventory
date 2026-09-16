@@ -87,6 +87,43 @@ test('Schedule update writes one structured event and suppresses no-op history',
   assert.deepEqual(JSON.parse(logged[0].after_value), { task_date: '2026-09-17' });
 });
 
+test('linked receipt reschedule updates the canonical batch plan before the schedule', async () => {
+  const calls = [];
+  const receiptTask = {
+    ...baseTask,
+    task_type: '收料',
+    source_material_batch_id: 'batch-1',
+  };
+  const dbAdapter = {
+    updateMaterialReceiptPlan: async (id, value) => { calls.push(['plan', id, value]); },
+    updateScheduleTask: async (_id, updates) => { calls.push(['task', updates.task_date, updates.start_time]); return { ...receiptTask, ...updates }; },
+    logActivity: async entry => { calls.push(['audit', entry.action_type]); return entry; },
+  };
+  const { updateScheduleTaskWithActivity } = load('schedule-task-actions.ts', { '@/lib/db': { dbAdapter } });
+  await updateScheduleTaskWithActivity({
+    task: receiptTask,
+    data: { ...receiptTask, task_date: '2026-09-22', start_time: '10:00' },
+    memberIds: [],
+    actor: { id: 'actor', name: '柚子' },
+  });
+  assert.deepEqual(calls[0], ['plan', 'batch-1', '2026-09-22T10:00:00+08:00']);
+  assert.deepEqual(calls[1], ['task', '2026-09-22', '10:00']);
+  assert.deepEqual(calls[2], ['audit', 'RESCHEDULE_TASK']);
+});
+
+test('linked receipt completion atomically completes the inbound batch before normal schedule sync', async () => {
+  const calls = [];
+  const receiptTask = { ...baseTask, task_type: '收料', source_material_batch_id: 'batch-1' };
+  const dbAdapter = {
+    completeMaterialReceiptSchedule: async id => { calls.push(`receipt:${id}`); },
+    updateScheduleTask: async (id, updates) => { calls.push(`task:${id}:${updates.status}`); return { ...receiptTask, ...updates }; },
+    logActivity: async entry => { calls.push(`audit:${entry.action_type}`); return entry; },
+  };
+  const { completeScheduleTaskWithActivity } = load('schedule-task-actions.ts', { '@/lib/db': { dbAdapter } });
+  await completeScheduleTaskWithActivity(receiptTask, { id: 'actor', name: '柚子' });
+  assert.deepEqual(calls, ['receipt:task-1', 'task:task-1:完成', 'audit:COMPLETE_TASK']);
+});
+
 test('Schedule deletion stores the full snapshot after the normal task is removed', async () => {
   const calls = [];
   const dbAdapter = {

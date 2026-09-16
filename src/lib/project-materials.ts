@@ -76,6 +76,9 @@ export const deriveBatchProcurementSummary = (
   batch: ProjectMaterialBatch,
   materials: ProjectMaterial[],
 ): BatchProcurementSummary => {
+  if (batch.received_at) {
+    return { status: 'RECEIVED', total: materials.length, received: materials.length };
+  }
   const received = materials.filter(material => (
     material.procurement_status === 'RECEIVED' || Boolean(material.received_at)
   )).length;

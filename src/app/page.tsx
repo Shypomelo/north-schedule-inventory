@@ -1,9 +1,9 @@
 "use client";
 
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
-import { addDays, format, startOfWeek } from 'date-fns';
+import { addDays, format } from 'date-fns';
 import { zhTW } from 'date-fns/locale';
-import { ArrowUpRight, BriefcaseBusiness, CalendarDays, CheckCircle2, Circle, LayoutDashboard, ListTodo, Loader2, MapPin, Users, Wrench } from 'lucide-react';
+import { ArrowUpRight, BriefcaseBusiness, CalendarDays, CheckCircle2, Circle, LayoutDashboard, ListTodo, Loader2, MapPin, Package, Users, Wrench } from 'lucide-react';
 import { ProjectDetailModal } from '@/components/ProjectDetailModal';
 import { ScheduleTaskDetail } from '@/components/ScheduleTaskDetail';
 import { ScheduleTaskFormDialog } from '@/components/ScheduleTaskFormDialog';
@@ -19,11 +19,22 @@ import { ProjectOverviewCards } from '@/components/ProjectOverviewCards';
 import { workbenchAdapter } from '@/lib/db/workbench-adapter';
 import type { ProjectMilestone } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
-import type { ActivityLog, MemberProjectResponsibility, Project, ScheduleTask, ScheduleTaskMember, Todo, User, WorkGroup } from '@/lib/db/types';
+import type { ActivityLog, MemberProjectResponsibility, Project, ProjectMaterial, ProjectMaterialBatch, ScheduleTask, ScheduleTaskMember, Todo, User, WorkGroup } from '@/lib/db/types';
 import { buildDashboardProjectCards } from '@/lib/engineering-dashboard';
+import {
+  buildReceiptScheduleTask,
+  formatMaterialReceiptSummary,
+  formatRecentReceiptDateTime,
+  isMaterialBatchScheduleDuplicate,
+  MATERIAL_REMINDER_HORIZON_DAYS,
+  selectEngineeringProjectIds,
+  selectRecentReceiptGroups,
+  type RecentReceiptGroup,
+} from '@/lib/material-reminders';
 import { presentBusinessDate } from '@/lib/date-presentation';
 import {
   formatScheduleTaskTime,
+  getDefaultMaintenanceDateRange,
   isScheduleTaskCompleted,
   type MaintenanceScheduleFilter,
   selectMaintenanceScheduleTasks,
@@ -40,12 +51,13 @@ import { selectTodoPool, type WorkItem } from '@/lib/workbench';
 import {
   completeScheduleTaskWithActivity,
   confirmScheduleTaskDeletion,
+  createScheduleTaskWithActivity,
   deleteScheduleTaskWithActivity,
   updateScheduleTaskWithActivity,
 } from '@/lib/schedule-task-actions';
 import type { MemberWorkGroup } from '@/lib/work-groups';
 
-type MobileDashboardPage = 'schedule' | 'projects' | 'todos';
+type MobileDashboardPage = 'schedule' | 'projects' | 'receipts' | 'todos';
 type MobileTodoPage = 'private' | 'team';
 type EngineeringDashboardView = 'overview' | 'maintenance';
 
@@ -73,6 +85,8 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
   const [groupMemberships, setGroupMemberships] = useState<MemberWorkGroup[]>([]);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [responsibilities, setResponsibilities] = useState<MemberProjectResponsibility[]>([]);
+  const [receiptBatches, setReceiptBatches] = useState<ProjectMaterialBatch[]>([]);
+  const [receiptMaterials, setReceiptMaterials] = useState<ProjectMaterial[]>([]);
   const [privateTodos, setPrivateTodos] = useState<Todo[]>([]);
   const [teamTodos, setTeamTodos] = useState<Todo[]>([]);
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
@@ -83,7 +97,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
   const [isLoading, setIsLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selectedProject, setSelectedProject] = useState<{ project: Project; milestoneId: string | null } | null>(null);
+  const [selectedProject, setSelectedProject] = useState<{ project: Project; milestoneId: string | null; initialTab?: 'materials' } | null>(null);
   const [selectedTask, setSelectedTask] = useState<ScheduleTask | null>(null);
   const [editingTask, setEditingTask] = useState<ScheduleTask | null>(null);
   const [editingTaskMemberIds, setEditingTaskMemberIds] = useState<string[]>([]);
@@ -92,6 +106,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
   const [mobileTodoPage, setMobileTodoPage] = useState<MobileTodoPage>('private');
   const [dashboardView, setDashboardView] = useState<EngineeringDashboardView>('overview');
   const [maintenanceFilter, setMaintenanceFilter] = useState<MaintenanceScheduleFilter>('week');
+  const [maintenanceDateRange, setMaintenanceDateRange] = useState(() => getDefaultMaintenanceDateRange());
   const today = useMemo(() => format(new Date(), 'yyyy-MM-dd'), []);
   const canMutateTodos = canCreateTodo(currentUser);
 
@@ -119,7 +134,23 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
       const activeProjectRows = selectActiveProjects(projectRows);
       setProjects(activeProjectRows);
       if(projectManagement)setOverviewMilestones(await workbenchAdapter.getMilestones(activeProjectRows.map(project=>project.id)));
-      setResponsibilities(responsibilityRows.filter(row => isActiveProject(row.project)));
+      const activeResponsibilities = responsibilityRows.filter(row => isActiveProject(row.project));
+      setResponsibilities(activeResponsibilities);
+      if (projectManagement) {
+        setReceiptBatches([]);
+        setReceiptMaterials([]);
+      } else {
+        const engineeringProjectIds = selectEngineeringProjectIds(activeResponsibilities, currentUser.id);
+        const batches = await dbAdapter.listProjectMaterialBatchesForReminder(
+          engineeringProjectIds,
+          addDays(new Date(), MATERIAL_REMINDER_HORIZON_DAYS).toISOString(),
+        );
+        const reminderMaterials = await dbAdapter.listProjectMaterialsByBatchIds(
+          batches.map(batch => batch.id),
+        );
+        setReceiptMaterials(reminderMaterials);
+        setReceiptBatches(batches);
+      }
       setPrivateTodos(privateRows);
       setTeamTodos(teamRows);
       setWorkGroups(workGroupRows.filter(group => group.is_active));
@@ -150,21 +181,25 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
     dashboardWorkGroup?.id,
     { members: taskMembers, users: allUsers, memberships: groupMemberships, groups: workGroups },
   ), [allUsers, dashboardWorkGroup?.id, groupMemberships, taskMembers, tasks, workGroups]);
-  const maintenanceWeekStart = useMemo(() => startOfWeek(new Date(), { weekStartsOn: 1 }), []);
-  const maintenanceWeekRange = useMemo(() => ({
-    start: format(maintenanceWeekStart, 'yyyy-MM-dd'),
-    end: format(addDays(maintenanceWeekStart, 5), 'yyyy-MM-dd'),
-  }), [maintenanceWeekStart]);
   const maintenanceTasks = useMemo(() => selectMaintenanceScheduleTasks(
     dashboardTasks,
     maintenanceFilter,
-    maintenanceWeekRange,
-  ), [dashboardTasks, maintenanceFilter, maintenanceWeekRange]);
+    maintenanceDateRange,
+  ), [dashboardTasks, maintenanceDateRange, maintenanceFilter]);
   const getTaskWeatherDisplay = useScheduleWeather(todayTasks, projects);
   const projectCards = useMemo(
     () => buildDashboardProjectCards(responsibilities, today),
     [responsibilities, today],
   );
+  const recentReceiptGroups = useMemo(() => currentUser ? selectRecentReceiptGroups({
+    memberId: currentUser.id,
+    responsibilities,
+    projects,
+    batches: receiptBatches,
+    materials: receiptMaterials,
+    scheduleTasks: tasks,
+    now: new Date(),
+  }) : [], [currentUser, projects, receiptBatches, receiptMaterials, responsibilities, tasks]);
   const visiblePrivateTodos = selectTodoPool(privateTodos, workItems)
     .filter(todo => !hideCompletedPrivate || todo.status !== '已完成');
   const visibleTeamTodos = selectTodoPool(selectActiveTeamTodos(
@@ -326,6 +361,42 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
     }
   };
 
+  const addReceiptToSchedule = async (group: RecentReceiptGroup) => {
+    if (!currentUser || !canMutateTodos || group.scheduleTaskId) return;
+    const engineeringGroup = workGroups.find(workGroup => workGroup.is_active && workGroup.key === 'ENGINEERING');
+    if (!engineeringGroup) {
+      setError('找不到工程排程群組');
+      return;
+    }
+    const key = `receipt:${group.batch.id}`;
+    setSavingKey(key);
+    setError(null);
+    try {
+      const task = await createScheduleTaskWithActivity({
+        data: buildReceiptScheduleTask({
+          group,
+          workGroupId: engineeringGroup.id,
+          owner: currentUser,
+          creator: currentUser,
+        }),
+        memberIds: [],
+        actor: { id: currentUser.id, name: currentUser.name },
+        auditContext: { projects, users: allUsers },
+      });
+      setTasks(current => [...current, task]);
+      await loadDashboard();
+    } catch (scheduleError) {
+      if (isMaterialBatchScheduleDuplicate(scheduleError)) {
+        await loadDashboard();
+        setError('此叫料批次已加入排程。');
+      } else {
+        setError(scheduleError instanceof Error ? scheduleError.message : '收料排程建立失敗');
+      }
+    } finally {
+      setSavingKey(null);
+    }
+  };
+
   if (isLoading) {
     return <div className="flex h-full items-center justify-center gap-3 text-secondary"><Loader2 className="animate-spin" size={20} />載入工程儀表…</div>;
   }
@@ -364,18 +435,21 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
           members={taskMembers}
           workGroups={workGroups}
           filter={maintenanceFilter}
-          weekRange={maintenanceWeekRange}
+          dateRange={maintenanceDateRange}
+          onDateRangeChange={setMaintenanceDateRange}
+          onResetDateRange={() => setMaintenanceDateRange(getDefaultMaintenanceDateRange())}
           onFilterChange={setMaintenanceFilter}
           onOpenTask={setSelectedTask}
         />
       ) : <>
-        <nav className="mb-4 grid grid-cols-3 rounded-xl border border-theme-border bg-card p-1 md:hidden" aria-label="工程儀表頁面" role="tablist">
+        <nav className={`mb-4 grid ${projectManagement ? 'grid-cols-3' : 'grid-cols-4'} rounded-xl border border-theme-border bg-card p-1 md:hidden`} aria-label="工程儀表頁面" role="tablist">
         <MobileTab active={mobilePage === 'schedule'} onClick={() => setMobilePage('schedule')}>今日排程</MobileTab>
         <MobileTab active={mobilePage === 'projects'} onClick={() => setMobilePage('projects')}>{projectManagement?'案件進度':'專案進度'}</MobileTab>
+        {!projectManagement ? <MobileTab active={mobilePage === 'receipts'} onClick={() => setMobilePage('receipts')}>近期收料</MobileTab> : null}
         <MobileTab active={mobilePage === 'todos'} onClick={() => setMobilePage('todos')}>TO DO</MobileTab>
         </nav>
 
-      <div className={`grid items-start gap-5 md:grid-cols-2 min-[1100px]:min-h-0 min-[1100px]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.25fr)_minmax(0,0.9fr)] min-[1100px]:items-stretch ${projectManagement ? 'min-[1100px]:h-[calc(100%-5rem)]' : 'min-[1100px]:h-[calc(100%-8.5rem)]'}`}>
+      <div className={`grid min-w-0 items-start gap-4 md:grid-cols-2 min-[1100px]:min-h-0 min-[1100px]:items-stretch ${projectManagement ? 'min-[1100px]:h-[calc(100%-5rem)] min-[1100px]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.25fr)_minmax(0,0.9fr)]' : 'min-[1100px]:h-[calc(100%-8.5rem)] min-[1100px]:grid-cols-[minmax(0,1fr)_minmax(0,1.12fr)_minmax(0,0.88fr)_minmax(0,0.93fr)]'}`}>
         <DashboardSection icon={<CalendarDays size={18} />} title="今日排程" count={todayTasks.length} actionHref="/schedule" actionLabel="查看排程" className={`${mobilePage === 'schedule' ? 'block' : 'hidden'} md:block min-[1100px]:sticky min-[1100px]:top-6`}>
           {todayTasks.length === 0 ? <EmptyState text="今天暫時沒有排程" /> : (
             <div className="space-y-2.5">
@@ -440,58 +514,77 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
           )}
         </DashboardSection>
 
-        {projectManagement?<DashboardSection icon={<BriefcaseBusiness size={18}/>} title="案件進度" count={projects.length} className={`${mobilePage==='projects'?'block':'hidden'} md:block`}><ProjectOverviewCards projects={projects} milestones={overviewMilestones} today={today} onOpen={(project,milestoneId)=>setSelectedProject({project,milestoneId})}/></DashboardSection>:<DashboardSection icon={<BriefcaseBusiness size={18} />} title="我的專案進度" count={projectCards.length} className={`${mobilePage === 'projects' ? 'block' : 'hidden'} md:block`}>
-          {projectCards.length === 0 ? <EmptyState text="目前沒有指派中的專案" /> : (
-            <div className="space-y-3">
-              {projectCards.map(card => {
-                const fullProject = projects.find(project => project.id === card.project.id) ?? card.project;
-                const milestoneTarget = [...card.progress]
-                  .filter(group => group.current)
-                  .sort((a, b) => (a.current?.planned_date || '9999').localeCompare(b.current?.planned_date || '9999'))[0]
-                  ?.current?.id ?? null;
-                return (
-                  <button type="button" key={card.project.id} onClick={() => setSelectedProject({ project: fullProject, milestoneId: milestoneTarget })} className="group w-full rounded-xl border border-theme-border bg-[var(--surface-secondary)] p-4 text-left transition hover:-translate-y-0.5 hover:border-accent/50 hover:shadow-lg">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="truncate text-base font-bold">{card.project.name}</div>
-                        {card.project.project_code ? <div className="mt-0.5 text-xs text-secondary">{card.project.project_code}</div> : null}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {card.isOverdue ? <span className="rounded-full bg-danger/10 px-2 py-1 text-[11px] font-bold text-danger">逾期</span> : null}
-                        <ArrowUpRight className="text-secondary transition group-hover:text-accent" size={18} />
-                      </div>
-                    </div>
-                    <div className="mt-3 divide-y divide-theme-border/70">
-                      {card.progress.map(group => (
-                        <div key={group.positionId} className="grid gap-1 py-2.5 first:pt-0 last:pb-0 sm:grid-cols-[5rem_1fr]">
-                          <span className="text-xs font-bold text-secondary">{group.positionName}</span>
-                          <div className="min-w-0 text-sm">
-                            <div className="flex gap-2 text-secondary"><span className="shrink-0">前項</span><span className="truncate text-primary/70">{group.previous?.label || '—'}</span></div>
-                            <div className="mt-1 flex gap-2"><span className="shrink-0 font-semibold text-accent">目前</span><span className="truncate font-semibold">{group.current?.label || '已完成'}</span></div>
-                            <div className="mt-1 text-secondary">{presentBusinessDate({planned:group.current?.planned_date,actual:group.current?.actual_date,completed:group.current?.status==='COMPLETED',today}).label}</div>
+        {projectManagement ? (
+          <DashboardSection icon={<BriefcaseBusiness size={18}/>} title="案件進度" count={projects.length} className={`${mobilePage==='projects'?'block':'hidden'} md:block`}>
+            <ProjectOverviewCards projects={projects} milestones={overviewMilestones} today={today} onOpen={(project,milestoneId)=>setSelectedProject({project,milestoneId})}/>
+          </DashboardSection>
+        ) : (
+            <DashboardSection icon={<BriefcaseBusiness size={18} />} title="專案進度" count={projectCards.length} className={`${mobilePage === 'projects' ? 'block' : 'hidden'} min-w-0 md:block`}>
+              {projectCards.length === 0 ? <EmptyState text="目前沒有指派中的專案" /> : (
+                <div className="space-y-2.5">
+                  {projectCards.map(card => {
+                    const fullProject = projects.find(project => project.id === card.project.id) ?? card.project;
+                    const milestoneTarget = [...card.progress]
+                      .filter(group => group.current)
+                      .sort((a, b) => (a.current?.planned_date || '9999').localeCompare(b.current?.planned_date || '9999'))[0]
+                      ?.current?.id ?? null;
+                    return (
+                      <button type="button" key={card.project.id} onClick={() => setSelectedProject({ project: fullProject, milestoneId: milestoneTarget })} className="group w-full min-w-0 rounded-xl border border-theme-border bg-[var(--surface-secondary)] p-2.5 text-left transition hover:-translate-y-0.5 hover:border-accent/50 hover:shadow-lg">
+                        <div className="flex min-w-0 items-start gap-1.5">
+                          <div className="min-w-0 flex-1">
+                            <div className="overflow-hidden text-sm font-bold leading-5 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">{card.project.name}</div>
+                            {card.project.project_code ? <div className="mt-0.5 text-xs text-secondary">{card.project.project_code}</div> : null}
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1">
+                            {card.isOverdue ? <span className="rounded-full bg-danger/10 px-2 py-1 text-[11px] font-bold text-danger">逾期</span> : null}
+                            <ArrowUpRight className="text-secondary transition group-hover:text-accent" size={18} />
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </DashboardSection>
-
-        }
-        <div className={`${mobilePage === 'todos' ? 'block' : 'hidden'} space-y-5 md:col-span-2 md:block min-[1100px]:col-span-1 min-[1100px]:grid min-[1100px]:h-full min-[1100px]:min-h-0 min-[1100px]:grid-rows-2 min-[1100px]:gap-5 min-[1100px]:space-y-0 min-[1100px]:overflow-hidden`}>
-          <nav className="grid grid-cols-2 rounded-xl border border-theme-border bg-card p-1 md:hidden" aria-label="TO DO 類型" role="tablist">
+                        <div className="mt-1.5 divide-y divide-theme-border/70">
+                          {card.progress.map(group => (
+                            <div key={group.positionId} className="space-y-0.5 py-1.5 first:pt-0 last:pb-0">
+                              <div className="flex min-w-0 items-baseline gap-1 text-xs">
+                                <span className="shrink-0 font-bold text-secondary">{group.positionName}｜</span>
+                                {group.state === 'COMPLETED' ? (
+                                  <span className="min-w-0 truncate font-semibold text-success">✓ {group.current?.label} 已完成</span>
+                                ) : (
+                                  <><span className="shrink-0 text-secondary">前項：</span><span className="min-w-0 truncate text-primary/70">{group.previous?.label || '—'}</span>{group.previous?.status === 'COMPLETED' ? <span className="shrink-0 font-semibold text-success">✓ 已完成</span> : null}</>
+                                )}
+                              </div>
+                              {group.state !== 'COMPLETED' ? <div className="flex min-w-0 items-baseline gap-1 text-xs"><span className="shrink-0 font-bold text-accent">{group.state === 'CURRENT' ? '目前' : '即將'}：</span><span className="min-w-0 truncate font-semibold">{group.current?.label}</span></div> : null}
+                              <div className="text-[11px] leading-4 text-secondary">{presentBusinessDate({planned:group.current?.planned_date,actual:group.current?.actual_date,completed:group.current?.status==='COMPLETED',today}).label}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </DashboardSection>
+        )}
+        {!projectManagement ? (
+          <DashboardSection icon={<Package size={18} />} title="近期收料" count={recentReceiptGroups.length} className={`${mobilePage === 'receipts' ? 'block' : 'hidden'} md:block`}>
+            <RecentReceiptList
+              groups={recentReceiptGroups}
+              savingKey={savingKey}
+              canMutate={canMutateTodos}
+              onOpen={group => setSelectedProject({ project: group.project, milestoneId: null, initialTab: 'materials' })}
+              onAddToSchedule={group => void addReceiptToSchedule(group)}
+            />
+          </DashboardSection>
+        ) : null}
+        <div className={`${mobilePage === 'todos' ? 'block' : 'hidden'} min-w-0 space-y-3 md:col-span-2 md:block min-[1100px]:col-span-1 min-[1100px]:h-full min-[1100px]:min-h-0 min-[1100px]:overflow-y-auto`}>
+          <nav className="grid grid-cols-2 rounded-xl border border-theme-border bg-card p-1" aria-label="TO DO 類型" role="tablist">
             <MobileTab active={mobileTodoPage === 'private'} onClick={() => setMobileTodoPage('private')}>我的</MobileTab>
             <MobileTab active={mobileTodoPage === 'team'} onClick={() => setMobileTodoPage('team')}>團隊</MobileTab>
           </nav>
-          <DashboardSection icon={<ListTodo size={18} />} title="我的 TO DO" count={visiblePrivateTodos.length} headerAccessory={<HideCompletedToggle checked={hideCompletedPrivate} onChange={setHideCompletedPrivate} />} className={`${mobileTodoPage === 'private' ? 'block' : 'hidden'} md:block min-[1100px]:min-h-0 min-[1100px]:overflow-y-auto`}>
+          {mobileTodoPage === 'private' ? <DashboardSection icon={<ListTodo size={18} />} title="TO DO" count={visiblePrivateTodos.length} headerAccessory={<HideCompletedToggle checked={hideCompletedPrivate} onChange={setHideCompletedPrivate} />}>
             <TodoQuickComposer value={privateTitle} onChange={setPrivateTitle} onSubmit={createPrivateTodo} placeholder="新增私人記事…" disabled={!canMutateTodos} isSaving={savingKey === 'private-new'} />
             <TodoList actor={currentUser} todos={visiblePrivateTodos} emptyText={hideCompletedPrivate ? '沒有未完成的私人記事' : '目前沒有私人記事'} savingKey={savingKey} onComplete={completePrivateTodo} onEdit={setEditingTodo} onDelete={deleteTodo} onSaved={loadDashboard} disabled={!canMutateTodos} />
-          </DashboardSection>
+          </DashboardSection> : null}
 
-          <DashboardSection icon={<Users size={18} />} title="團隊 TO DO" count={visibleTeamTodos.length} actionHref="/schedule" actionLabel="週排程待辦" className={`${mobileTodoPage === 'team' ? 'block' : 'hidden'} md:block min-[1100px]:min-h-0 min-[1100px]:overflow-y-auto`}>
+          {mobileTodoPage === 'team' ? <DashboardSection icon={<Users size={18} />} title="TO DO" count={visibleTeamTodos.length} actionHref="/schedule" actionLabel="週排程待辦">
             <TodoQuickComposer value={teamTitle} onChange={setTeamTitle} onSubmit={createTeamTodo} placeholder="新增團隊待辦…" disabled={!canMutateTodos} isSaving={savingKey === 'team-new'} />
             <TodoList
               actor={currentUser}
@@ -509,7 +602,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
                 return [project?.name, assignee ? `指派給 ${assignee.name}` : null].filter(Boolean).join(' · ');
               }}
             />
-          </DashboardSection>
+          </DashboardSection> : null}
         </div>
         </div>
       </>}
@@ -520,6 +613,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
           key={`${selectedProject.project.id}:${selectedProject.milestoneId || ''}`}
           project={selectedProject.project}
           initialMilestoneId={selectedProject.milestoneId}
+          initialTab={selectedProject.initialTab}
           onClose={() => setSelectedProject(null)}
           onUpdate={loadDashboard}
           onConstructionUpdated={() => { void loadDashboard(); }}
@@ -558,6 +652,62 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
   );
 }
 
+function RecentReceiptList({
+  groups,
+  savingKey,
+  canMutate,
+  onOpen,
+  onAddToSchedule,
+}: {
+  groups: RecentReceiptGroup[];
+  savingKey: string | null;
+  canMutate: boolean;
+  onOpen: (group: RecentReceiptGroup) => void;
+  onAddToSchedule: (group: RecentReceiptGroup) => void;
+}) {
+  if (groups.length === 0) return <EmptyState text="未來 14 天沒有需要提醒的收料" />;
+  return (
+    <div className="space-y-2">
+      {groups.map(group => {
+        const isSaving = savingKey === `receipt:${group.batch.id}`;
+        const scheduled = Boolean(group.scheduleTaskId);
+        return (
+          <article key={group.batch.id} className={`rounded-xl border-l-4 bg-[var(--surface-secondary)] px-3 py-2.5 ${group.status === 'OVERDUE' ? 'border-danger' : 'border-accent'}`}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${group.status === 'OVERDUE' ? 'bg-danger/10 text-danger' : 'bg-accent/10 text-accent'}`}>
+                    {group.status === 'OVERDUE' ? `逾期 ${group.overdueDays} 天` : '即將到貨'}
+                  </span>
+                  {group.isPartial ? <span className="rounded-full bg-warning/10 px-2 py-0.5 text-[10px] font-bold text-warning">部分到貨</span> : null}
+                </div>
+                <div className="mt-1 font-bold">{formatRecentReceiptDateTime(group.expectedDeliveryAt)}</div>
+                <div className="mt-0.5 break-words text-sm font-semibold">{group.project.name}｜{group.batch.batch_name}｜{group.materials.length} 項</div>
+              </div>
+            </div>
+            <div className="mt-1.5 flex min-w-0 items-center gap-1 text-[11px] leading-4 text-secondary">
+              <span className="min-w-0 truncate">{group.materials.slice(0, 2).map(formatMaterialReceiptSummary).join(' · ')}</span>
+              {group.materials.length > 2 ? <span className="shrink-0 font-semibold text-primary/70">+{group.materials.length - 2}</span> : null}
+            </div>
+            <div className="mt-1.5 flex justify-end gap-2 border-t border-theme-border/60 pt-1.5">
+              <button type="button" onClick={() => onOpen(group)} className="min-h-10 rounded-lg px-3 text-xs font-bold text-secondary transition hover:bg-page hover:text-primary">查看</button>
+              <button
+                type="button"
+                onClick={() => onAddToSchedule(group)}
+                disabled={!canMutate || scheduled || isSaving}
+                className="inline-flex min-h-10 items-center gap-1.5 rounded-lg bg-accent px-3 text-xs font-bold text-white transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isSaving ? <Loader2 className="animate-spin" size={14} /> : null}
+                {scheduled ? '已加入排程' : isSaving ? '加入中…' : '加入排程'}
+              </button>
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
 function MaintenanceList({
   tasks,
   projects,
@@ -565,8 +715,10 @@ function MaintenanceList({
   members,
   workGroups,
   filter,
-  weekRange,
+  dateRange,
   onFilterChange,
+  onDateRangeChange,
+  onResetDateRange,
   onOpenTask,
 }: {
   tasks: ScheduleTask[];
@@ -575,8 +727,10 @@ function MaintenanceList({
   members: ScheduleTaskMember[];
   workGroups: WorkGroup[];
   filter: MaintenanceScheduleFilter;
-  weekRange: { start: string; end: string };
+  dateRange: { start: string; end: string };
   onFilterChange: (filter: MaintenanceScheduleFilter) => void;
+  onDateRangeChange: (range: { start: string; end: string }) => void;
+  onResetDateRange: () => void;
   onOpenTask: (task: ScheduleTask) => void;
 }) {
   return (
@@ -601,7 +755,16 @@ function MaintenanceList({
         </nav>
       </div>
 
-      {filter === 'week' ? <p className="mt-3 text-xs font-medium text-secondary">週期：{weekRange.start.replaceAll('-', '/')}－{weekRange.end.replaceAll('-', '/')}</p> : null}
+      <div className="mt-3 flex flex-wrap items-end gap-2 rounded-xl border border-theme-border bg-page/45 p-3">
+        <label className="text-xs font-medium text-secondary">起始日期
+          <input type="date" value={dateRange.start} max={dateRange.end} onChange={event => onDateRangeChange({ ...dateRange, start: event.target.value })} className="mt-1 block h-9 rounded-lg border border-theme-border bg-card px-2 text-sm text-primary" />
+        </label>
+        <label className="text-xs font-medium text-secondary">結束日期
+          <input type="date" value={dateRange.end} min={dateRange.start} onChange={event => onDateRangeChange({ ...dateRange, end: event.target.value })} className="mt-1 block h-9 rounded-lg border border-theme-border bg-card px-2 text-sm text-primary" />
+        </label>
+        <button type="button" onClick={onResetDateRange} className="h-9 rounded-lg border border-theme-border bg-card px-3 text-xs font-bold text-secondary transition hover:border-accent/50 hover:text-primary">預設兩週</button>
+        <span className="pb-2 text-xs font-medium text-secondary">{dateRange.start.replaceAll('-', '/')}－{dateRange.end.replaceAll('-', '/')}</span>
+      </div>
 
       {tasks.length === 0 ? <div className="mt-3"><EmptyState text={`目前沒有${MAINTENANCE_TABS.find(tab => tab.key === filter)?.label || ''}維修排程`} /></div> : (
         <div className="mt-3 overflow-x-auto rounded-xl border border-theme-border">

@@ -1970,6 +1970,7 @@ export const pocSupabaseAdapter = {
       created_by_user_id: row.created_by_user_id || null,
       created_by_name: row.created_by_name || null,
       creation_source: row.creation_source || 'LEGACY',
+      source_material_batch_id: row.source_material_batch_id || null,
       created_at: row.created_at || new Date().toISOString(),
       updated_at: row.updated_at || new Date().toISOString(),
     })) as ScheduleTask[];
@@ -2018,6 +2019,7 @@ export const pocSupabaseAdapter = {
       created_by_user_id: t.created_by_user_id || null,
       created_by_name: t.created_by_name || null,
       creation_source: t.creation_source || 'APP',
+      source_material_batch_id: t.source_material_batch_id || null,
       updated_by: 'system',
     };
 
@@ -2121,6 +2123,7 @@ export const pocSupabaseAdapter = {
       created_by_user_id: data.created_by_user_id || null,
       created_by_name: data.created_by_name || null,
       creation_source: data.creation_source || 'LEGACY',
+      source_material_batch_id: data.source_material_batch_id || null,
       created_at: data.created_at || new Date().toISOString(),
       updated_at: data.updated_at || new Date().toISOString(),
     } as ScheduleTask;

@@ -17,6 +17,13 @@ type ScheduleTaskInput = Omit<ScheduleTask, 'id' | 'created_at' | 'updated_at'>;
 const actorId = (actor: ScheduleActor) => actor.id || 'system';
 const actorName = (actor: ScheduleActor) => actor.name || 'System';
 const withMembers = (context: ScheduleAuditContext, memberIds: string[]) => ({ ...context, memberIds });
+const isLinkedReceiptTask = (task: Pick<ScheduleTask, 'task_type' | 'source_material_batch_id'>) => (
+  task.task_type.replace(/\u3000/g, ' ').trim() === '收料' && Boolean(task.source_material_batch_id)
+);
+const receiptPlanDateTime = (task: Pick<ScheduleTask, 'task_date' | 'start_time'>) => {
+  const time = (task.start_time || '09:00').slice(0, 5);
+  return `${task.task_date}T${time}:00+08:00`;
+};
 
 export async function logScheduleTaskCreation(
   task: ScheduleTask,
@@ -39,6 +46,22 @@ export async function logScheduleTaskCreation(
   });
 }
 
+export async function createScheduleTaskWithActivity({
+  data,
+  memberIds,
+  actor,
+  auditContext = {},
+}: {
+  data: ScheduleTaskInput;
+  memberIds: string[];
+  actor: ScheduleActor;
+  auditContext?: Omit<ScheduleAuditContext, 'memberIds'>;
+}) {
+  const task = await dbAdapter.createScheduleTask(data, memberIds);
+  await logScheduleTaskCreation(task, actor, withMembers(auditContext, memberIds));
+  return task;
+}
+
 export async function updateScheduleTaskWithActivity({
   task,
   data,
@@ -56,7 +79,21 @@ export async function updateScheduleTaskWithActivity({
   actor: ScheduleActor;
   auditContext?: Omit<ScheduleAuditContext, 'memberIds'>;
 }) {
-  const safeData = { ...data, work_group_id: task.work_group_id };
+  const linkedReceipt = isLinkedReceiptTask(task);
+  const safeData = {
+    ...data,
+    work_group_id: task.work_group_id,
+    task_type: linkedReceipt ? '收料' : data.task_type,
+  };
+  const receiptTimingChanged = linkedReceipt && (
+    task.task_date !== safeData.task_date || task.start_time !== safeData.start_time
+  );
+  if (receiptTimingChanged) {
+    await dbAdapter.updateMaterialReceiptPlan(
+      task.source_material_batch_id as string,
+      receiptPlanDateTime(safeData),
+    );
+  }
   const updatedTask = await dbAdapter.updateScheduleTask(task.id, safeData, memberIds);
   const before = createScheduleAuditSnapshot(task, withMembers(auditContext, previousMemberIds));
   const after = createScheduleAuditSnapshot(
@@ -105,6 +142,10 @@ export async function completeScheduleTaskWithActivity(
   actor: ScheduleActor,
   auditContext: ScheduleAuditContext = {},
 ) {
+  const completedAt = new Date().toISOString();
+  if (isLinkedReceiptTask(task)) {
+    await dbAdapter.completeMaterialReceiptSchedule(task.id, completedAt);
+  }
   const updatedTask = await dbAdapter.updateScheduleTask(task.id, { status: '完成' });
   if (task.source_todo_id) {
     await dbAdapter.updateTodo(task.source_todo_id, { status: '已完成' });
