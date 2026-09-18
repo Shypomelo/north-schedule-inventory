@@ -89,10 +89,7 @@ export async function updateScheduleTaskWithActivity({
     task.task_date !== safeData.task_date || task.start_time !== safeData.start_time
   );
   if (receiptTimingChanged) {
-    await dbAdapter.updateMaterialReceiptPlan(
-      task.source_material_batch_id as string,
-      receiptPlanDateTime(safeData),
-    );
+    await dbAdapter.rescheduleMaterialReceiptGroup(task.id, receiptPlanDateTime(safeData));
   }
   const updatedTask = await dbAdapter.updateScheduleTask(task.id, safeData, memberIds);
   const before = createScheduleAuditSnapshot(task, withMembers(auditContext, previousMemberIds));

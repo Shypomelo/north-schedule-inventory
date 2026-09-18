@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ActivityLog, ScheduleTask, Project, User, TaskStatus, WorkGroup } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
-import { getProjectLocationLabel, getProjectSearchScore } from '@/lib/project-location';
+import { filterProjectsForAutocomplete, getProjectLocationLabel } from '@/lib/project-location';
 import { useUser } from './UserContext';
 import { addHours, format, parse } from 'date-fns';
 import { useScheduleTaskTypes } from '@/hooks/useScheduleTaskTypes';
@@ -289,18 +289,10 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
     setIsDropdownOpen(false);
   };
 
-  const filteredProjects = useMemo(() => {
-    if (!projectNameInput.trim()) return [];
-    
-    const scored = projects.map(p => {
-      return {
-        project: p,
-        score: getProjectSearchScore(p, projectNameInput, [p.notes]),
-      };
-    }).filter(item => item.score > 0);
-
-    return scored.sort((a, b) => b.score - a.score).map(item => item.project).slice(0, 50);
-  }, [projects, projectNameInput]);
+  const filteredProjects = useMemo(
+    () => filterProjectsForAutocomplete(projects, projectNameInput),
+    [projects, projectNameInput],
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -17,7 +17,7 @@ sourceModule.filename = sourcePath;
 sourceModule.paths = module.paths;
 sourceModule._compile(transpiled, sourcePath);
 
-const { parseTaiwanProjectLocation } = sourceModule.exports;
+const { filterProjectsForAutocomplete, parseTaiwanProjectLocation } = sourceModule.exports;
 
 test('parseTaiwanProjectLocation preserves the complete canonical district name', () => {
   const cases = [
@@ -33,4 +33,15 @@ test('parseTaiwanProjectLocation preserves the complete canonical district name'
   cases.forEach(([address, city, district]) => {
     assert.deepEqual(parseTaiwanProjectLocation(address), { city, district });
   });
+});
+
+test('project autocomplete stays closed for blank input and filters from the first character', () => {
+  const projects = [
+    { name: 'Alpha 案場', short_name: 'A', project_code: 'P-001', address: '台北市中山區', region: '北區', notes: null },
+    { name: 'Beta 案場', short_name: 'B', project_code: 'P-002', address: '新北市板橋區', region: '北區', notes: null },
+  ];
+  assert.deepEqual(filterProjectsForAutocomplete(projects, ''), []);
+  assert.deepEqual(filterProjectsForAutocomplete(projects, ' '), []);
+  assert.deepEqual(filterProjectsForAutocomplete(projects, 'l').map(project => project.name), ['Alpha 案場']);
+  assert.deepEqual(filterProjectsForAutocomplete(projects, '板').map(project => project.name), ['Beta 案場']);
 });

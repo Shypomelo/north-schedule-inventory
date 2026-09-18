@@ -10,6 +10,7 @@ const {
   selectMaintenanceScheduleTasks,
   getDefaultMaintenanceDateRange,
 } = load('schedule-selectors.ts');
+const { filterProjectsForAutocomplete } = load('project-location.ts');
 
 const task = (overrides = {}) => ({
   id: 'task',
@@ -119,7 +120,32 @@ test('schedule input and presentation UI keep one canonical data flow', () => {
   const schedule = fs.readFileSync(path.join(__dirname, '..', 'app', 'schedule', 'page.tsx'), 'utf8');
 
   assert.match(form, /setIsDropdownOpen\(Boolean\(val\.trim\(\)\)\)/);
-  assert.match(form, /if \(!projectNameInput\.trim\(\)\) return \[\]/);
+  assert.match(form, /filterProjectsForAutocomplete\(projects,\s*projectNameInput\)/);
+  const autocompleteProjects = [
+    {
+      name: 'Alpha Project',
+      short_name: null,
+      project_code: null,
+      address: null,
+      region: null,
+      notes: null,
+    },
+    {
+      name: 'Beta Project',
+      short_name: null,
+      project_code: null,
+      address: null,
+      region: null,
+      notes: null,
+    },
+  ];
+  assert.deepEqual(filterProjectsForAutocomplete(autocompleteProjects, ''), []);
+  assert.deepEqual(filterProjectsForAutocomplete(autocompleteProjects, ' '), []);
+  assert.deepEqual(filterProjectsForAutocomplete(autocompleteProjects, '   '), []);
+  assert.deepEqual(
+    filterProjectsForAutocomplete(autocompleteProjects, 'alph').map(project => project.name),
+    ['Alpha Project'],
+  );
   assert.match(form, /onFocus=\{\(\) => setIsDropdownOpen\(Boolean\(projectNameInput\.trim\(\)\)\)\}/);
   assert.match(form, /usesScheduleProjectBinding\(formData\.task_type\)/);
   assert.match(form, /allowsScheduleTaskLocation\(formData\.task_type\)/);

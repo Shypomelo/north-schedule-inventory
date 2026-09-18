@@ -204,7 +204,7 @@ export function ProjectDetailModal({ project, initialMilestoneId, initialTab, on
           <div className="min-w-0 flex-1 overflow-y-auto bg-page/30 p-3 sm:p-6">
             {activeTab === 'basic' && renderBasicInfo()}
             {activeTab === 'workflow' && <ProjectWorkflow projectId={project.id} projectName={editedProject.name} targetMilestoneId={initialMilestoneId} actor={currentUser ? { id: currentUser.id, name: currentUser.name } : null} canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')} canRefresh={currentUser?.role === 'ADMIN'} construction={<ConstructionProgressSection model={construction} />} onUpdate={onUpdate} onMilestoneUpdated={onMilestoneUpdated} />}
-            {activeTab === 'materials' && <ProjectMaterials projectId={project.id} projectName={editedProject.name} canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')} onChanged={onUpdate} />}
+            {activeTab === 'materials' && <ProjectMaterials projectId={project.id} projectName={editedProject.name} canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')} />}
             {activeTab === 'notes' && renderNotes()}
           </div>
         </div>

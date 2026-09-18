@@ -3,7 +3,7 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { addDays, format } from 'date-fns';
 import { zhTW } from 'date-fns/locale';
-import { ArrowUpRight, BriefcaseBusiness, CalendarDays, CheckCircle2, Circle, LayoutDashboard, ListTodo, Loader2, MapPin, Package, Users, Wrench } from 'lucide-react';
+import { ArrowUpRight, BriefcaseBusiness, CalendarDays, CheckCircle2, Circle, LayoutDashboard, ListTodo, Loader2, MapPin, Package, PackageCheck, Users, Wrench } from 'lucide-react';
 import { ProjectDetailModal } from '@/components/ProjectDetailModal';
 import { ScheduleTaskDetail } from '@/components/ScheduleTaskDetail';
 import { ScheduleTaskFormDialog } from '@/components/ScheduleTaskFormDialog';
@@ -15,6 +15,7 @@ import { TodoRow } from '@/components/TodoRow';
 import { TodoQuickComposer } from '@/components/TodoQuickComposer';
 import { useDashboardView } from '@/components/DashboardViewContext';
 import { DesignWorkbench } from '@/components/DesignWorkbench';
+import { MaterialReceivingCenter } from '@/components/MaterialReceivingCenter';
 import { ProjectOverviewCards } from '@/components/ProjectOverviewCards';
 import { workbenchAdapter } from '@/lib/db/workbench-adapter';
 import type { ProjectMilestone } from '@/lib/db/types';
@@ -56,6 +57,13 @@ import {
   updateScheduleTaskWithActivity,
 } from '@/lib/schedule-task-actions';
 import type { MemberWorkGroup } from '@/lib/work-groups';
+import {
+  availableDashboardSubpages,
+  dashboardSubpageStorageKey,
+  resolveDashboardSubpage,
+  type DashboardSubpage,
+} from '@/lib/dashboard-navigation';
+import type { DashboardViewKey } from '@/lib/dashboard-perspectives';
 
 type MobileDashboardPage = 'schedule' | 'projects' | 'receipts' | 'todos';
 type MobileTodoPage = 'private' | 'team';
@@ -68,13 +76,45 @@ const MAINTENANCE_TABS: { key: MaintenanceScheduleFilter; label: string }[] = [
 ];
 
 export default function DashboardPage() {
-  const {selected,loading,error}=useDashboardView();
+  const {currentUser}=useUser();
+  const {allowed,selected,select,loading,error}=useDashboardView();
+  const [subpage,setSubpage]=useState<DashboardSubpage>('overview');
+  useEffect(()=>{
+    if(!currentUser||!selected)return;
+    setSubpage(resolveDashboardSubpage(selected.key,window.localStorage.getItem(dashboardSubpageStorageKey(currentUser.id,selected.key))));
+  },[currentUser,selected]);
   if(loading)return <p className="p-5">載入工作視角…</p>;
   if(error||!selected)return <p role="alert" className="p-5">{error||'未指派啟用工作視角'}</p>;
-  return selected.key==='DESIGN'?<DesignWorkbench/>:<EngineeringDashboardPage key={selected.key} projectManagement={selected.key==='PROJECT_MANAGEMENT'}/>;
+  const perspectiveLabel=(key:DashboardViewKey)=>({ENGINEERING:'工程',PROJECT_MANAGEMENT:'專案',DESIGN:'設計'} as const)[key];
+  const subpageLabel=(page:DashboardSubpage)=>({overview:'儀表總覽',maintenance:'維修清單',receiving:'物料到貨'} as const)[page];
+  const chooseSubpage=(next:DashboardSubpage)=>{
+    if(!currentUser)return;
+    setSubpage(next);
+    window.localStorage.setItem(dashboardSubpageStorageKey(currentUser.id,selected.key),next);
+  };
+  return <div className="min-h-full bg-page text-primary">
+    <header className="border-b border-theme-border bg-card/35 px-4 py-3 md:px-6 xl:px-8">
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
+        <div className="shrink-0"><p className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-accent md:hidden">Dashboard</p><h1 className="text-xl font-bold tracking-tight md:text-2xl">{perspectiveLabel(selected.key)}儀表</h1></div>
+        <nav className="flex w-full gap-1 overflow-x-auto rounded-xl border border-theme-border bg-page p-1 md:w-fit" aria-label="Dashboard 視角" role="tablist">
+        {allowed.map(view=><button type="button" role="tab" aria-selected={selected.key===view.key} key={view.id} onClick={()=>select(view.key)} className={`min-h-10 shrink-0 rounded-lg px-4 text-sm font-bold transition ${selected.key===view.key?'bg-accent text-white shadow-sm':'text-secondary hover:text-primary'}`}>{perspectiveLabel(view.key)}</button>)}
+        </nav>
+        <span className="hidden h-8 w-px shrink-0 bg-theme-border md:block" aria-hidden="true" />
+        <nav className="flex w-full gap-1 overflow-x-auto rounded-xl border border-theme-border bg-card p-1 md:w-fit" aria-label={`${perspectiveLabel(selected.key)}儀表功能`} role="tablist">
+        {availableDashboardSubpages(selected.key).map(page=><button type="button" role="tab" aria-selected={subpage===page} key={page} onClick={()=>chooseSubpage(page)} className={`inline-flex min-h-10 shrink-0 items-center justify-center gap-1 rounded-lg px-3 text-sm font-bold transition ${subpage===page?'bg-accent text-white shadow-sm':'text-secondary hover:text-primary'}`}>{page==='overview'?<LayoutDashboard size={16}/>:page==='maintenance'?<Wrench size={16}/>:<PackageCheck size={16}/>} {subpageLabel(page)}</button>)}
+        </nav>
+        <div className="hidden shrink-0 text-right md:ml-auto md:block"><div className="font-semibold">{format(new Date(), 'M月d日 EEEE', { locale: zhTW })}</div><div className="mt-0.5 text-sm text-secondary">{currentUser?.name}</div></div>
+      </div>
+    </header>
+    {subpage==='receiving'
+      ? <div className="px-4 py-5 md:px-6 xl:px-8"><MaterialReceivingCenter/></div>
+      : selected.key==='DESIGN'
+        ? <DesignWorkbench/>
+        : <EngineeringDashboardPage key={selected.key} projectManagement={selected.key==='PROJECT_MANAGEMENT'} dashboardView={subpage==='maintenance'?'maintenance':'overview'}/>}
+  </div>;
 }
 
-function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:boolean}) {
+function EngineeringDashboardPage({projectManagement=false,dashboardView}:{projectManagement?:boolean;dashboardView:EngineeringDashboardView}) {
   const todoGroupKey=projectManagement?'PROJECT':'ENGINEERING';
   const [overviewMilestones,setOverviewMilestones]=useState<ProjectMilestone[]>([]);
   const { currentUser, allUsers } = useUser();
@@ -104,7 +144,6 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
   const [taskActionPending, setTaskActionPending] = useState(false);
   const [mobilePage, setMobilePage] = useState<MobileDashboardPage>('schedule');
   const [mobileTodoPage, setMobileTodoPage] = useState<MobileTodoPage>('private');
-  const [dashboardView, setDashboardView] = useState<EngineeringDashboardView>('overview');
   const [maintenanceFilter, setMaintenanceFilter] = useState<MaintenanceScheduleFilter>('week');
   const [maintenanceDateRange, setMaintenanceDateRange] = useState(() => getDefaultMaintenanceDateRange());
   const today = useMemo(() => format(new Date(), 'yyyy-MM-dd'), []);
@@ -368,7 +407,7 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
       setError('找不到工程排程群組');
       return;
     }
-    const key = `receipt:${group.batch.id}`;
+    const key = `receipt:${group.receiptGroupKey}`;
     setSavingKey(key);
     setError(null);
     try {
@@ -403,28 +442,6 @@ function EngineeringDashboardPage({projectManagement=false}:{projectManagement?:
 
   return (
     <div className="min-h-full bg-page px-4 py-5 text-primary md:px-6 md:py-7 xl:px-8 min-[1100px]:h-[100dvh] min-[1100px]:overflow-hidden">
-      <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-accent">Engineering overview</p>
-          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">{projectManagement?'專案管理儀表':'工程儀表'}</h1>
-        </div>
-        <div className="text-right">
-          <div className="font-semibold">{format(new Date(), 'M月d日 EEEE', { locale: zhTW })}</div>
-          <div className="mt-0.5 text-sm text-secondary">{currentUser?.name}</div>
-        </div>
-      </header>
-
-      {!projectManagement ? (
-        <nav className="mb-4 flex w-fit rounded-xl border border-theme-border bg-card p-1" aria-label="工程儀表功能" role="tablist">
-          <button type="button" role="tab" aria-selected={dashboardView === 'overview'} onClick={() => setDashboardView('overview')} className={`inline-flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-bold transition ${dashboardView === 'overview' ? 'bg-accent text-white shadow-sm' : 'text-secondary hover:text-primary'}`}>
-            <LayoutDashboard size={16} />儀表總覽
-          </button>
-          <button type="button" role="tab" aria-selected={dashboardView === 'maintenance'} onClick={() => setDashboardView('maintenance')} className={`inline-flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-bold transition ${dashboardView === 'maintenance' ? 'bg-accent text-white shadow-sm' : 'text-secondary hover:text-primary'}`}>
-            <Wrench size={16} />維修清單
-          </button>
-        </nav>
-      ) : null}
-
       {error ? <div className="mb-5 rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">{error}</div> : null}
 
       {dashboardView === 'maintenance' && !projectManagement ? (
@@ -669,7 +686,7 @@ function RecentReceiptList({
   return (
     <div className="space-y-2">
       {groups.map(group => {
-        const isSaving = savingKey === `receipt:${group.batch.id}`;
+        const isSaving = savingKey === `receipt:${group.receiptGroupKey}`;
         const scheduled = Boolean(group.scheduleTaskId);
         return (
           <article key={group.batch.id} className={`rounded-xl border-l-4 bg-[var(--surface-secondary)] px-3 py-2.5 ${group.status === 'OVERDUE' ? 'border-danger' : 'border-accent'}`}>

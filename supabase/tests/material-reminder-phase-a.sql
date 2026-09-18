@@ -60,13 +60,32 @@ SELECT pg_temp.assert_true(
 
 SELECT pg_temp.assert_true(
   EXISTS (
-    SELECT 1 FROM pg_indexes
-    WHERE schemaname = 'public'
-      AND tablename = 'schedule_tasks'
-      AND indexname = 'schedule_tasks_active_material_batch_unique_idx'
-      AND indexdef ILIKE '%UNIQUE%'
+    SELECT 1
+    FROM pg_class AS index_relation
+    JOIN pg_namespace AS index_namespace
+      ON index_namespace.oid = index_relation.relnamespace
+    JOIN pg_index AS index_metadata
+      ON index_metadata.indexrelid = index_relation.oid
+    JOIN pg_class AS table_relation
+      ON table_relation.oid = index_metadata.indrelid
+    WHERE index_namespace.nspname = 'public'
+      AND table_relation.relname = 'schedule_tasks'
+      AND index_relation.relname = 'schedule_tasks_active_material_receipt_group_unique_idx'
+      AND index_metadata.indisunique
+      AND pg_get_indexdef(index_relation.oid)
+        ILIKE '%(source_material_batch_id, source_material_receipt_at)%'
+      AND pg_get_expr(index_metadata.indpred, index_metadata.indrelid)
+        ILIKE '%source_material_batch_id IS NOT NULL%'
+      AND pg_get_expr(index_metadata.indpred, index_metadata.indrelid)
+        ILIKE '%source_material_receipt_at IS NOT NULL%'
+      AND pg_get_expr(index_metadata.indpred, index_metadata.indrelid)
+        ILIKE '%status IS DISTINCT FROM%取消%'
+      AND pg_get_expr(index_metadata.indpred, index_metadata.indrelid)
+        ILIKE '%status IS DISTINCT FROM%完成%'
+      AND pg_get_expr(index_metadata.indpred, index_metadata.indrelid)
+        ILIKE '%deleted_at IS NULL%'
   ),
-  'active material batch schedule relation is unique'
+  'active material receipt-time group schedule relation is unique'
 );
 
 DO $fixtures$
@@ -132,14 +151,16 @@ INSERT INTO public.project_material_batches (
 
 INSERT INTO public.schedule_tasks (
   id, work_group_id, title, task_type, task_date, status,
-  project_id, project_name, primary_member_id, source_material_batch_id
+  project_id, project_name, primary_member_id, source_material_batch_id,
+  source_material_receipt_at
 ) VALUES (
   '73600000-0000-4000-8000-000000000001',
   current_setting('test.work_group_id')::uuid,
   '收料', '收料', current_date, '',
   current_setting('test.project_id'), 'TEST Phase A project',
   current_setting('test.editor_id'),
-  '73500000-0000-4000-8000-000000000001'
+  '73500000-0000-4000-8000-000000000001',
+  '2099-01-15 01:00:00+00'
 );
 
 SELECT pg_temp.assert_true(
@@ -147,17 +168,29 @@ SELECT pg_temp.assert_true(
     SELECT 1 FROM public.schedule_tasks
     WHERE id = '73600000-0000-4000-8000-000000000001'
       AND source_material_batch_id = '73500000-0000-4000-8000-000000000001'
+      AND source_material_receipt_at = '2099-01-15 01:00:00+00'
   ),
   'editor creates a receiving schedule through existing schedule RLS'
 );
 
 SELECT pg_temp.assert_true(
-  pg_temp.statement_fails(format(
-    'INSERT INTO public.schedule_tasks (work_group_id, title, task_type, task_date, status, source_material_batch_id) VALUES (%L, ''收料'', ''收料'', current_date, '''', %L)',
+  NOT pg_temp.statement_fails(format(
+    'INSERT INTO public.schedule_tasks (work_group_id, title, task_type, task_date, status, source_material_batch_id, source_material_receipt_at) VALUES (%L, ''收料'', ''收料'', current_date, '''', %L, %L::timestamptz)',
     current_setting('test.work_group_id'),
-    '73500000-0000-4000-8000-000000000001'
+    '73500000-0000-4000-8000-000000000001',
+    '2099-01-15 02:00:00+00'
   )),
-  'duplicate active receiving schedules are rejected'
+  'the same batch can have active schedules for different receipt-time groups'
+);
+
+SELECT pg_temp.assert_true(
+  pg_temp.statement_fails(format(
+    'INSERT INTO public.schedule_tasks (work_group_id, title, task_type, task_date, status, source_material_batch_id, source_material_receipt_at) VALUES (%L, ''收料'', ''收料'', current_date, '''', %L, %L::timestamptz)',
+    current_setting('test.work_group_id'),
+    '73500000-0000-4000-8000-000000000001',
+    '2099-01-15 01:00:00+00'
+  )),
+  'duplicate active schedules for the same receipt-time group are rejected'
 );
 
 UPDATE public.schedule_tasks
@@ -166,11 +199,12 @@ WHERE id = '73600000-0000-4000-8000-000000000001';
 
 SELECT pg_temp.assert_true(
   NOT pg_temp.statement_fails(format(
-    'INSERT INTO public.schedule_tasks (work_group_id, title, task_type, task_date, status, source_material_batch_id) VALUES (%L, ''收料'', ''收料'', current_date, '''', %L)',
+    'INSERT INTO public.schedule_tasks (work_group_id, title, task_type, task_date, status, source_material_batch_id, source_material_receipt_at) VALUES (%L, ''收料'', ''收料'', current_date, '''', %L, %L::timestamptz)',
     current_setting('test.work_group_id'),
-    '73500000-0000-4000-8000-000000000001'
+    '73500000-0000-4000-8000-000000000001',
+    '2099-01-15 01:00:00+00'
   )),
-  'a cancelled receiving schedule can be deliberately recreated'
+  'a cancelled receipt-time group schedule can be deliberately recreated'
 );
 
 RESET ROLE;
@@ -183,9 +217,10 @@ SET LOCAL ROLE authenticated;
 
 SELECT pg_temp.assert_true(
   pg_temp.statement_fails(format(
-    'INSERT INTO public.schedule_tasks (work_group_id, title, task_type, task_date, status, source_material_batch_id) VALUES (%L, ''Denied'', ''收料'', current_date, '''', %L)',
+    'INSERT INTO public.schedule_tasks (work_group_id, title, task_type, task_date, status, source_material_batch_id, source_material_receipt_at) VALUES (%L, ''Denied'', ''收料'', current_date, '''', %L, %L::timestamptz)',
     current_setting('test.work_group_id'),
-    '73500000-0000-4000-8000-000000000001'
+    '73500000-0000-4000-8000-000000000001',
+    '2099-01-15 03:00:00+00'
   )),
   'viewer cannot create a receiving schedule'
 );

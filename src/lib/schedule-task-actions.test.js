@@ -87,7 +87,7 @@ test('Schedule update writes one structured event and suppresses no-op history',
   assert.deepEqual(JSON.parse(logged[0].after_value), { task_date: '2026-09-17' });
 });
 
-test('linked receipt reschedule updates the canonical batch plan before the schedule', async () => {
+test('linked receipt reschedule updates only its canonical receipt-time group before the schedule', async () => {
   const calls = [];
   const receiptTask = {
     ...baseTask,
@@ -95,7 +95,7 @@ test('linked receipt reschedule updates the canonical batch plan before the sche
     source_material_batch_id: 'batch-1',
   };
   const dbAdapter = {
-    updateMaterialReceiptPlan: async (id, value) => { calls.push(['plan', id, value]); },
+    rescheduleMaterialReceiptGroup: async (id, value) => { calls.push(['group', id, value]); },
     updateScheduleTask: async (_id, updates) => { calls.push(['task', updates.task_date, updates.start_time]); return { ...receiptTask, ...updates }; },
     logActivity: async entry => { calls.push(['audit', entry.action_type]); return entry; },
   };
@@ -106,7 +106,7 @@ test('linked receipt reschedule updates the canonical batch plan before the sche
     memberIds: [],
     actor: { id: 'actor', name: '柚子' },
   });
-  assert.deepEqual(calls[0], ['plan', 'batch-1', '2026-09-22T10:00:00+08:00']);
+  assert.deepEqual(calls[0], ['group', 'task-1', '2026-09-22T10:00:00+08:00']);
   assert.deepEqual(calls[1], ['task', '2026-09-22', '10:00']);
   assert.deepEqual(calls[2], ['audit', 'RESCHEDULE_TASK']);
 });

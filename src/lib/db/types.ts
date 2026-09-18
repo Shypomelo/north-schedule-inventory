@@ -74,6 +74,14 @@ export interface SESupplyRecord {
   receive_date: string | null; // YYYY-MM-DD
   replace_date: string | null; // YYYY-MM-DD
   notes: string | null;
+  quantity: number;
+  unit: string;
+  expected_delivery_at: string | null;
+  requested_by: string | null;
+  procurement_status: ProcurementStatus;
+  received_at: string | null;
+  received_by: string | null;
+  receiving_archived_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -293,6 +301,7 @@ export interface ScheduleTask {
   creation_source: ScheduleCreationSource;
   source_todo_id: string | null;
   source_material_batch_id?: string | null;
+  source_material_receipt_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -373,6 +382,7 @@ export interface MaterialCatalogItem {
   default_unit: string;
   default_reminder_enabled: boolean;
   default_reminder_days_before: number | null;
+  default_delivery_destination: DeliveryDestination;
   is_active: boolean;
   sort_order: number;
   created_by: string;
@@ -406,12 +416,27 @@ export type ProcurementStatus =
   | 'PARTIAL_RECEIVED'
   | 'RECEIVED';
 
+export type DeliveryDestination =
+  | 'OFFICE'
+  | 'SITE'
+  | 'WAREHOUSE'
+  | 'OTHER';
+
+export type MaterialReceiptSourceType =
+  | 'PROJECT_MATERIAL'
+  | 'SE_SUPPLY';
+
+export type MaterialReceiptEventType =
+  | 'RECEIVE'
+  | 'REVERSAL';
+
 export interface ProjectMaterialBatch {
   id: string;
   project_id: string;
   batch_name: string;
   ordered_at: string | null;
   planned_receipt_at: string | null;
+  same_day_delivery: boolean;
   received_at: string | null;
   notes: string | null;
   created_by: string;
@@ -447,7 +472,10 @@ export interface ProjectMaterial {
   reminder_enabled: boolean;
   reminder_days_before: number | null;
   include_in_purchase_request: boolean;
+  delivery_destination: DeliveryDestination;
+  delivery_destination_note: string | null;
   notes: string | null;
+  receiving_archived_at: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -465,13 +493,42 @@ export type MaterialCatalogItemUpdateInput = Partial<Omit<
 
 export type ProjectMaterialCreateInput = Omit<
   ProjectMaterial,
-  'id' | 'created_at' | 'updated_at'
+  'id' | 'receiving_archived_at' | 'created_at' | 'updated_at'
 >;
 
 export type ProjectMaterialUpdateInput = Partial<Omit<
   ProjectMaterial,
   'id' | 'project_id' | 'created_by' | 'created_at' | 'updated_at'
 >>;
+
+export interface MaterialReceipt {
+  id: string;
+  source_type: MaterialReceiptSourceType;
+  project_material_id: string | null;
+  se_supply_record_id: string | null;
+  event_type: MaterialReceiptEventType;
+  reversal_of_id: string | null;
+  quantity_received: number;
+  received_by: string;
+  received_at: string;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface ConfirmMaterialReceiptInput {
+  sourceType: MaterialReceiptSourceType;
+  sourceId: string;
+  quantityReceived: number;
+  receivedAt: string;
+  notes: string | null;
+}
+
+export interface ReverseMaterialReceiptInput {
+  receiptId: string;
+  quantityReversed: number;
+  reversedAt: string;
+  notes: string | null;
+}
 
 export interface InventoryTransaction {
   id: string;

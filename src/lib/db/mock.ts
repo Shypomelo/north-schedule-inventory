@@ -956,9 +956,10 @@ export const mockDbAdapter = {
   getSESupplyRecords: async (): Promise<SESupplyRecord[]> => {
     return [...(db.se_supply_records || [])].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   },
-  createSESupplyRecord: async (data: Omit<SESupplyRecord, 'id'|'created_at'|'updated_at'>): Promise<SESupplyRecord> => {
+  createSESupplyRecord: async (data: Omit<SESupplyRecord, 'id'|'receiving_archived_at'|'created_at'|'updated_at'>): Promise<SESupplyRecord> => {
     const newRecord: SESupplyRecord = {
       ...data,
+      receiving_archived_at: null,
       id: crypto.randomUUID(),
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()

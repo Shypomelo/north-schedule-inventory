@@ -5,20 +5,25 @@ import { Bell, ChevronDown, ChevronRight, Clipboard, MoreHorizontal, PackagePlus
 import { useUser } from './UserContext';
 import { useRowAutosave, type RowAutosaveState } from '@/hooks/useRowAutosave';
 import { dbAdapter } from '@/lib/db';
+import { ReceiptDateTimeInput } from './ReceiptDateTimeInput';
+import { MaterialReceiptHistoryDialog } from './MaterialReceiptHistoryDialog';
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
-import type { MaterialCatalogItem, MaterialGroup, ProjectMaterial, ProjectMaterialBatch, ProjectMaterialCreateInput } from '@/lib/db/types';
+import type { DeliveryDestination, MaterialCatalogItem, MaterialGroup, MaterialReceipt, ProjectMaterial, ProjectMaterialBatch, ProjectMaterialCreateInput } from '@/lib/db/types';
 import {
   buildCustomProjectMaterial,
   buildProjectMaterialFromCatalog,
   buildPurchaseRequestText,
   deriveBatchProcurementSummary,
+  DELIVERY_DESTINATION_OPTIONS,
   filterMaterialCatalogByGroupId,
   fromDatetimeLocalValue,
   getActiveMaterialGroups,
+  getProjectMaterialGroupLabel,
   getProcurementStatusLabel,
-  PROCUREMENT_STATUS_OPTIONS,
   toDatetimeLocalValue,
 } from '@/lib/project-materials';
+import { formatCompactTaipeiReceiptTime, getEffectiveExpectedDeliveryAt } from '@/lib/material-receipt-time';
+import { summarizeMaterialReceipts } from '@/lib/material-receiving';
 
 const compactInputClass = 'h-8 w-full min-w-0 rounded-md border border-theme-border bg-page px-2 text-xs text-primary outline-none focus:border-accent disabled:opacity-60';
 
@@ -33,15 +38,16 @@ interface Props {
   projectId: string;
   projectName: string;
   canEdit: boolean;
-  onChanged?: () => void | Promise<void>;
 }
 
-export function ProjectMaterials({ projectId, projectName, canEdit, onChanged }: Props) {
+export function ProjectMaterials({ projectId, projectName, canEdit }: Props) {
   const { currentUser } = useUser();
   const [batches, setBatches] = useState<ProjectMaterialBatch[]>([]);
   const [materials, setMaterials] = useState<ProjectMaterial[]>([]);
   const [catalog, setCatalog] = useState<MaterialCatalogItem[]>([]);
   const [groups, setGroups] = useState<MaterialGroup[]>([]);
+  const [receipts, setReceipts] = useState<MaterialReceipt[]>([]);
+  const [historyMaterial, setHistoryMaterial] = useState<ProjectMaterial | null>(null);
   const [expandedBatchIds, setExpandedBatchIds] = useState<Set<string>>(new Set());
   const [showBatchCreate, setShowBatchCreate] = useState(false);
   const [newBatchName, setNewBatchName] = useState('');
@@ -56,16 +62,18 @@ export function ProjectMaterials({ projectId, projectName, canEdit, onChanged }:
     setLoading(true);
     setError(null);
     try {
-      const [batchRows, materialRows, catalogRows, groupRows] = await Promise.all([
+      const [batchRows, materialRows, catalogRows, groupRows, receiptRows] = await Promise.all([
         dbAdapter.listProjectMaterialBatches(projectId),
         dbAdapter.listProjectMaterials(projectId),
-        dbAdapter.listMaterialCatalogItems(false),
-        dbAdapter.listMaterialGroups(false),
+        dbAdapter.listMaterialCatalogItems(true),
+        dbAdapter.listMaterialGroups(true),
+        dbAdapter.listMaterialReceipts(),
       ]);
       setBatches(batchRows);
       setMaterials(materialRows);
       setCatalog(catalogRows);
       setGroups(groupRows);
+      setReceipts(receiptRows);
       const preferred = batchRows.find(batch => deriveBatchProcurementSummary(
         batch,
         materialRows.filter(material => material.batch_id === batch.id),
@@ -96,9 +104,8 @@ export function ProjectMaterials({ projectId, projectName, canEdit, onChanged }:
       const result = saved.planned_receipt_at === batch.planned_receipt_at
         ? saved
         : await dbAdapter.updateMaterialReceiptPlan(batch.id, batch.planned_receipt_at);
-      await onChanged?.();
       return result;
-    }, [onChanged]),
+    }, []),
     validate: batch => batch.batch_name.trim() ? null : '批次名稱不可留白。',
     onError: handleAutosaveError,
     delay: 700,
@@ -107,19 +114,21 @@ export function ProjectMaterials({ projectId, projectName, canEdit, onChanged }:
   const materialAutosave = useRowAutosave({
     rows: materials,
     setRows: setMaterials,
-    saveRow: useCallback(async (material: ProjectMaterial) => dbAdapter.updateProjectMaterial(material.id, {
-      item_name: material.item_name,
-      specification: material.specification,
-      quantity: material.quantity,
-      unit: material.unit,
-      procurement_status: material.procurement_status,
-      expected_delivery_at: material.expected_delivery_at,
-      received_at: material.received_at,
-      reminder_enabled: material.reminder_enabled,
-      reminder_days_before: material.reminder_enabled ? material.reminder_days_before : null,
-      include_in_purchase_request: material.include_in_purchase_request,
-      notes: material.notes,
-    }), []),
+    saveRow: useCallback(async (material: ProjectMaterial) => {
+      const saved = await dbAdapter.updateProjectMaterial(material.id, {
+        item_name: material.item_name,
+        specification: material.specification,
+        quantity: material.quantity,
+        unit: material.unit,
+        reminder_enabled: material.reminder_enabled,
+        reminder_days_before: material.reminder_enabled ? material.reminder_days_before : null,
+        include_in_purchase_request: material.include_in_purchase_request,
+        delivery_destination: material.delivery_destination,
+        delivery_destination_note: material.delivery_destination === 'OTHER' ? material.delivery_destination_note : null,
+        notes: material.notes,
+      });
+      return saved;
+    }, []),
     validate: material => {
       if (!material.item_name.trim()) return '品項名稱不可留白。';
       if (!material.unit.trim()) return '單位不可留白。';
@@ -148,7 +157,8 @@ export function ProjectMaterials({ projectId, projectName, canEdit, onChanged }:
         project_id: projectId,
         batch_name: newBatchName,
         ordered_at: fromDatetimeLocalValue(newBatchOrderedAt),
-        planned_receipt_at: fromDatetimeLocalValue(newBatchPlannedReceiptAt),
+        planned_receipt_at: newBatchPlannedReceiptAt || null,
+        same_day_delivery: true,
         received_at: null,
         notes: null,
         created_by: currentUser.id,
@@ -170,7 +180,7 @@ export function ProjectMaterials({ projectId, projectName, canEdit, onChanged }:
   const openBatchCreate = () => {
     setNewBatchName(`第 ${batches.length + 1} 次叫料`);
     setNewBatchOrderedAt(toDatetimeLocalValue(new Date().toISOString()));
-    setNewBatchPlannedReceiptAt(toDatetimeLocalValue(new Date().toISOString()));
+    setNewBatchPlannedReceiptAt(new Date().toISOString());
     setShowBatchCreate(true);
     setError(null);
   };
@@ -221,10 +231,9 @@ export function ProjectMaterials({ projectId, projectName, canEdit, onChanged }:
     setBusyId(`add-${input.batch_id}`);
     setError(null);
     try {
-      const batch = batches.find(row => row.id === input.batch_id);
       const created = await dbAdapter.createProjectMaterial({
         ...input,
-        expected_delivery_at: batch?.planned_receipt_at ?? input.expected_delivery_at,
+        expected_delivery_at: input.expected_delivery_at ?? null,
       });
       setMaterials(current => [...current, created]);
       setNotice(`已加入「${created.item_name}」。`);
@@ -236,6 +245,55 @@ export function ProjectMaterials({ projectId, projectName, canEdit, onChanged }:
       setBusyId(null);
     }
   };
+
+  const setBatchSameDay = async (batch: ProjectMaterialBatch, sameDayDelivery: boolean) => {
+    if (sameDayDelivery) {
+      const hasOverrides = materials.some(material => material.batch_id === batch.id
+        && !material.received_at
+        && material.procurement_status !== 'RECEIVED'
+        && Boolean(material.expected_delivery_at));
+      if (hasOverrides && !window.confirm('改回同日到貨會清除未完成物料的個別到貨時間，並合併其作用中收料排程。確定繼續嗎？')) return;
+    }
+    setBusyId(`same-day-${batch.id}`);
+    setError(null);
+    try {
+      const saved = await dbAdapter.setMaterialBatchSameDay(batch.id, sameDayDelivery);
+      setBatches(current => current.map(row => row.id === batch.id ? saved : row));
+      if (sameDayDelivery) setMaterials(current => current.map(material => (
+        material.batch_id === batch.id && !material.received_at && material.procurement_status !== 'RECEIVED'
+          ? { ...material, expected_delivery_at: null }
+          : material
+      )));
+      setNotice(sameDayDelivery ? '已改為同日到貨。' : '已允許個別物料覆寫到貨時間。');
+    } catch (saveError) {
+      setError(getDatabaseErrorMessage(saveError, '更新同日到貨設定失敗。'));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const updateMaterialReceiptTime = async (material: ProjectMaterial, expectedDeliveryAt: string | null) => {
+    setMaterials(current => current.map(row => row.id === material.id ? { ...row, expected_delivery_at: expectedDeliveryAt } : row));
+    setError(null);
+    try {
+      const saved = await dbAdapter.updateMaterialReceiptOverride(material.id, expectedDeliveryAt);
+      setMaterials(current => current.map(row => row.id === material.id ? saved : row));
+    } catch (saveError) {
+      setMaterials(current => current.map(row => row.id === material.id ? material : row));
+      setError(getDatabaseErrorMessage(saveError, '更新物料到貨時間失敗。'));
+    }
+  };
+
+  const refreshReceiptState = useCallback(async () => {
+    const [batchRows, materialRows, receiptRows] = await Promise.all([
+      dbAdapter.listProjectMaterialBatches(projectId),
+      dbAdapter.listProjectMaterials(projectId),
+      dbAdapter.listMaterialReceipts(),
+    ]);
+    setBatches(batchRows);
+    setMaterials(materialRows);
+    setReceipts(receiptRows);
+  }, [projectId]);
 
   const toggleBatch = (id: string) => setExpandedBatchIds(current => {
     const next = new Set(current);
@@ -254,7 +312,7 @@ export function ProjectMaterials({ projectId, projectName, canEdit, onChanged }:
     {showBatchCreate && <form onSubmit={createBatch} className="grid gap-3 rounded-xl border border-accent/30 bg-accent/5 p-4 sm:grid-cols-[minmax(12rem,1fr)_12rem_12rem_auto_auto] sm:items-end">
       <label className="text-xs text-secondary">批次名稱<input autoFocus value={newBatchName} onChange={event => setNewBatchName(event.target.value)} className={`${compactInputClass} mt-1 h-10`} /></label>
       <label className="text-xs text-secondary">叫料日期＋時間<input type="datetime-local" step="60" value={newBatchOrderedAt} onChange={event => setNewBatchOrderedAt(event.target.value)} className={`${compactInputClass} mt-1 h-10`} /></label>
-      <label className="text-xs text-secondary">預計收料日期＋時間<input required type="datetime-local" step="60" value={newBatchPlannedReceiptAt} onChange={event => setNewBatchPlannedReceiptAt(event.target.value)} className={`${compactInputClass} mt-1 h-10`} /></label>
+      <label className="text-xs text-secondary">預計收料日期＋時間<div className="mt-1"><ReceiptDateTimeInput required label="新批次預計收料" value={newBatchPlannedReceiptAt || null} onChange={value => setNewBatchPlannedReceiptAt(value || '')} /></div></label>
       <button type="button" onClick={() => setShowBatchCreate(false)} className="h-10 rounded-lg border border-theme-border px-4 text-sm text-secondary hover:bg-page">取消</button>
       <button type="submit" disabled={!newBatchName.trim() || !newBatchPlannedReceiptAt || busyId !== null} className="h-10 rounded-lg bg-accent px-4 text-sm font-semibold text-white disabled:opacity-50">{busyId === 'new-batch' ? '新增中...' : '新增批次'}</button>
     </form>}
@@ -262,8 +320,9 @@ export function ProjectMaterials({ projectId, projectName, canEdit, onChanged }:
     {notice && <div className="rounded-lg border border-success/30 bg-success/10 p-3 text-sm text-success">{notice}</div>}
     {orderedBatches.length === 0 ? <div className="rounded-xl border border-dashed border-theme-border p-10 text-center text-secondary">尚未建立叫料批次。</div> : orderedBatches.map(batch => {
       const batchMaterials = materials.filter(material => material.batch_id === batch.id);
-      return <BatchCard key={batch.id} batch={batch} projectName={projectName} materials={batchMaterials} catalog={catalog} groups={groups} canEdit={canEdit} isExpanded={expandedBatchIds.has(batch.id)} isBusy={busyId !== null} batchSaveState={batchAutosave.stateFor(batch.id)} materialStateFor={materialAutosave.stateFor} onToggle={() => toggleBatch(batch.id)} onBatchChange={updates => batchAutosave.updateRow(batch.id, updates)} onBatchBlur={() => batchAutosave.flush(batch.id)} onDeleteBatch={() => void deleteBatch(batch, batchMaterials)} onMaterialChange={(id, updates) => materialAutosave.updateRow(id, updates)} onMaterialBlur={id => materialAutosave.flush(id)} onDeleteMaterial={material => void deleteMaterial(material)} onAddMaterial={addMaterial} onNotice={setNotice} onError={setError} currentUserId={currentUser?.id ?? null} />;
+      return <BatchCard key={batch.id} batch={batch} projectName={projectName} materials={batchMaterials} receipts={receipts} catalog={catalog} groups={groups} canEdit={canEdit} isExpanded={expandedBatchIds.has(batch.id)} isBusy={busyId !== null} batchSaveState={batchAutosave.stateFor(batch.id)} materialStateFor={materialAutosave.stateFor} onToggle={() => toggleBatch(batch.id)} onBatchChange={updates => batchAutosave.updateRow(batch.id, updates)} onBatchBlur={() => batchAutosave.flush(batch.id)} onSameDayChange={value => void setBatchSameDay(batch, value)} onDeleteBatch={() => void deleteBatch(batch, batchMaterials)} onMaterialChange={(id, updates) => materialAutosave.updateRow(id, updates)} onMaterialReceiptTimeChange={(material, value) => void updateMaterialReceiptTime(material, value)} onMaterialBlur={id => materialAutosave.flush(id)} onDeleteMaterial={material => void deleteMaterial(material)} onOpenHistory={setHistoryMaterial} onAddMaterial={addMaterial} onNotice={setNotice} onError={setError} currentUserId={currentUser?.id ?? null} />;
     })}
+    {historyMaterial ? <MaterialReceiptHistoryDialog receipts={receipts} sourceType="PROJECT_MATERIAL" sourceId={historyMaterial.id} itemLabel={historyMaterial.specification?.trim() || historyMaterial.item_name} contextLabel={projectName} unit={historyMaterial.unit} canEdit={canEdit} onClose={() => setHistoryMaterial(null)} onChanged={refreshReceiptState} /> : null}
   </div>;
 }
 
@@ -271,6 +330,7 @@ interface BatchCardProps {
   batch: ProjectMaterialBatch;
   projectName: string;
   materials: ProjectMaterial[];
+  receipts: MaterialReceipt[];
   catalog: MaterialCatalogItem[];
   groups: MaterialGroup[];
   canEdit: boolean;
@@ -281,10 +341,13 @@ interface BatchCardProps {
   onToggle: () => void;
   onBatchChange: (updates: Partial<ProjectMaterialBatch>) => void;
   onBatchBlur: () => void;
+  onSameDayChange: (value: boolean) => void;
   onDeleteBatch: () => void;
   onMaterialChange: (id: string, updates: Partial<ProjectMaterial>) => void;
+  onMaterialReceiptTimeChange: (material: ProjectMaterial, value: string | null) => void;
   onMaterialBlur: (id: string) => void;
   onDeleteMaterial: (material: ProjectMaterial) => void;
+  onOpenHistory: (material: ProjectMaterial) => void;
   onAddMaterial: (input: ProjectMaterialCreateInput) => Promise<ProjectMaterial | null>;
   onNotice: (message: string | null) => void;
   onError: (message: string | null) => void;
@@ -305,7 +368,8 @@ interface CustomMaterialDraft {
   specification: string;
   quantity: number;
   unit: string;
-  received_at: string | null;
+  delivery_destination: DeliveryDestination;
+  delivery_destination_note: string;
 }
 
 const createQuickSlots = (count: number): QuickAddSlot[] => Array.from({ length: count }, (_, index) => ({
@@ -322,10 +386,11 @@ const createCustomDraft = (): CustomMaterialDraft => ({
   specification: '',
   quantity: 1,
   unit: '式',
-  received_at: null,
+  delivery_destination: 'SITE',
+  delivery_destination_note: '',
 });
 
-function BatchCard({ batch, projectName, materials, catalog, groups, canEdit, isExpanded, isBusy, batchSaveState, materialStateFor, onToggle, onBatchChange, onBatchBlur, onDeleteBatch, onMaterialChange, onMaterialBlur, onDeleteMaterial, onAddMaterial, onNotice, onError, currentUserId }: BatchCardProps) {
+function BatchCard({ batch, projectName, materials, receipts, catalog, groups, canEdit, isExpanded, isBusy, batchSaveState, materialStateFor, onToggle, onBatchChange, onBatchBlur, onSameDayChange, onDeleteBatch, onMaterialChange, onMaterialReceiptTimeChange, onMaterialBlur, onDeleteMaterial, onOpenHistory, onAddMaterial, onNotice, onError, currentUserId }: BatchCardProps) {
   const [showRegularAdd, setShowRegularAdd] = useState(false);
   const [quickSlots, setQuickSlots] = useState<QuickAddSlot[]>([]);
   const [customDrafts, setCustomDrafts] = useState<CustomMaterialDraft[]>([]);
@@ -375,20 +440,21 @@ function BatchCard({ batch, projectName, materials, catalog, groups, canEdit, is
   };
 
   return <section className="rounded-xl border border-theme-border bg-card/40">
-    <div className="flex flex-wrap items-center gap-3 p-3">
+    <div className="flex flex-wrap items-center gap-3 p-3" onBlur={onBatchBlur}>
       <button type="button" onClick={onToggle} className="flex min-w-0 flex-1 items-center gap-2 text-left">
         {isExpanded ? <ChevronDown size={18} className="shrink-0 text-secondary" /> : <ChevronRight size={18} className="shrink-0 text-secondary" />}
-        <span className="min-w-0"><span className="block truncate text-sm font-semibold text-primary">{batch.batch_name}</span><span className="block text-xs text-secondary">{batch.planned_receipt_at ? `預計收料 ${toDatetimeLocalValue(batch.planned_receipt_at).replace('T', ' ')}` : '尚未填預計收料時間'}</span></span>
+        <span className="min-w-0"><span className="block truncate text-sm font-semibold text-primary">{batch.batch_name}</span><span className="block text-xs text-secondary">{batch.same_day_delivery ? '整批共用預計到貨' : '可個別覆寫預計到貨'}</span></span>
       </button>
+      <label className="flex h-8 shrink-0 items-center gap-2 rounded-md border border-theme-border bg-page/40 px-2 text-xs font-semibold text-primary"><input type="checkbox" checked={batch.same_day_delivery} disabled={!canEdit || Boolean(batch.received_at) || isBusy} onChange={event => onSameDayChange(event.target.checked)} className="h-4 w-4 accent-accent" />同天到貨</label>
+      <div className="flex min-w-[13.5rem] items-center gap-2"><span className="shrink-0 text-xs text-secondary">預設到貨</span><div className="min-w-0 flex-1"><ReceiptDateTimeInput compact required label={`${batch.batch_name}預設到貨`} disabled={!canEdit || Boolean(batch.received_at)} value={batch.planned_receipt_at} onChange={value => onBatchChange({ planned_receipt_at: value })} /></div></div>
       <span className={`rounded-full border px-2 py-1 text-xs ${statusClass[summary.status]}`}>{getProcurementStatusLabel(summary.status)}</span>
       <span className="text-xs text-secondary">{summary.received} / {summary.total} 筆已到貨</span>
       <button type="button" disabled={copyCount === 0} onClick={() => void copyBatch()} className="flex h-9 items-center gap-1 rounded-lg border border-theme-border px-2 text-xs text-primary hover:bg-page disabled:opacity-40"><Clipboard size={14} />複製請購內容</button>
-      {canEdit && <details className="relative" onBlur={onBatchBlur}>
+      {canEdit && <details className="relative">
         <summary className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-lg border border-theme-border text-secondary hover:bg-page" aria-label={`編輯${batch.batch_name}`}><MoreHorizontal size={17} /></summary>
         <div className="absolute right-0 z-20 mt-2 w-72 space-y-3 rounded-xl border border-theme-border bg-card p-3 shadow-xl">
           <label className="block text-xs text-secondary">批次名稱<input value={batch.batch_name} onChange={event => onBatchChange({ batch_name: event.target.value })} className={`${compactInputClass} mt-1`} /></label>
           <label className="block text-xs text-secondary">叫料日期＋時間<input type="datetime-local" step="60" value={toDatetimeLocalValue(batch.ordered_at)} onChange={event => onBatchChange({ ordered_at: fromDatetimeLocalValue(event.target.value) })} className={`${compactInputClass} mt-1`} /></label>
-          <label className="block text-xs text-secondary">預計收料日期＋時間<input type="datetime-local" step="60" disabled={Boolean(batch.received_at)} value={toDatetimeLocalValue(batch.planned_receipt_at)} onChange={event => onBatchChange({ planned_receipt_at: fromDatetimeLocalValue(event.target.value) })} className={`${compactInputClass} mt-1`} /></label>
           {batch.received_at ? <p className="text-xs font-semibold text-success">已收料 {toDatetimeLocalValue(batch.received_at).replace('T', ' ')}</p> : null}
           <label className="block text-xs text-secondary">備註<input value={batch.notes || ''} onChange={event => onBatchChange({ notes: event.target.value || null })} className={`${compactInputClass} mt-1`} /></label>
           <div className="flex items-center justify-between"><AutosaveStatus state={batchSaveState} /><button type="button" disabled={isBusy} onClick={onDeleteBatch} className="flex items-center gap-1 text-xs text-danger"><Trash2 size={14} />刪除批次</button></div>
@@ -419,10 +485,10 @@ function BatchCard({ batch, projectName, materials, catalog, groups, canEdit, is
           <button type="button" onClick={() => setQuickSlots(current => [...current, ...createQuickSlots(5)])} className="ml-2 mt-1 h-8 rounded-md border border-theme-border px-3 text-xs text-primary hover:bg-card"><Plus size={13} className="mr-1 inline" />再加 5 格</button>
         </div></div>
       </div>}
-      <div className="overflow-x-auto"><div className="min-w-[50rem]">
-        <div className="grid grid-cols-[2rem_minmax(9rem,1.2fr)_minmax(9rem,1fr)_7rem_11rem_4rem] gap-1 border-b border-theme-border bg-page/35 px-2 py-1.5 text-[11px] font-medium text-secondary"><span>請購</span><span>品項名稱</span><span>型號／規格</span><span>數量／單位</span><span>實際到貨</span><span></span></div>
+      <div className="overflow-x-auto"><div className="min-w-[48rem]">
+        <div className="grid grid-cols-[2rem_4.75rem_minmax(6.5rem,1fr)_5.25rem_5.25rem_9.75rem_7.5rem_2rem] gap-1 border-b border-theme-border bg-page/35 px-2 py-1.5 text-[11px] font-medium text-secondary"><span>請購</span><span>群組</span><span>型號／規格</span><span>數量／單位</span><span>送達</span><span>預計到貨</span><span>實際到貨</span><span>⋯</span></div>
         {materials.length === 0 && customDrafts.length === 0 ? <div className="p-6 text-center text-sm text-secondary">此批次尚無物料。</div> : <>
-          {materials.map(material => <MaterialGridRow key={material.id} material={material} batch={batch} canEdit={canEdit} isBusy={isBusy} saveState={materialStateFor(material.id)} onChange={updates => onMaterialChange(material.id, updates)} onBlur={() => onMaterialBlur(material.id)} onDelete={() => onDeleteMaterial(material)} />)}
+          {materials.map(material => <MaterialGridRow key={material.id} material={material} batch={batch} receipts={receipts} groupLabel={getProjectMaterialGroupLabel(material, catalog, groups)} canEdit={canEdit} isBusy={isBusy} saveState={materialStateFor(material.id)} onChange={updates => onMaterialChange(material.id, updates)} onBlur={() => onMaterialBlur(material.id)} onPlannedReceiptChange={value => onMaterialReceiptTimeChange(material, value)} onOpenHistory={() => onOpenHistory(material)} onDelete={() => onDeleteMaterial(material)} />)}
           {customDrafts.map(draft => <CustomDraftGridRow key={draft.id} draft={draft} batch={batch} currentUserId={currentUserId} onAddMaterial={onAddMaterial} onCreated={() => setCustomDrafts(current => current.filter(row => row.id !== draft.id))} onRemove={() => setCustomDrafts(current => current.filter(row => row.id !== draft.id))} />)}
         </>}
       </div></div>
@@ -430,22 +496,28 @@ function BatchCard({ batch, projectName, materials, catalog, groups, canEdit, is
   </section>;
 }
 
-function MaterialGridRow({ material, batch, canEdit, isBusy, saveState, onChange, onBlur, onDelete }: { material: ProjectMaterial; batch: ProjectMaterialBatch; canEdit: boolean; isBusy: boolean; saveState: RowAutosaveState; onChange: (updates: Partial<ProjectMaterial>) => void; onBlur: () => void; onDelete: () => void }) {
+function MaterialGridRow({ material, batch, receipts, groupLabel, canEdit, isBusy, saveState, onChange, onBlur, onPlannedReceiptChange, onOpenHistory, onDelete }: { material: ProjectMaterial; batch: ProjectMaterialBatch; receipts: MaterialReceipt[]; groupLabel: string; canEdit: boolean; isBusy: boolean; saveState: RowAutosaveState; onChange: (updates: Partial<ProjectMaterial>) => void; onBlur: () => void; onPlannedReceiptChange: (value: string | null) => void; onOpenHistory: () => void; onDelete: () => void }) {
   const [showDetails, setShowDetails] = useState(false);
+  const receiptSummary = summarizeMaterialReceipts(receipts, 'PROJECT_MATERIAL', material.id, Number(material.quantity));
   const finishOnEnter = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); }
   };
   return <div className="border-b border-theme-border/70 last:border-b-0" onBlur={onBlur}>
-    <div className="grid grid-cols-[2rem_minmax(9rem,1.2fr)_minmax(9rem,1fr)_7rem_11rem_4rem] items-center gap-1 px-2 py-1">
+    <div className="grid grid-cols-[2rem_4.75rem_minmax(6.5rem,1fr)_5.25rem_5.25rem_9.75rem_7.5rem_2rem] items-center gap-1 px-2 py-1">
       <input type="checkbox" disabled={!canEdit} checked={material.include_in_purchase_request} onChange={event => onChange({ include_in_purchase_request: event.target.checked })} className="h-4 w-4 accent-accent" aria-label={`${material.item_name}納入請購`} />
-      <input disabled={!canEdit} value={material.item_name} onChange={event => onChange({ item_name: event.target.value })} onKeyDown={finishOnEnter} className={compactInputClass} aria-label="品項名稱" />
+      <span className="truncate px-1 text-xs text-primary" title={groupLabel || material.item_name}>{groupLabel || material.item_name}</span>
       <input disabled={!canEdit} value={material.specification || ''} onChange={event => onChange({ specification: event.target.value || null })} onKeyDown={finishOnEnter} className={compactInputClass} aria-label="型號／規格" />
       <div className="flex items-center gap-1"><input type="number" min="0.001" step="any" disabled={!canEdit} value={material.quantity} onChange={event => onChange({ quantity: Number(event.target.value) })} onKeyDown={finishOnEnter} className={compactInputClass} aria-label="數量" /><span className="max-w-10 truncate text-xs text-secondary" title={material.unit}>{material.unit}</span></div>
-      <input type="datetime-local" step="60" disabled={!canEdit} value={toDatetimeLocalValue(material.received_at)} onChange={event => { const receivedAt = fromDatetimeLocalValue(event.target.value); onChange({ received_at: receivedAt, procurement_status: receivedAt ? 'RECEIVED' : material.procurement_status === 'RECEIVED' ? (batch.ordered_at ? 'ORDERED' : 'NOT_ORDERED') : material.procurement_status }); }} onKeyDown={finishOnEnter} className={compactInputClass} aria-label="實際到貨" />
+      <div className="flex min-w-0 items-center gap-1">
+        <select disabled={!canEdit} value={material.delivery_destination} onChange={event => onChange({ delivery_destination: event.target.value as DeliveryDestination, delivery_destination_note: event.target.value === 'OTHER' ? material.delivery_destination_note : null })} className={`${compactInputClass} ${material.delivery_destination === 'OTHER' ? 'w-20 shrink-0' : 'w-full'}`} aria-label={`${material.item_name}送達位置`}>{DELIVERY_DESTINATION_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
+        {material.delivery_destination === 'OTHER' ? <input disabled={!canEdit} maxLength={80} value={material.delivery_destination_note || ''} onChange={event => onChange({ delivery_destination_note: event.target.value || null })} onKeyDown={finishOnEnter} placeholder="自訂位置" className={compactInputClass} aria-label={`${material.item_name}其他送達位置`} /> : null}
+      </div>
+      {batch.same_day_delivery ? <span className="px-1 text-xs text-secondary">{formatCompactTaipeiReceiptTime(batch.planned_receipt_at)}</span> : <ReceiptDateTimeInput compact label={`${material.item_name}預計到貨`} disabled={!canEdit || Boolean(batch.received_at)} value={getEffectiveExpectedDeliveryAt(material, batch)} onChange={onPlannedReceiptChange} />}
+      <button type="button" disabled={receiptSummary.effectiveQuantity <= 0} onClick={onOpenHistory} className="min-h-8 rounded-md px-1 text-left text-xs text-secondary hover:bg-page disabled:cursor-default disabled:hover:bg-transparent" aria-label={`${material.item_name}收料紀錄`}>{receiptSummary.status === 'PENDING' ? '—' : <><span className={`block font-bold ${receiptSummary.status === 'PARTIAL_RECEIVED' ? 'text-warning' : 'text-success'}`}>{receiptSummary.status === 'PARTIAL_RECEIVED' ? '未全' : '已收到'}</span><span className="block">{formatCompactTaipeiReceiptTime(receiptSummary.lastReceivedAt)}</span></>}</button>
       <button type="button" onClick={() => setShowDetails(current => !current)} className="flex h-8 items-center justify-center rounded-md text-secondary hover:bg-page" aria-label={`${material.item_name}更多設定`}><MoreHorizontal size={16} /></button>
     </div>
     {showDetails && <div className="mx-2 mb-2 grid gap-2 rounded-lg border border-theme-border bg-page/25 p-2 sm:grid-cols-[16rem_13rem_minmax(10rem,1fr)_auto] sm:items-end">
-        <div className="grid grid-cols-2 gap-2"><label className="text-xs text-secondary">單位<input disabled={!canEdit} value={material.unit} onChange={event => onChange({ unit: event.target.value })} onKeyDown={finishOnEnter} className={`${compactInputClass} mt-1`} /></label><label className="text-xs text-secondary">採購狀態<select disabled={!canEdit} value={material.procurement_status} onChange={event => onChange({ procurement_status: event.target.value as ProjectMaterial['procurement_status'] })} className={`${compactInputClass} mt-1`}>{PROCUREMENT_STATUS_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label></div>
+        <div className="grid grid-cols-2 gap-2"><label className="text-xs text-secondary">單位<input disabled={!canEdit} value={material.unit} onChange={event => onChange({ unit: event.target.value })} onKeyDown={finishOnEnter} className={`${compactInputClass} mt-1`} /></label><div className="text-xs text-secondary">採購狀態<span className={`mt-1 flex h-8 items-center rounded-md border px-2 ${statusClass[material.procurement_status]}`}>{getProcurementStatusLabel(material.procurement_status)}</span></div></div>
         <div className="flex items-end gap-2"><label className="flex h-8 items-center gap-1 text-xs text-secondary"><Bell size={14} /><input type="checkbox" disabled={!canEdit} checked={material.reminder_enabled} onChange={event => onChange({ reminder_enabled: event.target.checked, reminder_days_before: event.target.checked ? material.reminder_days_before ?? 7 : null })} className="h-4 w-4 accent-accent" />提醒</label><label className="text-xs text-secondary">提前天數<input type="number" min={0} max={3650} disabled={!canEdit || !material.reminder_enabled} value={material.reminder_days_before ?? 7} onChange={event => onChange({ reminder_days_before: Number(event.target.value) })} onKeyDown={finishOnEnter} className={`${compactInputClass} mt-1 w-20`} /></label></div>
         <label className="block text-xs text-secondary">備註<input disabled={!canEdit} value={material.notes || ''} onChange={event => onChange({ notes: event.target.value || null })} onKeyDown={finishOnEnter} className={`${compactInputClass} mt-1`} /></label>
         <div className="flex items-center justify-between"><AutosaveStatus state={saveState} />{canEdit && <button type="button" disabled={isBusy} onClick={onDelete} className="flex items-center gap-1 text-xs text-danger"><Trash2 size={14} />刪除</button>}</div>
@@ -503,13 +575,15 @@ function CustomDraftGridRow({ draft: initialDraft, batch, currentUserId, onAddMa
     if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); }
   };
 
-  return <div className="border-b border-accent/20 bg-accent/5" onBlur={() => void persist()}>
-    <div className="grid grid-cols-[2rem_minmax(9rem,1.2fr)_minmax(9rem,1fr)_7rem_11rem_4rem] items-center gap-1 px-2 py-1">
+  return <div className="border-b border-accent/20 bg-accent/5" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) void persist(); }}>
+    <div className="grid grid-cols-[2rem_4.75rem_minmax(6.5rem,1fr)_5.25rem_5.25rem_9.75rem_7.5rem_2rem] items-center gap-1 px-2 py-1">
       <input type="checkbox" checked readOnly className="h-4 w-4 accent-accent" aria-label="自訂物料納入請購" />
-      <input autoFocus value={draft.item_name} onChange={event => updateDraft({ item_name: event.target.value })} onKeyDown={finishOnEnter} className={compactInputClass} placeholder="品項名稱" aria-label="自訂品項名稱" />
+      <input autoFocus value={draft.item_name} onChange={event => updateDraft({ item_name: event.target.value })} onKeyDown={finishOnEnter} className={compactInputClass} placeholder="自訂品項" aria-label="自訂品項名稱" />
       <input value={draft.specification} onChange={event => updateDraft({ specification: event.target.value })} onKeyDown={finishOnEnter} className={compactInputClass} placeholder="型號／規格" aria-label="自訂型號／規格" />
       <div className="flex items-center gap-1"><input type="number" min="0.001" step="any" value={draft.quantity} onChange={event => updateDraft({ quantity: Number(event.target.value) })} onKeyDown={finishOnEnter} className={compactInputClass} aria-label="自訂數量" /><input value={draft.unit} onChange={event => updateDraft({ unit: event.target.value })} onKeyDown={finishOnEnter} className={`${compactInputClass} w-12 px-1`} aria-label="自訂單位" /></div>
-      <input type="datetime-local" step="60" value={toDatetimeLocalValue(draft.received_at)} onChange={event => updateDraft({ received_at: fromDatetimeLocalValue(event.target.value) })} onKeyDown={finishOnEnter} className={compactInputClass} aria-label="自訂實際到貨" />
+      <div className="flex min-w-0 items-center gap-1"><select value={draft.delivery_destination} onChange={event => updateDraft({ delivery_destination: event.target.value as DeliveryDestination, delivery_destination_note: event.target.value === 'OTHER' ? draft.delivery_destination_note : '' })} className={`${compactInputClass} ${draft.delivery_destination === 'OTHER' ? 'w-20 shrink-0' : 'w-full'}`} aria-label="自訂物料送達位置">{DELIVERY_DESTINATION_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select>{draft.delivery_destination === 'OTHER' ? <input maxLength={80} value={draft.delivery_destination_note} onChange={event => updateDraft({ delivery_destination_note: event.target.value })} onKeyDown={finishOnEnter} placeholder="自訂位置" className={compactInputClass} aria-label="自訂物料其他送達位置" /> : null}</div>
+      <span className="px-1 text-xs text-secondary">{formatCompactTaipeiReceiptTime(batch.planned_receipt_at)}</span>
+      <span className="px-1 text-xs text-secondary">—</span>
       <button type="button" onClick={onRemove} className="flex h-8 items-center justify-center rounded-md text-secondary hover:bg-page" aria-label="移除空白自訂列"><Trash2 size={15} /></button>
     </div>
     <div className="flex justify-end px-2 pb-1"><AutosaveStatus state={state} compact /></div>

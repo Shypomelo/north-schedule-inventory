@@ -1,4 +1,5 @@
 import type {
+  DeliveryDestination,
   MaterialCatalogItem,
   MaterialGroup,
   ProcurementStatus,
@@ -6,6 +7,20 @@ import type {
   ProjectMaterialBatch,
   ProjectMaterialCreateInput,
 } from './db/types';
+
+export const DELIVERY_DESTINATION_OPTIONS: ReadonlyArray<{
+  value: DeliveryDestination;
+  label: string;
+}> = [
+  { value: 'OFFICE', label: '北辦' },
+  { value: 'SITE', label: '案場' },
+  { value: 'WAREHOUSE', label: '倉庫出貨' },
+  { value: 'OTHER', label: '其他' },
+];
+
+export const getDeliveryDestinationLabel = (destination: DeliveryDestination): string => (
+  DELIVERY_DESTINATION_OPTIONS.find(option => option.value === destination)?.label || destination
+);
 
 export const PROCUREMENT_STATUS_OPTIONS: ReadonlyArray<{
   value: ProcurementStatus;
@@ -51,6 +66,30 @@ export const filterMaterialCatalogByGroupId = (
 ): MaterialCatalogItem[] => items
   .filter(item => item.is_active && item.group_id === groupId)
   .sort((left, right) => left.sort_order - right.sort_order || left.name.localeCompare(right.name, 'zh-TW'));
+
+export const filterSelectableMaterialCatalogItems = (
+  items: MaterialCatalogItem[],
+  groups: MaterialGroup[],
+): MaterialCatalogItem[] => {
+  const activeGroupIds = new Set(getActiveMaterialGroups(groups).map(group => group.id));
+  return items
+    .filter(item => item.is_active && item.group_id !== null && activeGroupIds.has(item.group_id))
+    .sort((left, right) => left.sort_order - right.sort_order || left.name.localeCompare(right.name, 'zh-TW'));
+};
+
+export const getProjectMaterialGroupLabel = (
+  material: Pick<ProjectMaterial, 'catalog_item_id'>,
+  catalog: MaterialCatalogItem[],
+  groups: MaterialGroup[],
+): string => {
+  if (!material.catalog_item_id) return '自訂';
+  const catalogItem = catalog.find(item => item.id === material.catalog_item_id);
+  if (!catalogItem) return '';
+  const canonicalGroup = catalogItem.group_id
+    ? groups.find(group => group.id === catalogItem.group_id)
+    : null;
+  return canonicalGroup?.name || catalogItem.group_name?.trim() || '';
+};
 
 export const toDatetimeLocalValue = (value: string | null): string => {
   if (!value) return '';
@@ -118,6 +157,8 @@ export const buildProjectMaterialFromCatalog = (
     ? catalogItem.default_reminder_days_before
     : null,
   include_in_purchase_request: true,
+  delivery_destination: catalogItem.default_delivery_destination,
+  delivery_destination_note: null,
   notes: null,
   created_by: createdBy,
 });
@@ -127,7 +168,7 @@ export const buildCustomProjectMaterial = (
   batchId: string,
   createdBy: string,
   draft: Partial<Pick<ProjectMaterialCreateInput,
-    'item_name' | 'specification' | 'quantity' | 'unit' | 'expected_delivery_at' | 'received_at'
+    'item_name' | 'specification' | 'quantity' | 'unit' | 'expected_delivery_at' | 'received_at' | 'delivery_destination' | 'delivery_destination_note'
   >> = {},
 ): ProjectMaterialCreateInput => ({
   project_id: projectId,
@@ -146,7 +187,52 @@ export const buildCustomProjectMaterial = (
   reminder_enabled: false,
   reminder_days_before: null,
   include_in_purchase_request: true,
+  delivery_destination: draft.delivery_destination ?? 'SITE',
+  delivery_destination_note: draft.delivery_destination === 'OTHER'
+    ? draft.delivery_destination_note ?? null
+    : null,
   notes: null,
+  created_by: createdBy,
+});
+
+export interface ProcurementCreatedMaterialDraft {
+  item_name: string;
+  specification: string | null;
+  quantity: number;
+  unit: string;
+  expected_delivery_at: string | null;
+  delivery_destination: DeliveryDestination;
+  notes: string | null;
+}
+
+export const buildProcurementCreatedProjectMaterial = (
+  projectId: string,
+  batchId: string,
+  createdBy: string,
+  draft: ProcurementCreatedMaterialDraft,
+  catalogItem: MaterialCatalogItem | null = null,
+): ProjectMaterialCreateInput => ({
+  project_id: projectId,
+  batch_id: batchId,
+  catalog_item_id: catalogItem?.id ?? null,
+  item_name: draft.item_name,
+  specification: draft.specification,
+  quantity: draft.quantity,
+  unit: draft.unit,
+  procurement_status: 'ORDERED',
+  ordered_on: null,
+  expected_delivery_on: null,
+  received_on: null,
+  expected_delivery_at: draft.expected_delivery_at,
+  received_at: null,
+  reminder_enabled: catalogItem?.default_reminder_enabled ?? false,
+  reminder_days_before: catalogItem?.default_reminder_enabled
+    ? catalogItem.default_reminder_days_before
+    : null,
+  include_in_purchase_request: false,
+  delivery_destination: draft.delivery_destination,
+  delivery_destination_note: null,
+  notes: draft.notes,
   created_by: createdBy,
 });
 

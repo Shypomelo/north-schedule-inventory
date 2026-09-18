@@ -15,15 +15,17 @@ sourceModule.paths = module.paths;
 sourceModule._compile(transpiled, sourcePath);
 
 const {
-  buildCustomProjectMaterial, buildProjectMaterialFromCatalog, buildPurchaseRequestText,
+  buildCustomProjectMaterial, buildProcurementCreatedProjectMaterial, buildProjectMaterialFromCatalog, buildPurchaseRequestText,
   deriveBatchProcurementSummary, filterMaterialCatalogByGroup, filterMaterialCatalogByGroupId,
-  fromDatetimeLocalValue, getActiveMaterialGroups, getMaterialCatalogGroups,
+  filterSelectableMaterialCatalogItems,
+  fromDatetimeLocalValue, getActiveMaterialGroups, getMaterialCatalogGroups, getProjectMaterialGroupLabel,
   toDatetimeLocalValue, UNGROUPED_MATERIAL_CATALOG_VALUE,
 } = sourceModule.exports;
 
 const catalogItem = {
   id: 'catalog-1', group_id: 'group-1', group_name: 'XLPE', name: 'XLPE', default_specification: 'XLPE_250',
   default_unit: '米', default_reminder_enabled: true, default_reminder_days_before: 21,
+  default_delivery_destination: 'SITE',
   is_active: true, sort_order: 10, created_by: 'admin-1',
   created_at: '2026-09-13T00:00:00Z', updated_at: '2026-09-13T00:00:00Z',
 };
@@ -51,6 +53,44 @@ test('canonical groups drive ordered active quick-add filtering', () => {
   assert.deepEqual(filterMaterialCatalogByGroupId([catalogItem, { ...catalogItem, id: 'catalog-2', group_id: 'group-3' }], 'group-1'), [catalogItem]);
 });
 
+test('new material selectors require both an active canonical group and an active catalog item', () => {
+  const groups = [
+    { id: 'group-a', name: 'Active A', sort_order: 10, is_active: true },
+    { id: 'group-b', name: 'Inactive B', sort_order: 20, is_active: false },
+  ];
+  const items = [
+    { ...catalogItem, id: 'item-a', name: 'Active Item A', group_id: 'group-a', is_active: true },
+    { ...catalogItem, id: 'item-b-active', name: 'Active Item B', group_id: 'group-b', is_active: true },
+    { ...catalogItem, id: 'item-b-inactive', name: 'Inactive Item B', group_id: 'group-b', is_active: false },
+  ];
+
+  assert.deepEqual(
+    filterSelectableMaterialCatalogItems(items, groups).map(item => item.id),
+    ['item-a'],
+  );
+});
+
+test('inactive canonical groups remain available for historical labels but not new selections', () => {
+  const groups = [
+    { id: 'group-active', name: 'Active', sort_order: 10, is_active: true },
+    { id: 'group-history', name: 'Historical Group', sort_order: 20, is_active: false },
+  ];
+  const historicalItem = { ...catalogItem, id: 'historical-item', group_id: 'group-history', group_name: 'Legacy Name' };
+
+  assert.equal(getProjectMaterialGroupLabel({ catalog_item_id: historicalItem.id }, [historicalItem], groups), 'Historical Group');
+  assert.deepEqual(getActiveMaterialGroups(groups).map(group => group.id), ['group-active']);
+});
+
+test('formal rows derive group labels from the catalog relation without inventing custom groups', () => {
+  const groups = [
+    { id: 'group-1', name: 'AC線材', sort_order: 10, is_active: true },
+  ];
+  assert.equal(getProjectMaterialGroupLabel({ catalog_item_id: catalogItem.id }, [catalogItem], groups), 'AC線材');
+  assert.equal(getProjectMaterialGroupLabel({ catalog_item_id: catalogItem.id }, [{ ...catalogItem, group_id: null }], []), 'XLPE');
+  assert.equal(getProjectMaterialGroupLabel({ catalog_item_id: null }, [catalogItem], groups), '自訂');
+  assert.equal(getProjectMaterialGroupLabel({ catalog_item_id: 'missing' }, [catalogItem], groups), '');
+});
+
 test('catalog and custom material builders assign the selected batch', () => {
   const regular = buildProjectMaterialFromCatalog('project-1', 'batch-1', catalogItem, 'member-1');
   assert.equal(regular.batch_id, 'batch-1');
@@ -58,6 +98,7 @@ test('catalog and custom material builders assign the selected batch', () => {
   assert.equal(regular.specification, 'XLPE_250');
   assert.equal(regular.unit, '米');
   assert.equal(regular.reminder_days_before, 21);
+  assert.equal(regular.delivery_destination, 'SITE');
   assert.equal(regular.expected_delivery_at, null);
   assert.equal(regular.received_at, null);
   const custom = buildCustomProjectMaterial('project-1', 'batch-1', 'member-1', { item_name: '特殊接頭', unit: '個' });
@@ -66,6 +107,35 @@ test('catalog and custom material builders assign the selected batch', () => {
   assert.equal(custom.item_name, '特殊接頭');
   assert.equal(custom.unit, '個');
   assert.equal(custom.reminder_enabled, false);
+  assert.equal(custom.delivery_destination, 'SITE');
+  const customOther = buildCustomProjectMaterial('project-1', 'batch-1', 'member-1', {
+    item_name: '特殊接頭',
+    unit: '個',
+    delivery_destination: 'OTHER',
+    delivery_destination_note: '工地主任指定位置',
+  });
+  assert.equal(customOther.delivery_destination, 'OTHER');
+  assert.equal(customOther.delivery_destination_note, '工地主任指定位置');
+});
+
+test('procurement-created material stays canonical, ordered, and excluded from purchase requests', () => {
+  const created = buildProcurementCreatedProjectMaterial('project-1', 'batch-1', 'member-1', {
+    item_name: '代叫線材',
+    specification: 'XLPE_250',
+    quantity: 3,
+    unit: '米',
+    expected_delivery_at: '2026-09-20T06:00:00.000Z',
+    delivery_destination: 'OFFICE',
+    notes: '北辦收',
+  }, catalogItem);
+  assert.equal(created.batch_id, 'batch-1');
+  assert.equal(created.catalog_item_id, catalogItem.id);
+  assert.equal(created.procurement_status, 'ORDERED');
+  assert.equal(created.include_in_purchase_request, false);
+  assert.equal(created.delivery_destination, 'OFFICE');
+  assert.equal(created.reminder_enabled, true);
+  assert.equal(created.reminder_days_before, 21);
+  assert.equal(created.created_by, 'member-1');
 });
 
 test('batch status is derived without a second persisted status source', () => {
@@ -148,4 +218,37 @@ test('project modal exposes the Phase 1 material tab', () => {
   const modal = fs.readFileSync(path.resolve(__dirname, '../components/ProjectDetailModal.tsx'), 'utf8');
   assert.match(modal, /id: 'materials', label: '物料'/);
   assert.match(modal, /<ProjectMaterials projectId=\{project\.id\}/);
+});
+
+test('project material rows expose compact canonical group, receipt plan, destination, and receipt-derived actual display', () => {
+  const component = fs.readFileSync(path.resolve(__dirname, '../components/ProjectMaterials.tsx'), 'utf8');
+  assert.match(component, /delivery_destination: material\.delivery_destination/);
+  assert.match(component, /delivery_destination_note: material\.delivery_destination === 'OTHER'/);
+  assert.match(component, /DELIVERY_DESTINATION_OPTIONS\.map/);
+  assert.match(component, /material\.delivery_destination === 'OTHER'/);
+  assert.match(component, /<span>請購<\/span><span>群組<\/span><span>型號／規格<\/span><span>數量／單位<\/span><span>送達<\/span><span>預計到貨<\/span><span>實際到貨<\/span><span>⋯<\/span>/);
+  assert.match(component, /getProjectMaterialGroupLabel\(material, catalog, groups\)/);
+  assert.match(component, /getEffectiveExpectedDeliveryAt\(material, batch\)/);
+  assert.match(component, /ReceiptDateTimeInput/);
+  assert.match(component, /dbAdapter\.updateMaterialReceiptPlan\(batch\.id, batch\.planned_receipt_at\)/);
+  assert.match(component, /batch\.same_day_delivery \? <span/);
+  assert.match(component, /summarizeMaterialReceipts/);
+  assert.match(component, /未全/);
+  assert.match(component, /已收到/);
+  assert.doesNotMatch(component, /aria-label="實際到貨"/);
+  assert.match(component, /aria-label=\{`\$\{material\.item_name\}送達位置`\}/);
+  assert.match(component, /placeholder="自訂位置"/);
+  assert.equal((component.match(/DELIVERY_DESTINATION_OPTIONS\.map/g) || []).length, 2);
+});
+
+test('material autosave stays local instead of refreshing the project list or remounting the modal', () => {
+  const component = fs.readFileSync(path.resolve(__dirname, '../components/ProjectMaterials.tsx'), 'utf8');
+  const modal = fs.readFileSync(path.resolve(__dirname, '../components/ProjectDetailModal.tsx'), 'utf8');
+  const autosavePayload = component.slice(
+    component.indexOf('const materialAutosave'),
+    component.indexOf('const orderedBatches'),
+  );
+  assert.doesNotMatch(component, /router\.refresh|window\.location/);
+  assert.doesNotMatch(modal, /<ProjectMaterials[^>]+onChanged=/);
+  assert.doesNotMatch(autosavePayload, /received_at:|procurement_status:/);
 });

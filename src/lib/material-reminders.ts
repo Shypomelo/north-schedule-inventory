@@ -8,6 +8,7 @@ import type {
 } from './db/types';
 import { ENGINEERING_POSITION_NAME } from './engineering-responsibilities';
 import { isActiveProject } from './project-selectors';
+import { getEffectiveExpectedDeliveryAt, receiptGroupKey } from './material-receipt-time';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const MATERIAL_REMINDER_HORIZON_DAYS = 14;
@@ -22,6 +23,7 @@ export interface RecentReceiptGroup {
   overdueDays: number;
   isPartial: boolean;
   scheduleTaskId: string | null;
+  receiptGroupKey: string;
 }
 
 const validTime = (value: string | null): number | null => {
@@ -71,37 +73,46 @@ export function selectRecentReceiptGroups({
 }): RecentReceiptGroup[] {
   const ownedProjectIds = new Set(selectEngineeringProjectIds(responsibilities, memberId));
   const projectById = new Map(projects.filter(isActiveProject).map(project => [project.id, project]));
-  const scheduledTaskByBatchId = new Map(scheduleTasks
-    .filter(task => task.source_material_batch_id && task.status !== '取消')
-    .map(task => [task.source_material_batch_id as string, task.id]));
+  const scheduledTaskByGroup = new Map(scheduleTasks
+    .filter(task => task.source_material_batch_id && task.source_material_receipt_at)
+    .filter(task => !['取消', '完成', '已完成'].includes(task.status))
+    .map(task => [receiptGroupKey(task.source_material_batch_id as string, task.source_material_receipt_at as string), task.id]));
   const nowTime = now.getTime();
   const horizonTime = nowTime + horizonDays * DAY_MS;
   return batches.flatMap(batch => {
     if (!ownedProjectIds.has(batch.project_id) || batch.received_at) return [];
     const project = projectById.get(batch.project_id);
     if (!project) return [];
-    const expectedDeliveryAt = batch.planned_receipt_at;
-    const expectedTime = validTime(expectedDeliveryAt);
-    if (!expectedDeliveryAt || expectedTime === null || expectedTime > horizonTime) return [];
-    const sortedMaterials = materials
+    const unfinishedMaterials = materials
       .filter(material => material.batch_id === batch.id && material.project_id === batch.project_id)
-      .filter(material => material.procurement_status !== 'RECEIVED' && !material.received_at)
-      .sort((left, right) => left.item_name.localeCompare(right.item_name, 'zh-TW'));
-    if (sortedMaterials.length === 0) return [];
-    if (expectedTime >= nowTime && !sortedMaterials.some(material => (
-      shouldRemindForUpcomingDelivery(material, expectedTime, nowTime)
-    ))) return [];
-    const overdue = expectedTime < nowTime;
-    return [{
-      project,
-      batch,
-      materials: sortedMaterials,
-      expectedDeliveryAt,
-      status: overdue ? 'OVERDUE' as const : 'UPCOMING' as const,
-      overdueDays: overdue ? Math.max(1, Math.ceil((nowTime - expectedTime) / DAY_MS)) : 0,
-      isPartial: sortedMaterials.some(material => material.procurement_status === 'PARTIAL_RECEIVED'),
-      scheduleTaskId: scheduledTaskByBatchId.get(batch.id) ?? null,
-    }];
+      .filter(material => material.procurement_status !== 'RECEIVED' && !material.received_at);
+    const grouped = new Map<string, ProjectMaterial[]>();
+    for (const material of unfinishedMaterials) {
+      const effective = getEffectiveExpectedDeliveryAt(material, batch);
+      if (!effective || validTime(effective) === null) continue;
+      grouped.set(effective, [...(grouped.get(effective) || []), material]);
+    }
+    return Array.from(grouped.entries()).flatMap(([expectedDeliveryAt, groupMaterials]) => {
+      const expectedTime = validTime(expectedDeliveryAt) as number;
+      if (expectedTime > horizonTime) return [];
+      const sortedMaterials = [...groupMaterials].sort((left, right) => left.item_name.localeCompare(right.item_name, 'zh-TW'));
+      if (expectedTime >= nowTime && !sortedMaterials.some(material => (
+        shouldRemindForUpcomingDelivery(material, expectedTime, nowTime)
+      ))) return [];
+      const overdue = expectedTime < nowTime;
+      const groupKey = receiptGroupKey(batch.id, expectedDeliveryAt);
+      return [{
+        project,
+        batch,
+        materials: sortedMaterials,
+        expectedDeliveryAt,
+        status: overdue ? 'OVERDUE' as const : 'UPCOMING' as const,
+        overdueDays: overdue ? Math.max(1, Math.ceil((nowTime - expectedTime) / DAY_MS)) : 0,
+        isPartial: sortedMaterials.some(material => material.procurement_status === 'PARTIAL_RECEIVED'),
+        scheduleTaskId: scheduledTaskByGroup.get(groupKey) ?? null,
+        receiptGroupKey: groupKey,
+      }];
+    });
   }).sort((left, right) => (
     (left.status === 'OVERDUE' ? 0 : 1) - (right.status === 'OVERDUE' ? 0 : 1)
     || left.expectedDeliveryAt.localeCompare(right.expectedDeliveryAt)
@@ -176,6 +187,7 @@ export function buildReceiptScheduleTask({
     creation_source: 'APP',
     source_todo_id: null,
     source_material_batch_id: group.batch.id,
+    source_material_receipt_at: group.expectedDeliveryAt,
   };
 }
 

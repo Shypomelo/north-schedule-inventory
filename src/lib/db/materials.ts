@@ -1,17 +1,20 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
+  ConfirmMaterialReceiptInput,
   MaterialCatalogItem,
   MaterialCatalogItemCreateInput,
   MaterialCatalogItemUpdateInput,
   MaterialGroup,
   MaterialGroupCreateInput,
   MaterialGroupUpdateInput,
+  MaterialReceipt,
   ProjectMaterialBatch,
   ProjectMaterialBatchCreateInput,
   ProjectMaterialBatchUpdateInput,
   ProjectMaterial,
   ProjectMaterialCreateInput,
   ProjectMaterialUpdateInput,
+  ReverseMaterialReceiptInput,
 } from './types';
 
 const cleanNullableText = (value: string | null | undefined): string | null | undefined => {
@@ -60,6 +63,9 @@ const cleanProjectMaterialCreate = (input: ProjectMaterialCreateInput) => ({
   specification: cleanNullableText(input.specification),
   unit: input.unit.trim(),
   reminder_days_before: input.reminder_enabled ? input.reminder_days_before : null,
+  delivery_destination_note: input.delivery_destination === 'OTHER'
+    ? cleanNullableText(input.delivery_destination_note)
+    : null,
   notes: cleanNullableText(input.notes),
 });
 
@@ -70,6 +76,11 @@ const cleanProjectMaterialUpdate = (input: ProjectMaterialUpdateInput) => {
   if (input.unit !== undefined) payload.unit = input.unit.trim();
   if (input.notes !== undefined) payload.notes = cleanNullableText(input.notes);
   if (input.reminder_enabled === false) payload.reminder_days_before = null;
+  if (input.delivery_destination !== undefined && input.delivery_destination !== 'OTHER') {
+    payload.delivery_destination_note = null;
+  } else if (input.delivery_destination_note !== undefined) {
+    payload.delivery_destination_note = cleanNullableText(input.delivery_destination_note);
+  }
   return payload;
 };
 
@@ -176,6 +187,41 @@ export const createMaterialsAdapter = (client: SupabaseClient) => ({
     return data as ProjectMaterialBatch;
   },
 
+  setMaterialBatchSameDay: async (
+    batchId: string,
+    sameDayDelivery: boolean,
+  ): Promise<ProjectMaterialBatch> => {
+    const { data, error } = await client.rpc('set_material_batch_same_day', {
+      p_batch_id: batchId,
+      p_same_day_delivery: sameDayDelivery,
+    }).single();
+    if (error) throw error;
+    return data as ProjectMaterialBatch;
+  },
+
+  updateMaterialReceiptOverride: async (
+    materialId: string,
+    expectedDeliveryAt: string | null,
+  ): Promise<ProjectMaterial> => {
+    const { data, error } = await client.rpc('update_material_receipt_override', {
+      p_material_id: materialId,
+      p_expected_delivery_at: expectedDeliveryAt,
+    }).single();
+    if (error) throw error;
+    return data as ProjectMaterial;
+  },
+
+  rescheduleMaterialReceiptGroup: async (
+    scheduleTaskId: string,
+    expectedDeliveryAt: string,
+  ): Promise<void> => {
+    const { error } = await client.rpc('reschedule_material_receipt_group', {
+      p_schedule_task_id: scheduleTaskId,
+      p_expected_delivery_at: expectedDeliveryAt,
+    });
+    if (error) throw error;
+  },
+
   completeMaterialReceiptSchedule: async (
     scheduleTaskId: string,
     completedAt: string,
@@ -243,15 +289,13 @@ export const createMaterialsAdapter = (client: SupabaseClient) => ({
 
   listProjectMaterialBatchesForReminder: async (
     projectIds: string[],
-    through: string,
+    _through: string,
   ): Promise<ProjectMaterialBatch[]> => {
     if (projectIds.length === 0) return [];
     const { data, error } = await client
       .from('project_material_batches')
       .select('*')
       .in('project_id', projectIds)
-      .not('planned_receipt_at', 'is', null)
-      .lte('planned_receipt_at', through)
       .is('received_at', null)
       .order('planned_receipt_at', { ascending: true })
       .order('id', { ascending: true });
@@ -269,6 +313,68 @@ export const createMaterialsAdapter = (client: SupabaseClient) => ({
       .order('id', { ascending: true });
     if (error) throw error;
     return (data ?? []) as ProjectMaterial[];
+  },
+
+  listMaterialReceivingBatches: async (): Promise<ProjectMaterialBatch[]> => {
+    const { data, error } = await client
+      .from('project_material_batches')
+      .select('*')
+      .order('planned_receipt_at', { ascending: true, nullsFirst: false })
+      .order('id', { ascending: true });
+    if (error) throw error;
+    return (data ?? []) as ProjectMaterialBatch[];
+  },
+
+  listOfficeProjectMaterials: async (): Promise<ProjectMaterial[]> => {
+    const { data, error } = await client
+      .from('project_materials')
+      .select('*')
+      .eq('delivery_destination', 'OFFICE')
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
+    if (error) throw error;
+    return (data ?? []) as ProjectMaterial[];
+  },
+
+  listMaterialReceipts: async (): Promise<MaterialReceipt[]> => {
+    const { data, error } = await client
+      .from('material_receipts')
+      .select('*')
+      .order('received_at', { ascending: false })
+      .order('id', { ascending: false });
+    if (error) throw error;
+    return (data ?? []) as MaterialReceipt[];
+  },
+
+  confirmMaterialReceipt: async (
+    input: ConfirmMaterialReceiptInput,
+  ): Promise<MaterialReceipt> => {
+    const { data, error } = await client
+      .rpc('confirm_material_receipt', {
+        p_source_type: input.sourceType,
+        p_source_id: input.sourceId,
+        p_quantity_received: input.quantityReceived,
+        p_received_at: input.receivedAt,
+        p_notes: cleanNullableText(input.notes),
+      })
+      .single();
+    if (error) throw error;
+    return data as MaterialReceipt;
+  },
+
+  reverseMaterialReceipt: async (
+    input: ReverseMaterialReceiptInput,
+  ): Promise<MaterialReceipt> => {
+    const { data, error } = await client
+      .rpc('reverse_material_receipt', {
+        p_receipt_id: input.receiptId,
+        p_quantity_reversed: input.quantityReversed,
+        p_reversed_at: input.reversedAt,
+        p_notes: cleanNullableText(input.notes),
+      })
+      .single();
+    if (error) throw error;
+    return data as MaterialReceipt;
   },
 
   createProjectMaterial: async (

@@ -7,7 +7,8 @@ import { useUser } from '@/components/UserContext';
 import { useRowAutosave, type RowAutosaveState } from '@/hooks/useRowAutosave';
 import { dbAdapter } from '@/lib/db';
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
-import type { MaterialCatalogItem, MaterialGroup } from '@/lib/db/types';
+import type { DeliveryDestination, MaterialCatalogItem, MaterialGroup } from '@/lib/db/types';
+import { DELIVERY_DESTINATION_OPTIONS } from '@/lib/project-materials';
 
 const inputClass = 'h-9 w-full rounded-lg border border-theme-border bg-page px-2 text-sm text-primary outline-none focus:border-accent disabled:opacity-60';
 
@@ -17,11 +18,13 @@ interface ItemDraft {
   default_unit: string;
   default_reminder_enabled: boolean;
   default_reminder_days_before: number;
+  default_delivery_destination: DeliveryDestination;
 }
 
 const blankItemDraft = (): ItemDraft => ({
   name: '', default_specification: '', default_unit: '式',
   default_reminder_enabled: false, default_reminder_days_before: 7,
+  default_delivery_destination: 'SITE',
 });
 
 export default function AdminMaterialsPage() {
@@ -90,6 +93,7 @@ export default function AdminMaterialsPage() {
       default_unit: item.default_unit,
       default_reminder_enabled: item.default_reminder_enabled,
       default_reminder_days_before: item.default_reminder_enabled ? item.default_reminder_days_before : null,
+      default_delivery_destination: item.default_delivery_destination,
       is_active: item.is_active,
       sort_order: item.sort_order,
     }), []),
@@ -134,6 +138,7 @@ export default function AdminMaterialsPage() {
         default_unit: draft.default_unit,
         default_reminder_enabled: draft.default_reminder_enabled,
         default_reminder_days_before: draft.default_reminder_enabled ? draft.default_reminder_days_before : null,
+        default_delivery_destination: draft.default_delivery_destination,
         is_active: true,
         sort_order: groupItems.reduce((max, item) => Math.max(max, item.sort_order), 0) + 10,
         created_by: currentUser.id,
@@ -180,10 +185,11 @@ export default function AdminMaterialsPage() {
             <AutosaveStatus state={groupAutosave.stateFor(group.id)} />
           </div>
           {isOpen && <div className="border-t border-theme-border">
-            <div className="grid gap-2 border-b border-theme-border bg-page/20 p-3 md:grid-cols-[minmax(9rem,1fr)_minmax(9rem,1fr)_6rem_7rem_8rem_auto] md:items-end">
+            <div className="grid gap-2 border-b border-theme-border bg-page/20 p-3 md:grid-cols-[minmax(9rem,1fr)_minmax(9rem,1fr)_6rem_8rem_7rem_8rem_auto] md:items-end">
               <label className="text-xs text-secondary">品項名稱<input value={draft.name} onChange={event => updateDraft({ name: event.target.value })} className={`${inputClass} mt-1`} /></label>
               <label className="text-xs text-secondary">型號／規格<input value={draft.default_specification} onChange={event => updateDraft({ default_specification: event.target.value })} className={`${inputClass} mt-1`} /></label>
               <label className="text-xs text-secondary">單位<input value={draft.default_unit} onChange={event => updateDraft({ default_unit: event.target.value })} className={`${inputClass} mt-1`} /></label>
+              <label className="text-xs text-secondary">預設送達<select value={draft.default_delivery_destination} onChange={event => updateDraft({ default_delivery_destination: event.target.value as DeliveryDestination })} className={`${inputClass} mt-1`}>{DELIVERY_DESTINATION_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
               <label className="flex h-9 items-center gap-2 text-xs text-secondary"><input type="checkbox" checked={draft.default_reminder_enabled} onChange={event => updateDraft({ default_reminder_enabled: event.target.checked })} className="h-4 w-4 accent-accent" />預設提醒</label>
               <label className="text-xs text-secondary">提前天數<input type="number" min={0} max={3650} disabled={!draft.default_reminder_enabled} value={draft.default_reminder_days_before} onChange={event => updateDraft({ default_reminder_days_before: Number(event.target.value) })} className={`${inputClass} mt-1`} /></label>
               <button type="button" disabled={!draft.name.trim() || !draft.default_unit.trim() || creating !== null} onClick={() => void createItem(group)} className="flex h-9 items-center justify-center gap-1 rounded-lg border border-accent/40 px-3 text-xs font-semibold text-accent disabled:opacity-50"><Plus size={14} />新增物料</button>
@@ -199,10 +205,11 @@ export default function AdminMaterialsPage() {
 }
 
 function CatalogItemRow({ item, autosave }: { item: MaterialCatalogItem; autosave: ReturnType<typeof useRowAutosave<MaterialCatalogItem>> }) {
-  return <div onBlur={() => autosave.flush(item.id)} className={`grid gap-2 p-3 md:grid-cols-[minmax(9rem,1fr)_minmax(9rem,1fr)_6rem_6rem_10rem_6rem_5rem] md:items-end ${item.is_active ? '' : 'opacity-60'}`}>
+  return <div onBlur={() => autosave.flush(item.id)} className={`grid gap-2 p-3 md:grid-cols-[minmax(9rem,1fr)_minmax(9rem,1fr)_6rem_8rem_6rem_10rem_6rem_5rem] md:items-end ${item.is_active ? '' : 'opacity-60'}`}>
     <label className="text-xs text-secondary">品項名稱<input value={item.name} onChange={event => autosave.updateRow(item.id, { name: event.target.value })} className={`${inputClass} mt-1`} /></label>
     <label className="text-xs text-secondary">型號／規格<input value={item.default_specification || ''} onChange={event => autosave.updateRow(item.id, { default_specification: event.target.value || null })} className={`${inputClass} mt-1`} /></label>
     <label className="text-xs text-secondary">單位<input value={item.default_unit} onChange={event => autosave.updateRow(item.id, { default_unit: event.target.value })} className={`${inputClass} mt-1`} /></label>
+    <label className="text-xs text-secondary">預設送達<select value={item.default_delivery_destination} onChange={event => autosave.updateRow(item.id, { default_delivery_destination: event.target.value as DeliveryDestination })} className={`${inputClass} mt-1`}>{DELIVERY_DESTINATION_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
     <label className="text-xs text-secondary">排序<input type="number" value={item.sort_order} onChange={event => autosave.updateRow(item.id, { sort_order: Number(event.target.value) })} className={`${inputClass} mt-1`} /></label>
     <div className="flex h-9 items-center gap-2"><Bell size={14} className="text-secondary" /><input type="checkbox" checked={item.default_reminder_enabled} onChange={event => autosave.updateRow(item.id, { default_reminder_enabled: event.target.checked, default_reminder_days_before: event.target.checked ? item.default_reminder_days_before ?? 7 : null })} className="h-4 w-4 accent-accent" aria-label={`${item.name}預設提醒`} /><input type="number" min={0} max={3650} disabled={!item.default_reminder_enabled} value={item.default_reminder_days_before ?? 7} onChange={event => autosave.updateRow(item.id, { default_reminder_days_before: Number(event.target.value) })} className="h-9 w-16 rounded-lg border border-theme-border bg-page px-2 text-sm text-primary disabled:opacity-50" aria-label={`${item.name}提醒天數`} /><span className="text-xs text-secondary">天</span></div>
     <label className="flex h-9 items-center gap-2 text-sm text-secondary"><input type="checkbox" checked={item.is_active} onChange={event => autosave.updateRow(item.id, { is_active: event.target.checked })} className="h-4 w-4 accent-accent" />啟用</label>

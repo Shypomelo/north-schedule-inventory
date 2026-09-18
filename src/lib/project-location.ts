@@ -157,6 +157,20 @@ export function getProjectSearchScore(
   return score;
 }
 
+export function filterProjectsForAutocomplete<T extends ProjectSearchSource & { notes?: string | null }>(
+  projects: readonly T[],
+  query: string,
+  limit = 50,
+): T[] {
+  if (!query.trim()) return [];
+  return projects
+    .map(project => ({ project, score: getProjectSearchScore(project, query, [project.notes]) }))
+    .filter(item => item.score > 0)
+    .sort((left, right) => right.score - left.score || left.project.name.localeCompare(right.project.name, 'zh-TW'))
+    .slice(0, limit)
+    .map(item => item.project);
+}
+
 export function getProjectLocationLabel(project: ProjectSearchSource): string | null {
   const location = parseTaiwanProjectLocation(project.address)
     || parseTaiwanProjectLocation(project.region);

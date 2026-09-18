@@ -66,10 +66,11 @@ SELECT set_config(
 SET LOCAL ROLE authenticated;
 
 INSERT INTO public.project_material_batches (
-  id, project_id, batch_name, planned_receipt_at, created_by
+  id, project_id, batch_name, planned_receipt_at, same_day_delivery, created_by
 ) VALUES (
   '73700000-0000-4000-8000-000000000001', current_setting('test.project_id')::uuid,
-  'TEST Phase A.1 receipt plan', '2026-09-20 14:00:00+08', current_setting('test.editor_id')::uuid
+  'TEST Phase A.1 receipt plan', '2026-09-20 14:00:00+08', false,
+  current_setting('test.editor_id')::uuid
 );
 
 INSERT INTO public.project_materials (
@@ -78,19 +79,30 @@ INSERT INTO public.project_materials (
 ) VALUES
   ('73800000-0000-4000-8000-000000000001', current_setting('test.project_id')::uuid,
    '73700000-0000-4000-8000-000000000001', 'TEST A', 1, '式', 'ORDERED',
-   '2026-09-20 14:00:00+08', true, 7, current_setting('test.editor_id')::uuid),
+   NULL, true, 7, current_setting('test.editor_id')::uuid),
   ('73800000-0000-4000-8000-000000000002', current_setting('test.project_id')::uuid,
-   '73700000-0000-4000-8000-000000000001', 'TEST B', 1, '式', 'PARTIAL_RECEIVED',
-   '2026-09-20 14:00:00+08', true, 7, current_setting('test.editor_id')::uuid);
+   '73700000-0000-4000-8000-000000000001', 'TEST B', 1, '式', 'ORDERED',
+   NULL, true, 7, current_setting('test.editor_id')::uuid),
+  ('73800000-0000-4000-8000-000000000003', current_setting('test.project_id')::uuid,
+   '73700000-0000-4000-8000-000000000001', 'TEST RSG', 1, '式', 'ORDERED',
+   '2026-09-25 14:00:00+08', true, 7, current_setting('test.editor_id')::uuid);
 
 INSERT INTO public.schedule_tasks (
   id, work_group_id, title, task_type, task_date, start_time, status,
-  project_id, project_name, primary_member_id, source_material_batch_id
-) VALUES (
+  project_id, project_name, primary_member_id, source_material_batch_id,
+  source_material_receipt_at
+) VALUES
+(
   '73900000-0000-4000-8000-000000000001', current_setting('test.work_group_id')::uuid,
   '收料', '收料', '2026-09-20', '14:00', '', current_setting('test.project_id'),
   'TEST Phase A.1 project', current_setting('test.editor_id'),
-  '73700000-0000-4000-8000-000000000001'
+  '73700000-0000-4000-8000-000000000001', '2026-09-20 14:00:00+08'
+),
+(
+  '73900000-0000-4000-8000-000000000002', current_setting('test.work_group_id')::uuid,
+  '收料 RSG', '收料', '2026-09-25', '14:00', '', current_setting('test.project_id'),
+  'TEST Phase A.1 project', current_setting('test.editor_id'),
+  '73700000-0000-4000-8000-000000000001', '2026-09-25 14:00:00+08'
 );
 
 SELECT public.update_material_receipt_plan(
@@ -100,11 +112,27 @@ SELECT public.update_material_receipt_plan(
 SELECT pg_temp.assert_true(
   (SELECT planned_receipt_at = '2026-09-22 10:00:00+08' FROM public.project_material_batches
    WHERE id = '73700000-0000-4000-8000-000000000001')
-  AND (SELECT bool_and(expected_delivery_at = '2026-09-22 10:00:00+08') FROM public.project_materials
-       WHERE batch_id = '73700000-0000-4000-8000-000000000001')
+  AND (SELECT bool_and(COALESCE(expected_delivery_at, '2026-09-22 10:00:00+08'::timestamptz) = '2026-09-22 10:00:00+08') FROM public.project_materials
+       WHERE id IN ('73800000-0000-4000-8000-000000000001', '73800000-0000-4000-8000-000000000002'))
+  AND (SELECT expected_delivery_at = '2026-09-25 14:00:00+08' FROM public.project_materials
+       WHERE id = '73800000-0000-4000-8000-000000000003')
   AND (SELECT task_date = '2026-09-22' AND start_time = '10:00' FROM public.schedule_tasks
        WHERE id = '73900000-0000-4000-8000-000000000001'),
-  'canonical plan atomically updates batch, pending materials, and receipt schedule'
+  'canonical default moves only the default receipt group'
+);
+
+SELECT public.reschedule_material_receipt_group(
+  '73900000-0000-4000-8000-000000000002', '2026-09-26 15:00:00+08'
+);
+
+SELECT pg_temp.assert_true(
+  (SELECT planned_receipt_at = '2026-09-22 10:00:00+08' FROM public.project_material_batches
+   WHERE id = '73700000-0000-4000-8000-000000000001')
+  AND (SELECT expected_delivery_at = '2026-09-26 15:00:00+08' FROM public.project_materials
+       WHERE id = '73800000-0000-4000-8000-000000000003')
+  AND (SELECT source_material_receipt_at = '2026-09-22 10:00:00+08' FROM public.schedule_tasks
+       WHERE id = '73900000-0000-4000-8000-000000000001'),
+  'dragging the RSG group changes only RSG material and schedule'
 );
 
 SELECT public.complete_material_receipt_schedule(
@@ -114,12 +142,32 @@ SELECT public.complete_material_receipt_schedule(
 SELECT pg_temp.assert_true(
   (SELECT status = '完成' FROM public.schedule_tasks
    WHERE id = '73900000-0000-4000-8000-000000000001')
-  AND (SELECT received_at = '2026-09-22 10:30:00+08' FROM public.project_material_batches
+  AND (SELECT received_at IS NULL FROM public.project_material_batches
        WHERE id = '73700000-0000-4000-8000-000000000001')
   AND (SELECT bool_and(procurement_status = 'RECEIVED' AND received_at = '2026-09-22 10:30:00+08')
        FROM public.project_materials
-       WHERE batch_id = '73700000-0000-4000-8000-000000000001'),
-  'completing the receipt schedule completes the inbound batch and every material'
+       WHERE id IN ('73800000-0000-4000-8000-000000000001', '73800000-0000-4000-8000-000000000002'))
+  AND (SELECT procurement_status = 'ORDERED' AND received_at IS NULL
+       FROM public.project_materials WHERE id = '73800000-0000-4000-8000-000000000003')
+  AND (SELECT count(*) = 2 FROM public.material_receipts
+       WHERE project_material_id IN ('73800000-0000-4000-8000-000000000001', '73800000-0000-4000-8000-000000000002')
+         AND event_type = 'RECEIVE'),
+  'completing the first group appends receipts only for that group'
+);
+
+SELECT public.complete_material_receipt_schedule(
+  '73900000-0000-4000-8000-000000000002', '2026-09-26 15:30:00+08'
+);
+
+SELECT pg_temp.assert_true(
+  (SELECT procurement_status = 'RECEIVED' AND received_at = '2026-09-26 15:30:00+08'
+   FROM public.project_materials WHERE id = '73800000-0000-4000-8000-000000000003')
+  AND (SELECT received_at = '2026-09-26 15:30:00+08' FROM public.project_material_batches
+       WHERE id = '73700000-0000-4000-8000-000000000001')
+  AND (SELECT count(*) = 3 FROM public.material_receipts
+       WHERE project_material_id IN ('73800000-0000-4000-8000-000000000001', '73800000-0000-4000-8000-000000000002', '73800000-0000-4000-8000-000000000003')
+         AND event_type = 'RECEIVE'),
+  'the batch completes only after every receipt-time group is complete'
 );
 
 RESET ROLE;

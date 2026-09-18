@@ -5,8 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useUser } from '@/components/UserContext';
 import { useTheme } from '@/components/ThemeContext';
 import { UserSelector } from '@/components/UserSelector';
-import { DashboardViewSelector } from './DashboardViewContext';
-import { Building2, Calendar, ChevronLeft, ChevronRight, Home, ListChecks, Menu, Package, Palette, Settings, Truck, Users, Wrench, X } from 'lucide-react';
+import { Building2, Calendar, ChevronLeft, ChevronRight, Home, ListChecks, LogOut, Menu, Package, Palette, Settings, Truck, UserRound, Users, Wrench, X } from 'lucide-react';
 import { isMobileNavigationEdgeSwipe, type SwipePoint } from '@/lib/mobile-navigation-gesture';
 import { dbAdapter } from '@/lib/db';
 import type { MemberPosition, Position } from '@/lib/db/types';
@@ -18,17 +17,28 @@ export function Sidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [showTheme, setShowTheme] = useState(false);
+  const [showAccount, setShowAccount] = useState(false);
   const { currentUser, allUsers, logout } = useUser();
   const { theme, setTheme } = useTheme();
   const [positions, setPositions] = useState<Position[]>([]);
   const [memberPositions, setMemberPositions] = useState<MemberPosition[]>([]);
   const currentRole = currentUser?.role?.toLowerCase();
   const engineeringUsers = selectEngineeringMembers(allUsers, positions, memberPositions);
+  const currentPositionNames = positions
+    .filter(position => position.is_active && memberPositions.some(link => link.member_id === currentUser?.id && link.position_id === position.id))
+    .sort((left, right) => left.sort_order - right.sort_order)
+    .map(position => position.name);
   const isActive = (href: string, includeSubpaths = false) => pathname === href || (includeSubpaths && href !== '/' && pathname.startsWith(`${href}/`));
+  const closeMobileSidebar = () => {
+    setIsMobileOpen(false);
+    setShowTheme(false);
+    setShowAccount(false);
+  };
 
   useEffect(() => {
     setIsMobileOpen(false);
     setShowTheme(false);
+    setShowAccount(false);
   }, [pathname]);
 
   useEffect(() => {
@@ -84,27 +94,6 @@ export function Sidebar() {
   const panel = (collapsed: boolean, mobile = false) => (
     <>
       <div className={`shrink-0 overflow-hidden whitespace-nowrap font-bold text-[var(--sidebar-brand)] ${collapsed ? 'h-0 w-0 opacity-0' : 'text-xl'}`}>北部工程排程系統</div>
-      {!collapsed && (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) && <div className="shrink-0"><UserSelector /></div>}
-      {!collapsed && currentUser && (
-        <div className="relative shrink-0 rounded-lg border border-[var(--sidebar-border)] bg-[var(--sidebar-user-card)] p-3">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 break-words text-sm font-bold text-[var(--text-primary)]">{currentUser.name}</div>
-            <button type="button" onClick={() => setShowTheme(value => !value)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded text-[var(--text-secondary)] hover:bg-[var(--sidebar-hover)]" aria-label="切換主題"><Palette size={16} /></button>
-          </div>
-          <div className="mb-2 mt-1 text-xs text-[var(--text-secondary)]">系統權限: {ROLE_LABELS[currentUser.role]}</div>
-          <DashboardViewSelector />
-          {showTheme && (
-            <div className="theme-popover absolute right-3 top-11 z-50 flex min-w-32 flex-col gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2 shadow-xl [--text-primary:var(--modal-text)]">
-              {(['dark', 'light', 'orange'] as const).map(value => (
-                <button type="button" key={value} onClick={() => { setTheme(value); setShowTheme(false); }} className={`rounded px-3 py-2 text-left text-sm ${theme === value ? 'bg-[var(--sidebar-hover)] font-medium text-[var(--accent)]' : 'text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)]'}`}>{value === 'dark' ? '深色' : value === 'light' ? '淺色' : '橘色'}</button>
-              ))}
-            </div>
-          )}
-          {process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY && (
-            <button type="button" onClick={logout} className="min-h-10 w-full rounded border border-[var(--sidebar-danger)] text-xs text-[var(--sidebar-danger)] hover:bg-[var(--sidebar-logout-hover)] hover:text-[var(--danger-text)]">登出</button>
-          )}
-        </div>
-      )}
       <nav className="sidebar-scrollbar flex w-full flex-1 flex-col gap-2 overflow-y-auto overflow-x-hidden pb-6 pr-1">
         {navItem('/', '儀表板 (Dashboard)', Home, collapsed)}
         {navItem('/schedule', '排程管理', Calendar, collapsed, true)}
@@ -135,6 +124,23 @@ export function Sidebar() {
           </details>
         )}
       </nav>
+      {!collapsed && (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) && <div className="shrink-0"><UserSelector /></div>}
+      {currentUser && <div className="relative shrink-0">
+        {showAccount && !collapsed ? <div className="absolute inset-x-0 bottom-full z-50 mb-2 rounded-lg border border-[var(--sidebar-border)] bg-[var(--bg-sidebar)] p-3 text-xs shadow-xl">
+          <div className="font-bold text-[var(--text-primary)]">{currentUser.name}</div>
+          <div className="mt-2 text-[var(--text-secondary)]">權限：{ROLE_LABELS[currentUser.role]}</div>
+          <div className="mt-1 text-[var(--text-secondary)]">職位：{currentPositionNames.join('、') || '未設定'}</div>
+          {currentUser.email ? <div className="mt-1 break-all text-[var(--text-secondary)]">{currentUser.email}</div> : null}
+        </div> : null}
+        {showTheme && !collapsed ? <div className="theme-popover absolute right-0 bottom-full z-50 mb-2 flex min-w-32 flex-col gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2 shadow-xl [--text-primary:var(--modal-text)]">
+          {(['dark', 'light', 'orange'] as const).map(value => <button type="button" key={value} onClick={() => { setTheme(value); setShowTheme(false); }} className={`rounded px-3 py-2 text-left text-sm ${theme === value ? 'bg-[var(--sidebar-hover)] font-medium text-[var(--accent)]' : 'text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)]'}`}>{value === 'dark' ? '深色' : value === 'light' ? '淺色' : '橘色'}</button>)}
+        </div> : null}
+        <div className={`flex items-center rounded-lg border border-[var(--sidebar-border)] bg-[var(--sidebar-user-card)] p-1 ${collapsed?'flex-col gap-1':'gap-1'}`} aria-label="帳號列">
+          <button type="button" title={currentUser.name} aria-expanded={showAccount} onClick={()=>{setShowAccount(value=>!value);setShowTheme(false);}} className={`flex min-h-9 min-w-0 items-center rounded px-2 text-sm font-bold text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] ${collapsed?'justify-center':'flex-1'}`}><UserRound size={16} className="shrink-0"/>{!collapsed?<span className="ml-2 truncate">{currentUser.name}</span>:null}</button>
+          <button type="button" onClick={()=>{setShowTheme(value=>!value);setShowAccount(false);}} className="flex h-9 w-9 shrink-0 items-center justify-center rounded text-[var(--text-secondary)] hover:bg-[var(--sidebar-hover)]" aria-label="切換主題"><Palette size={16}/></button>
+          <button type="button" onClick={logout} className="flex h-9 w-9 shrink-0 items-center justify-center rounded text-[var(--sidebar-danger)] hover:bg-[var(--sidebar-logout-hover)]" aria-label="登出" title="登出"><LogOut size={16}/></button>
+        </div>
+      </div>}
       {mobile && <span className="sr-only">手機導覽</span>}
     </>
   );
@@ -151,9 +157,9 @@ export function Sidebar() {
       </aside>
       {isMobileOpen && (
         <div className="fixed inset-0 z-[80] md:hidden" role="dialog" aria-modal="true" aria-label="網站導覽">
-          <button type="button" className="absolute inset-0 bg-black/60" onClick={() => setIsMobileOpen(false)} aria-label="關閉導覽選單" />
+          <button type="button" className="absolute inset-0 bg-black/60" onClick={closeMobileSidebar} aria-label="關閉導覽選單" />
           <aside className="relative flex h-[100dvh] w-[min(20rem,88vw)] flex-col gap-4 overflow-hidden border-r border-[var(--sidebar-border)] bg-[var(--bg-sidebar)] p-4 shadow-2xl [--text-primary:var(--sidebar-text)] [--text-secondary:var(--sidebar-muted)]">
-            <div className="flex items-center justify-end"><button type="button" onClick={() => setIsMobileOpen(false)} className="flex h-10 w-10 items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--sidebar-hover)]" aria-label="關閉導覽選單"><X size={22} /></button></div>
+            <div className="flex items-center justify-end"><button type="button" onClick={closeMobileSidebar} className="flex h-10 w-10 items-center justify-center rounded-lg text-[var(--text-secondary)] hover:bg-[var(--sidebar-hover)]" aria-label="關閉導覽選單"><X size={22} /></button></div>
             {panel(false, true)}
           </aside>
         </div>

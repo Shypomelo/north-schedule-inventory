@@ -720,7 +720,7 @@ const fetchSESupplyRecordsFromSupabase = async (): Promise<SESupplyRecord[]> => 
   return (data || []) as SESupplyRecord[];
 };
 
-type NewSESupplyRecord = Omit<SESupplyRecord, 'id' | 'created_at' | 'updated_at'>;
+type NewSESupplyRecord = Omit<SESupplyRecord, 'id' | 'receiving_archived_at' | 'created_at' | 'updated_at'>;
 
 const normalizeSESupplyNullableValue = (value: string | null): string | null =>
   value === '' ? null : value;
@@ -737,6 +737,13 @@ const normalizeNewSESupplyRecord = (data: NewSESupplyRecord): NewSESupplyRecord 
   receive_date: normalizeSESupplyNullableValue(data.receive_date),
   replace_date: normalizeSESupplyNullableValue(data.replace_date),
   notes: normalizeSESupplyNullableValue(data.notes),
+  quantity: Number(data.quantity),
+  unit: data.unit.trim(),
+  expected_delivery_at: normalizeSESupplyNullableValue(data.expected_delivery_at),
+  requested_by: normalizeSESupplyNullableValue(data.requested_by),
+  procurement_status: data.procurement_status,
+  received_at: normalizeSESupplyNullableValue(data.received_at),
+  received_by: normalizeSESupplyNullableValue(data.received_by),
 });
 
 const createSESupplyRecordInSupabase = async (data: NewSESupplyRecord): Promise<SESupplyRecord> => {
@@ -1971,6 +1978,7 @@ export const pocSupabaseAdapter = {
       created_by_name: row.created_by_name || null,
       creation_source: row.creation_source || 'LEGACY',
       source_material_batch_id: row.source_material_batch_id || null,
+      source_material_receipt_at: row.source_material_receipt_at || null,
       created_at: row.created_at || new Date().toISOString(),
       updated_at: row.updated_at || new Date().toISOString(),
     })) as ScheduleTask[];
@@ -2020,6 +2028,7 @@ export const pocSupabaseAdapter = {
       created_by_name: t.created_by_name || null,
       creation_source: t.creation_source || 'APP',
       source_material_batch_id: t.source_material_batch_id || null,
+      source_material_receipt_at: t.source_material_receipt_at || null,
       updated_by: 'system',
     };
 
@@ -2124,6 +2133,7 @@ export const pocSupabaseAdapter = {
       created_by_name: data.created_by_name || null,
       creation_source: data.creation_source || 'LEGACY',
       source_material_batch_id: data.source_material_batch_id || null,
+      source_material_receipt_at: data.source_material_receipt_at || null,
       created_at: data.created_at || new Date().toISOString(),
       updated_at: data.updated_at || new Date().toISOString(),
     } as ScheduleTask;

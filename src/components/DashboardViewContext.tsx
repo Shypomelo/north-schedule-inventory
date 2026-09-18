@@ -3,6 +3,7 @@ import {createContext,useContext,useEffect,useRef,useState, useCallback} from 'r
 import {useUser} from './UserContext';
 import {perspectiveAdapter} from '@/lib/db/perspective-adapter';
 import {resolveDashboardViews, type DashboardView, type DashboardViewKey} from '@/lib/dashboard-perspectives';
+import {dashboardPerspectiveStorageKey, resolveSavedDashboardView} from '@/lib/dashboard-navigation';
 interface ViewState { allowed:DashboardView[]; selected:DashboardView|null; error:string; loading:boolean; select:(key:DashboardViewKey)=>void; reload:()=>void }
 const Context=createContext<ViewState>({allowed:[],selected:null,error:'',loading:true,select:()=>{},reload:()=>{}});
 export const useDashboardView=()=>useContext(Context);
@@ -18,12 +19,19 @@ export function DashboardViewProvider({children}:{children:React.ReactNode}) {
     Promise.all([perspectiveAdapter.getDashboardViews(),perspectiveAdapter.getMemberDashboardViews(currentUser.id)]).then(([views,rows])=>{
       if(!live)return;
       const {allowed,defaultView}=resolveDashboardViews(currentUser,views,rows);
-      setState({memberId:currentUser.id,allowed,selected:defaultView,error:'',loading:false});
+      const saved=window.localStorage.getItem(dashboardPerspectiveStorageKey(currentUser.id));
+      const selected=resolveSavedDashboardView(allowed,defaultView,saved);
+      if(selected)window.localStorage.setItem(dashboardPerspectiveStorageKey(currentUser.id),selected.key);
+      setState({memberId:currentUser.id,allowed,selected,error:'',loading:false});
     }).catch(()=>{if(live)setState({memberId:currentUser.id,allowed:[],selected:null,error:'工作視角無法載入；請確認測試環境已套用 candidate migration。',loading:false});});
     return ()=>{live=false;};
   },[currentUser,revision]);
-  // In-memory session preference only. Never writes membership/default/role/group.
-  const select=(key:DashboardViewKey)=>setState(previous=>({...previous,selected:previous.allowed.find(view=>view.key===key)??previous.selected}));
+  // Local UI preference only. Never writes membership/default/role/group.
+  const select=(key:DashboardViewKey)=>setState(previous=>{
+    const selected=previous.allowed.find(view=>view.key===key)??previous.selected;
+    if(selected&&previous.memberId)window.localStorage.setItem(dashboardPerspectiveStorageKey(previous.memberId),selected.key);
+    return {...previous,selected};
+  });
   const visible=state.memberId===currentUser?.id?state:{allowed:[],selected:null,error:'',loading:!!currentUser};
   return <Context.Provider value={{...visible,select,reload}}>{children}</Context.Provider>;
 }

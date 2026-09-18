@@ -4,6 +4,8 @@ const path = require('node:path');
 const test = require('node:test');
 
 const read = relativePath => fs.readFileSync(path.resolve(__dirname, relativePath), 'utf8');
+const load = file => require('./test-load-ts.cjs')(path.join(__dirname, file));
+const { filterProjectsForAutocomplete } = load('project-location.ts');
 
 test('Phase 1 editors use the shared debounced row autosave flow', () => {
   const hook = read('../hooks/useRowAutosave.ts');
@@ -40,7 +42,18 @@ test('Phase 1 editors use the shared debounced row autosave flow', () => {
 test('schedule project suggestions stay closed until the first nonblank character', () => {
   const scheduleForm = read('../components/ScheduleTaskForm.tsx');
   assert.match(scheduleForm, /setIsDropdownOpen\(Boolean\(val\.trim\(\)\)\)/);
-  assert.match(scheduleForm, /if \(!projectNameInput\.trim\(\)\) return \[\]/);
+  assert.match(scheduleForm, /filterProjectsForAutocomplete\(projects,\s*projectNameInput\)/);
+  const projects = [
+    { name: 'Alpha Project', short_name: null, project_code: null, address: null, region: null, notes: null },
+    { name: 'Beta Project', short_name: null, project_code: null, address: null, region: null, notes: null },
+  ];
+  assert.deepEqual(filterProjectsForAutocomplete(projects, ''), []);
+  assert.deepEqual(filterProjectsForAutocomplete(projects, ' '), []);
+  assert.deepEqual(filterProjectsForAutocomplete(projects, '   '), []);
+  assert.deepEqual(
+    filterProjectsForAutocomplete(projects, 'alph').map(project => project.name),
+    ['Alpha Project'],
+  );
   assert.match(scheduleForm, /onFocus=\{\(\) => setIsDropdownOpen\(Boolean\(projectNameInput\.trim\(\)\)\)\}/);
   assert.match(scheduleForm, /onClick=\{\(\) => setIsDropdownOpen\(Boolean\(projectNameInput\.trim\(\)\)\)\}/);
 });
@@ -49,10 +62,12 @@ test('material selection uses canonical groups, five quick slots, ESC, and inlin
   const projectMaterials = read('../components/ProjectMaterials.tsx');
   const quickAdd = projectMaterials.slice(
     projectMaterials.indexOf('min-w-[32rem]'),
-    projectMaterials.indexOf('min-w-[50rem]'),
+    projectMaterials.indexOf('min-w-[48rem]'),
   );
   const catalogAdmin = read('../app/admin/materials/page.tsx');
-  assert.match(projectMaterials, /dbAdapter\.listMaterialGroups\(false\)/);
+  assert.match(projectMaterials, /dbAdapter\.listMaterialGroups\(true\)/);
+  assert.match(projectMaterials, /getActiveMaterialGroups\(groups\)/);
+  assert.match(projectMaterials, /getProjectMaterialGroupLabel\(material, catalog, groups\)/);
   assert.match(projectMaterials, /createQuickSlots\(5\)/);
   assert.match(projectMaterials, /filterMaterialCatalogByGroupId\(catalog, slot\.groupId\)/);
   assert.match(projectMaterials, /event\.key === 'Escape'/);

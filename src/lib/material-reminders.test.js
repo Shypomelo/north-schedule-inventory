@@ -54,16 +54,16 @@ test('recent receipts honor overdue, 14-day, reminder, receipt, grouping, and ow
     projects: [owned, other],
     batches,
     materials: [
-      material('overdue-disabled', owned.id, 'overdue', '2026-09-14T04:00:00.000Z', { reminder_enabled: false, reminder_days_before: null }),
-      material('partial', owned.id, 'overdue', '2026-09-14T05:00:00.000Z', { procurement_status: 'PARTIAL_RECEIVED' }),
-      material('future-visible', owned.id, 'upcoming', '2026-09-20T06:00:00.000Z'),
+      material('overdue-disabled', owned.id, 'overdue', null, { reminder_enabled: false, reminder_days_before: null }),
+      material('partial', owned.id, 'overdue', null, { procurement_status: 'PARTIAL_RECEIVED' }),
+      material('future-visible', owned.id, 'upcoming', null),
       material('future-too-early', owned.id, 'upcoming', '2026-09-24T06:00:00.000Z', { reminder_days_before: 3 }),
-      material('future-disabled', owned.id, 'upcoming', '2026-09-20T06:00:00.000Z', { reminder_enabled: false, reminder_days_before: null }),
+      material('future-disabled', owned.id, 'upcoming', null, { reminder_enabled: false, reminder_days_before: null }),
       material('received', owned.id, 'upcoming', '2026-09-20T06:00:00.000Z', { procurement_status: 'RECEIVED', received_at: '2026-09-15T02:00:00.000Z' }),
       material('beyond-horizon', owned.id, 'upcoming', '2026-10-01T06:00:00.000Z', { reminder_days_before: 30 }),
       material('not-mine', other.id, 'other', '2026-09-14T04:00:00.000Z'),
     ],
-    scheduleTasks: [{ id: 'task-1', source_material_batch_id: 'upcoming' }],
+    scheduleTasks: [{ id: 'task-1', source_material_batch_id: 'upcoming', source_material_receipt_at: '2026-09-20T06:00:00.000Z', status: '' }],
     now,
   });
 
@@ -72,7 +72,7 @@ test('recent receipts honor overdue, 14-day, reminder, receipt, grouping, and ow
   assert.equal(groups[0].overdueDays, 1);
   assert.equal(groups[0].materials.length, 2);
   assert.equal(groups[0].isPartial, true);
-  assert.deepEqual(groups[1].materials.map(row => row.id), ['beyond-horizon', 'future-disabled', 'future-too-early', 'future-visible']);
+  assert.deepEqual(groups[1].materials.map(row => row.id), ['future-disabled', 'future-visible']);
   assert.equal(groups[1].scheduleTaskId, 'task-1');
 });
 
@@ -93,8 +93,28 @@ test('receipt schedule prefill binds the batch and preserves the Taipei delivery
   assert.equal(task.task_date, '2026-09-20');
   assert.equal(task.start_time, '14:00');
   assert.equal(task.source_material_batch_id, batchRow.id);
+  assert.equal(task.source_material_receipt_at, group.expectedDeliveryAt);
   assert.match(task.description, /第一批叫料｜1 項物料/);
   assert.match(task.description, /XLPE_250 × 300米/);
+});
+
+test('one batch splits into one dashboard group per effective receipt time', () => {
+  const projectRow = project('project-1', 'A 案場');
+  const batchRow = batch('batch-1', projectRow.id, '採購代叫', '2026-09-22T01:00:00.000Z');
+  const groups = selectRecentReceiptGroups({
+    memberId: 'owner-1', responsibilities: [responsibility('owner-1', projectRow)], projects: [projectRow],
+    batches: [batchRow],
+    materials: [
+      material('xlpe', projectRow.id, batchRow.id, null),
+      material('pv', projectRow.id, batchRow.id, null),
+      material('rsg', projectRow.id, batchRow.id, '2026-09-25T06:00:00.000Z'),
+    ],
+    scheduleTasks: [], now: new Date('2026-09-20T01:00:00.000Z'),
+  });
+  assert.deepEqual(groups.map(group => [group.expectedDeliveryAt, group.materials.map(row => row.id)]), [
+    ['2026-09-22T01:00:00.000Z', ['pv', 'xlpe']],
+    ['2026-09-25T06:00:00.000Z', ['rsg']],
+  ]);
 });
 
 test('completed batches disappear even when their material rows are stale', () => {
@@ -139,11 +159,45 @@ test('Phase A.1 migration makes the batch time canonical without touching invent
   assert.doesNotMatch(migration, /inventory_transactions|CREATE TABLE|DROP (TABLE|COLUMN)/);
 });
 
-test('material UI edits one batch receipt plan instead of per-item expected times', () => {
+test('receipt-time group migration is additive, scoped, invoker-safe, and preserves receipt audit rows', () => {
+  const migration = fs.readFileSync(
+    path.resolve(__dirname, '../../supabase/migrations/20260916120000_material_receipt_time_groups.sql'),
+    'utf8',
+  );
+  assert.match(migration, /ADD COLUMN same_day_delivery boolean NOT NULL DEFAULT true/);
+  assert.match(migration, /ADD COLUMN source_material_receipt_at timestamptz/);
+  assert.match(migration, /schedule_tasks_active_material_receipt_group_unique_idx/);
+  assert.match(migration, /source_material_batch_id, source_material_receipt_at/);
+  assert.match(migration, /CREATE OR REPLACE FUNCTION public\.update_material_receipt_override/);
+  assert.match(migration, /CREATE OR REPLACE FUNCTION public\.reschedule_material_receipt_group/);
+  assert.match(migration, /SECURITY INVOKER/g);
+  assert.match(migration, /REVOKE ALL ON FUNCTION public\.set_material_batch_same_day/);
+  assert.doesNotMatch(migration, /(?:INSERT INTO|UPDATE|DELETE FROM) public\.material_receipts/);
+  assert.doesNotMatch(migration, /inventory_|CREATE TABLE|DROP TABLE|DROP COLUMN/);
+});
+
+test('material UI supports batch defaults and explicit material overrides', () => {
   const source = fs.readFileSync(path.join(__dirname, '../components/ProjectMaterials.tsx'), 'utf8');
   assert.match(source, /updateMaterialReceiptPlan\(batch\.id, batch\.planned_receipt_at\)/);
-  assert.match(source, /預計收料日期＋時間/);
+  assert.match(source, /同天到貨/);
+  assert.match(source, /預設到貨/);
   assert.match(source, /batch\.received_at \? <p[^>]*>已收料/);
-  assert.doesNotMatch(source, /aria-label="預計到貨"/);
-  assert.doesNotMatch(source, /aria-label="自訂預計到貨"/);
+  assert.match(source, /same_day_delivery/);
+  assert.match(source, /updateMaterialReceiptOverride/);
+  assert.match(source, /getEffectiveExpectedDeliveryAt/);
+  assert.match(source, /formatCompactTaipeiReceiptTime/);
+});
+
+test('schedule completion appends canonical receipt events instead of writing actual time directly', () => {
+  const migration = fs.readFileSync(
+    path.resolve(__dirname, '../../supabase/migrations/20260916170000_material_receipt_corrections.sql'),
+    'utf8',
+  );
+  const completeFunction = migration.slice(
+    migration.indexOf('CREATE OR REPLACE FUNCTION public.complete_material_receipt_schedule'),
+    migration.indexOf('REVOKE ALL ON FUNCTION public.reverse_material_receipt'),
+  );
+  assert.match(completeFunction, /public\.confirm_material_receipt/);
+  assert.match(completeFunction, /source_material_receipt_at/);
+  assert.doesNotMatch(completeFunction, /UPDATE public\.project_materials[\s\S]*received_at/);
 });

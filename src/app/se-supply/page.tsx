@@ -49,9 +49,10 @@ export default function SESupplyPage() {
     loadData();
   }, []);
 
-  const getStatus = (receive_date: string | null, replace_date: string | null) => {
-    if (replace_date) return '已更換';
-    if (receive_date) return '已收料 / 待更換';
+  const getStatus = (record: SESupplyRecord) => {
+    if (record.replace_date) return '已更換';
+    if (record.procurement_status === 'PARTIAL_RECEIVED') return '部分收到';
+    if (record.procurement_status === 'RECEIVED' || record.receive_date || record.received_at) return '已收料 / 待更換';
     return '待收料';
   };
 
@@ -72,11 +73,11 @@ export default function SESupplyPage() {
     || ''
   ), [projectById]);
 
-  const getProjectOptionLabel = (project: Project) => {
+  const getProjectOptionLabel = useCallback((project: Project) => {
     if (!duplicateProjectNames.has(project.name)) return project.name;
     const discriminator = project.short_name || project.project_code || project.id.slice(0, 8);
     return `${project.name}（${discriminator}）`;
-  };
+  }, [duplicateProjectNames]);
 
   const filteredRecords = useMemo(() => {
     return records.filter(r => {
@@ -87,7 +88,7 @@ export default function SESupplyPage() {
         (r.new_serial || '').toLowerCase().includes(searchTerm.toLowerCase());
       
       const matchMethod = filterMethod ? r.receive_method === filterMethod : true;
-      const status = getStatus(r.receive_date, r.replace_date);
+      const status = getStatus(r);
       const matchStatus = filterStatus ? status === filterStatus : true;
 
       return matchSearch && matchMethod && matchStatus;
@@ -97,6 +98,20 @@ export default function SESupplyPage() {
       return timeB - timeA;
     });
   }, [records, searchTerm, filterMethod, filterStatus, getProjectDisplayName]);
+
+  const projectColumnWidth = useMemo(() => {
+    const labels = [
+      ...records.map(record => getProjectDisplayName(record)),
+      ...projects.filter(project => project.is_active).map(project => project.name),
+    ];
+    const longestDisplayUnits = labels.reduce((longest, label) => {
+      const displayUnits = Array.from(label).reduce((total, character) => (
+        total + (character.charCodeAt(0) > 255 ? 2 : 1)
+      ), 0);
+      return Math.max(longest, displayUnits);
+    }, 0);
+    return `${Math.min(30, Math.max(16, longestDisplayUnits + 2))}ch`;
+  }, [getProjectDisplayName, projects, records]);
 
   const handleAddRow = async () => {
     try {
@@ -112,7 +127,14 @@ export default function SESupplyPage() {
         receive_method: null,
         receive_date: null,
         replace_date: null,
-        notes: null
+        notes: null,
+        quantity: 1,
+        unit: '台',
+        expected_delivery_at: null,
+        requested_by: currentUser?.id || null,
+        procurement_status: 'ORDERED',
+        received_at: null,
+        received_by: null,
       });
       setRecords([newRec, ...records]);
     } catch (e) {
@@ -188,11 +210,14 @@ export default function SESupplyPage() {
       '故障序號': r.faulty_serial || '',
       '故障原因': r.fault_reason || '',
       '新物料型號': r.new_model || '',
+      '數量': r.quantity,
+      '單位': r.unit,
+      '預計到貨': r.expected_delivery_at || '',
       '新物料序號': r.new_serial || '',
       '收貨方式': r.receive_method || '',
       '收取物料時間': r.receive_date || '',
       '更換日期': r.replace_date || '',
-      '狀態': getStatus(r.receive_date, r.replace_date),
+      '狀態': getStatus(r),
       '備註事項': r.notes || '',
     }));
 
@@ -255,6 +280,7 @@ export default function SESupplyPage() {
           >
             <option value="">所有狀態</option>
             <option value="待收料">待收料</option>
+            <option value="部分收到">部分收到</option>
             <option value="已收料 / 待更換">已收料 / 待更換</option>
             <option value="已更換">已更換</option>
           </select>
@@ -262,11 +288,11 @@ export default function SESupplyPage() {
       </div>
 
       <div className="flex-1 overflow-auto bg-card rounded-xl border border-theme-border relative">
-        <table className="w-full text-sm text-left whitespace-nowrap min-w-[1320px]">
+        <table className="w-max min-w-[82.5rem] table-auto text-left text-sm whitespace-nowrap">
           <thead className="text-xs text-secondary bg-[var(--surface-secondary)] sticky top-0 z-10 shadow">
             <tr>
               <th className="px-3 py-3 w-10 text-center">操作</th>
-              <th className="px-3 py-3 w-48">案名</th>
+              <th className="px-3 py-3" style={{ width: projectColumnWidth, minWidth: projectColumnWidth, maxWidth: projectColumnWidth }}>案名</th>
               <th className="px-3 py-3 w-32">原故障型號</th>
               <th className="px-3 py-3 w-40">故障序號</th>
               <th className="px-3 py-3 w-32">故障原因</th>
@@ -297,7 +323,7 @@ export default function SESupplyPage() {
               </tr>
             ) : (
               filteredRecords.map(r => {
-                const status = getStatus(r.receive_date, r.replace_date);
+                const status = getStatus(r);
                 return (
                   <tr
                     key={r.id}
@@ -318,7 +344,7 @@ export default function SESupplyPage() {
                         <Trash2 size={16} />
                       </button>
                     </td>
-                    <td className="px-1 py-1">
+                    <td className="w-max min-w-max px-1 py-1" style={{ width: projectColumnWidth, minWidth: projectColumnWidth, maxWidth: projectColumnWidth }}>
                       <input
                         type="text"
                         list="projects-list"
@@ -327,7 +353,8 @@ export default function SESupplyPage() {
                         onBlur={e => handleProjectBlur(r.id, e.target.value)}
                         onKeyDown={e => handleKeyDown(e, r.id, 'project_name', e.currentTarget.value)}
                         placeholder="輸入案名..."
-                        className="w-full bg-transparent border border-transparent hover:border-theme-border focus:border-accent focus:bg-page rounded px-2 py-1 outline-none text-primary placeholder:text-secondary/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="max-w-none bg-transparent border border-transparent hover:border-theme-border focus:border-accent focus:bg-page rounded px-2 py-1 outline-none text-primary placeholder:text-secondary/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        style={{ width: projectColumnWidth, minWidth: projectColumnWidth, maxWidth: projectColumnWidth }}
                         disabled={currentUser?.role === 'VIEWER'}
                       />
                     </td>
