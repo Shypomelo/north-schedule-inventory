@@ -1,3 +1,4 @@
+import { createInventoryAtomicWriter, inventoryWriteError, type InventoryCountInput } from './inventory-atomic';
 import { supabase } from './supabaseClient';
 import {
   ScheduleTask,
@@ -528,184 +529,25 @@ const fetchInventoryTransactionSerialsFromSupabase = async (): Promise<Inventory
   return (data || []).map(mapInventoryTransactionSerial);
 };
 
-const createInventorySerialInSupabase = async (
-  serial: Omit<InventorySerial, 'id' | 'created_at' | 'updated_at'>,
-): Promise<InventorySerial> => {
-  const payload = {
-    item_id: serial.item_id,
-    batch_id: serial.batch_id || null,
-    serial_number: serial.serial_number,
-    status: serial.status,
-    project_id: serial.project_id || null,
-    notes: serial.notes || null,
-  };
-
-  const { data, error } = await supabase
-    .from('inventory_serials')
-    .insert(payload)
-    .select()
-    .single();
-
-  if (error) {
-    console.error('Error creating inventory_serial:', error);
-    throw error;
-  }
-
-  return mapInventorySerial(data);
+const createInventorySerialInSupabase = async (serial: Omit<InventorySerial, 'id' | 'created_at' | 'updated_at'>): Promise<InventorySerial> => {
+ const {data,error}=await supabase.rpc('register_inventory_serial_atomic',{p_serial_no:serial.serial_number,p_batch_id:serial.batch_id,p_link_id:null});
+ if(error) throw inventoryWriteError(error);
+ return mapInventorySerial(data.serial);
 };
-
-const updateInventorySerialInSupabase = async (
-  id: string,
-  updates: Partial<Omit<InventorySerial, 'id' | 'created_at' | 'updated_at'>>,
-): Promise<InventorySerial> => {
-  const payload: Record<string, any> = {};
-  if (updates.item_id !== undefined) payload.item_id = updates.item_id;
-  if (updates.batch_id !== undefined) payload.batch_id = updates.batch_id || null;
-  if (updates.serial_number !== undefined) payload.serial_number = updates.serial_number;
-  if (updates.status !== undefined) payload.status = updates.status;
-  if (updates.project_id !== undefined) payload.project_id = updates.project_id || null;
-  if (updates.notes !== undefined) payload.notes = updates.notes || null;
-  payload.updated_at = new Date().toISOString();
-
-  const { data, error } = await supabase
-    .from('inventory_serials')
-    .update(payload)
-    .eq('id', id)
-    .select()
-    .single();
-
-  if (error) {
-    console.error('Error updating inventory_serial:', error);
-    throw error;
-  }
-
-  return mapInventorySerial(data);
+const updateInventorySerialInSupabase = async (_id: string, _updates: Partial<Omit<InventorySerial,'id'|'created_at'|'updated_at'>>): Promise<InventorySerial> => {
+ throw new Error('序號狀態需透過原子庫存異動更新。');
 };
-
 const deleteInventorySerialFromSupabase = async (id: string): Promise<void> => {
-  const { error } = await supabase
-    .from('inventory_serials')
-    .delete()
-    .eq('id', id);
-
-  if (error) {
-    console.error('Error deleting inventory_serial:', error);
-    throw error;
-  }
+ const {error}=await supabase.rpc('delete_unlinked_inventory_serial_atomic',{p_serial_id:id});
+ if(error) throw inventoryWriteError(error);
+};
+const updateInventoryTransactionSerialInSupabase = async (id: string, updates: Partial<Omit<InventoryTransactionSerial,'id'|'transaction_id'|'created_at'>>): Promise<InventoryTransactionSerial> => {
+ const {data,error}=await supabase.rpc('register_inventory_serial_atomic',{p_serial_no:updates.serial_no,p_link_id:id,p_batch_id:null});
+ if(error) throw inventoryWriteError(error);
+ return mapInventoryTransactionSerial(data.link);
 };
 
-const updateInventoryTransactionSerialInSupabase = async (
-  id: string,
-  updates: Partial<Omit<InventoryTransactionSerial, 'id' | 'transaction_id' | 'created_at'>>,
-): Promise<InventoryTransactionSerial> => {
-  const payload: Record<string, any> = {};
-  if (updates.serial_id !== undefined) payload.serial_id = updates.serial_id || null;
-  if (updates.serial_no !== undefined) payload.serial_no = updates.serial_no || null;
-  if (updates.is_pending !== undefined) payload.is_pending = updates.is_pending;
 
-  const { data, error } = await supabase
-    .from('inventory_transaction_serials')
-    .update(payload)
-    .eq('id', id)
-    .select()
-    .single();
-
-  if (error) {
-    console.error('Error updating inventory_transaction_serial:', error);
-    throw error;
-  }
-
-  return mapInventoryTransactionSerial(data);
-};
-
-const buildInventoryTransactionPayload = (
-  transaction: Partial<InventoryTransaction>,
-  options: { isNew?: boolean } = {},
-): Record<string, any> => {
-  const payload: Record<string, any> = {};
-
-  if (transaction.item_id !== undefined) payload.item_id = transaction.item_id;
-  if (transaction.transaction_type !== undefined) payload.transaction_type = transaction.transaction_type;
-  if (transaction.transaction_date !== undefined) payload.transaction_date = transaction.transaction_date;
-  if (transaction.quantity !== undefined) payload.quantity = transaction.quantity;
-  if (transaction.unit !== undefined) payload.unit = transaction.unit || null;
-  if (transaction.project_id !== undefined) payload.project_id = transaction.project_id || null;
-  if (transaction.project_name !== undefined) payload.project_name = transaction.project_name || null;
-  if (transaction.handler !== undefined) payload.handler = transaction.handler || null;
-  if (transaction.source !== undefined) payload.source = transaction.source || null;
-  if (transaction.notes !== undefined) payload.notes = transaction.notes || null;
-  if (transaction.pending_serial_count !== undefined) {
-    payload.pending_serial_count = toNumber(transaction.pending_serial_count);
-  }
-  if (transaction.is_voided !== undefined) payload.is_voided = !!transaction.is_voided;
-  if (transaction.voided_reason !== undefined) payload.voided_reason = transaction.voided_reason || null;
-  if (transaction.voided_by !== undefined) payload.voided_by = transaction.voided_by || null;
-  if (transaction.voided_at !== undefined) payload.voided_at = transaction.voided_at || null;
-
-  if (options.isNew) {
-    payload.is_voided = false;
-  } else {
-    payload.updated_at = new Date().toISOString();
-  }
-
-  return payload;
-};
-
-const fetchInventoryBatchForTransaction = async (
-  transaction: InventoryTransaction,
-): Promise<InventoryBatch | null> => {
-  if (transaction.transaction_type !== 'IN' && transaction.transaction_type !== 'RETURN') return null;
-
-  const { data, error } = await supabase
-    .from('inventory_batches')
-    .select('*')
-    .eq('source_transaction_id', transaction.id)
-    .maybeSingle();
-
-  if (error) {
-    console.error('Error fetching inventory_batch created by transaction trigger:', error);
-    throw error;
-  }
-  if (data) return mapInventoryBatch(data);
-
-  throw new Error('Inventory batch was not created for the source transaction');
-};
-
-const resolveInventorySerial = async (
-  serial: Partial<InventoryTransactionSerial>,
-  itemId: string,
-): Promise<InventorySerial | null> => {
-  if (serial.serial_id) {
-    const { data, error } = await supabase
-      .from('inventory_serials')
-      .select('*')
-      .eq('id', serial.serial_id)
-      .maybeSingle();
-
-    if (error) {
-      console.error('Error resolving inventory_serial by id:', error);
-      throw error;
-    }
-    if (data) return mapInventorySerial(data);
-  }
-
-  if (serial.serial_no) {
-    const { data, error } = await supabase
-      .from('inventory_serials')
-      .select('*')
-      .eq('item_id', itemId)
-      .eq('serial_number', serial.serial_no)
-      .maybeSingle();
-
-    if (error) {
-      console.error('Error resolving inventory_serial by serial_no:', error);
-      throw error;
-    }
-    if (data) return mapInventorySerial(data);
-  }
-
-  return null;
-};
 
 const fetchSESupplyRecordsFromSupabase = async (): Promise<SESupplyRecord[]> => {
   const { data, error } = await supabase
@@ -788,302 +630,23 @@ const deleteSESupplyRecordFromSupabase = async (id: string): Promise<void> => {
   }
 };
 
-const getSerialUpdateForTransaction = (
-  transactionType: InventoryTransaction['transaction_type'],
-  projectId: string | null | undefined,
-  batchId?: string | null,
-): Record<string, any> | null => {
-  const payload: Record<string, any> = { updated_at: new Date().toISOString() };
-  if (batchId) payload.batch_id = batchId;
 
-  if (transactionType === 'IN') {
-    payload.status = SERIAL_STATUS_IN_STOCK;
-  } else if (transactionType === 'OUT') {
-    payload.status = SERIAL_STATUS_OUT;
-    payload.project_id = projectId || null;
-  } else if (transactionType === 'RETURN') {
-    payload.status = SERIAL_STATUS_RETURNED;
-  } else {
-    return batchId ? payload : null;
-  }
 
-  return payload;
-};
-
-const updateSerialForTransaction = async (
-  serialId: string,
-  transactionType: InventoryTransaction['transaction_type'],
-  projectId: string | null | undefined,
-  batchId?: string | null,
-) => {
-  const payload = getSerialUpdateForTransaction(transactionType, projectId, batchId);
-  if (!payload) return;
-
-  const { error } = await supabase
-    .from('inventory_serials')
-    .update(payload)
-    .eq('id', serialId);
-
-  if (error) {
-    console.error('Error syncing inventory_serial for transaction:', error);
-    throw error;
-  }
-};
-
-const insertTransactionSerialLinks = async (
-  transaction: InventoryTransaction,
-  serialsData: Omit<InventoryTransactionSerial, 'id' | 'transaction_id' | 'created_at'>[] = [],
-  batchIdToLink: string | null = null,
-) => {
-  for (const serialData of serialsData) {
-    const serial = await resolveInventorySerial(serialData, transaction.item_id);
-    const serialId = serial?.id || null;
-    const serialNo = serialData.serial_no || serial?.serial_number || null;
-
-    if (serialId) {
-      await updateSerialForTransaction(serialId, transaction.transaction_type, transaction.project_id, batchIdToLink);
-    }
-
-    const payload = {
-      transaction_id: transaction.id,
-      serial_id: serialId,
-      serial_no: serialNo,
-      is_pending: !!serialData.is_pending,
-    };
-
-    const { error } = await supabase
-      .from('inventory_transaction_serials')
-      .insert(payload);
-
-    if (error) {
-      console.error('Error creating inventory_transaction_serial:', error);
-      throw error;
-    }
-  }
-};
-
-const revertSerialsForTransaction = async (transaction: InventoryTransaction) => {
-  const { data, error } = await supabase
-    .from('inventory_transaction_serials')
-    .select('*')
-    .eq('transaction_id', transaction.id);
-
-  if (error) {
-    console.error('Error fetching transaction serial links:', error);
-    throw error;
-  }
-
-  const txSerials = (data || []).map(mapInventoryTransactionSerial);
-
-  if (transaction.transaction_type === 'IN') {
-    for (const txSerial of txSerials) {
-      if (!txSerial.serial_id) continue;
-      const { data: serialData, error: serialError } = await supabase
-        .from('inventory_serials')
-        .select('*')
-        .eq('id', txSerial.serial_id)
-        .maybeSingle();
-
-      if (serialError) {
-        console.error('Error checking inventory_serial before IN revert:', serialError);
-        throw serialError;
-      }
-
-      if (serialData && serialData.status !== SERIAL_STATUS_IN_STOCK) {
-        throw new Error('此入庫批次已有序號被使用，請先處理相關序號後再作廢入庫。');
-      }
-    }
-  }
-
-  for (const txSerial of txSerials) {
-    if (!txSerial.serial_id) continue;
-
-    if (transaction.transaction_type === 'OUT') {
-      await updateInventorySerialInSupabase(txSerial.serial_id, { status: SERIAL_STATUS_IN_STOCK });
-    } else if (transaction.transaction_type === 'RETURN') {
-      await updateInventorySerialInSupabase(txSerial.serial_id, { status: SERIAL_STATUS_OUT });
-    }
-  }
-
-  return txSerials;
-};
-
+const writeInventoryAtomic = createInventoryAtomicWriter(supabase);
 const createInventoryTransactionInSupabase = async (
-  transaction: Omit<InventoryTransaction, 'id' | 'created_at' | 'updated_at'>,
-  serialsData: Omit<InventoryTransactionSerial, 'id' | 'transaction_id' | 'created_at'>[] = [],
-  user: string = 'system',
-): Promise<InventoryTransaction> => {
-  const payload = buildInventoryTransactionPayload(transaction, { isNew: true });
-
-  const { data, error } = await supabase
-    .from('inventory_transactions')
-    .insert(payload)
-    .select()
-    .single();
-
-  if (error) {
-    console.error('Error creating inventory_transaction:', error);
-    throw error;
-  }
-
-  const createdTransaction = mapInventoryTransaction(data);
-  const batch = await fetchInventoryBatchForTransaction(createdTransaction);
-  await insertTransactionSerialLinks(createdTransaction, serialsData, batch?.id || null);
-  await logActivityInSupabase({
-    actor_user_id: 'system',
-    actor_name: user,
-    action_type: 'CREATE_TRANSACTION',
-    target_type: 'INVENTORY_TRANSACTION',
-    target_id: createdTransaction.id,
-    target_label: '建立異動紀錄',
-    project_id: createdTransaction.project_id,
-    project_name: createdTransaction.project_name,
-    before_value: null,
-    after_value: JSON.stringify(createdTransaction),
-    message: null,
-  });
-
-  return createdTransaction;
-};
+ transaction: Omit<InventoryTransaction, 'id' | 'created_at' | 'updated_at'> & InventoryCountInput,
+ serialsData: Omit<InventoryTransactionSerial, 'id' | 'transaction_id' | 'created_at'>[] = [],
+ _user = 'system',
+): Promise<InventoryTransaction> => mapInventoryTransaction(await writeInventoryAtomic('CREATE', transaction, serialsData));
 
 const updateInventoryTransactionInSupabase = async (
-  id: string,
-  updates: Partial<Omit<InventoryTransaction, 'id' | 'created_at' | 'updated_at'>>,
-  serialsData: Omit<InventoryTransactionSerial, 'id' | 'transaction_id' | 'created_at'>[] = [],
-  reason: string,
-  user: string,
-): Promise<InventoryTransaction> => {
-  const { data: existingData, error: existingError } = await supabase
-    .from('inventory_transactions')
-    .select('*')
-    .eq('id', id)
-    .single();
+ id: string, updates: Partial<Omit<InventoryTransaction, 'id' | 'created_at' | 'updated_at'>> & InventoryCountInput,
+ serialsData: Omit<InventoryTransactionSerial, 'id' | 'transaction_id' | 'created_at'>[] = [],
+ reason: string, _user: string,
+): Promise<InventoryTransaction> => mapInventoryTransaction(await writeInventoryAtomic('EDIT', updates, serialsData, id, reason));
 
-  if (existingError) {
-    console.error('Error fetching inventory_transaction before update:', existingError);
-    throw existingError;
-  }
-
-  const existingTransaction = mapInventoryTransaction(existingData);
-  if (existingTransaction.is_voided) {
-    throw new Error('Cannot update a voided inventory transaction');
-  }
-
-  await revertSerialsForTransaction(existingTransaction);
-
-  const payload = buildInventoryTransactionPayload(updates);
-  if (reason) payload.notes = updates.notes !== undefined ? updates.notes : existingTransaction.notes;
-
-  const { data, error } = await supabase
-    .from('inventory_transactions')
-    .update(payload)
-    .eq('id', id)
-    .select()
-    .single();
-
-  if (error) {
-    console.error('Error updating inventory_transaction:', error);
-    throw error;
-  }
-
-  const updatedTransaction = mapInventoryTransaction(data);
-
-  const { error: deleteLinksError } = await supabase
-    .from('inventory_transaction_serials')
-    .delete()
-    .eq('transaction_id', id);
-
-  if (deleteLinksError) {
-    console.error('Error deleting old inventory_transaction_serials:', deleteLinksError);
-    throw deleteLinksError;
-  }
-
-  const shouldCreateBatch =
-    (updatedTransaction.transaction_type === 'IN' || updatedTransaction.transaction_type === 'RETURN') &&
-    existingTransaction.transaction_type !== updatedTransaction.transaction_type;
-  const batch = shouldCreateBatch ? await fetchInventoryBatchForTransaction(updatedTransaction) : null;
-  await insertTransactionSerialLinks(updatedTransaction, serialsData, batch?.id || null);
-  await logActivityInSupabase({
-    actor_user_id: 'system',
-    actor_name: user,
-    action_type: 'UPDATE_TRANSACTION',
-    target_type: 'INVENTORY_TRANSACTION',
-    target_id: updatedTransaction.id,
-    target_label: '編輯異動紀錄',
-    project_id: updatedTransaction.project_id,
-    project_name: updatedTransaction.project_name,
-    before_value: JSON.stringify(existingTransaction),
-    after_value: JSON.stringify(updatedTransaction),
-    message: reason,
-  });
-
-  return updatedTransaction;
-};
-
-const voidInventoryTransactionInSupabase = async (
-  id: string,
-  reason: string,
-  user: string,
-): Promise<void> => {
-  const { data, error: fetchError } = await supabase
-    .from('inventory_transactions')
-    .select('*')
-    .eq('id', id)
-    .single();
-
-  if (fetchError) {
-    console.error('Error fetching inventory_transaction before void:', fetchError);
-    throw fetchError;
-  }
-
-  const transaction = mapInventoryTransaction(data);
-  if (transaction.is_voided) {
-    throw new Error('Inventory transaction is already voided');
-  }
-
-  // IN void is handled atomically by the DB trigger. It preserves serial rows,
-  // changes their status to 作廢, and rejects serials used by active later transactions.
-  if (transaction.transaction_type !== 'IN') {
-    await revertSerialsForTransaction(transaction);
-  }
-
-  const { error } = await supabase
-    .from('inventory_transactions')
-    .update({
-      is_voided: true,
-      voided_reason: reason,
-      voided_by: user,
-      voided_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', id);
-
-  if (error) {
-    console.error('Error voiding inventory_transaction:', error);
-    throw error;
-  }
-
-  const voidedTransaction: InventoryTransaction = {
-    ...transaction,
-    is_voided: true,
-    voided_reason: reason,
-    voided_by: user,
-    voided_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
-  await logActivityInSupabase({
-    actor_user_id: 'system',
-    actor_name: user,
-    action_type: 'VOID_TRANSACTION',
-    target_type: 'INVENTORY_TRANSACTION',
-    target_id: transaction.id,
-    target_label: '作廢異動紀錄',
-    project_id: transaction.project_id,
-    project_name: transaction.project_name,
-    before_value: JSON.stringify(transaction),
-    after_value: JSON.stringify(voidedTransaction),
-    message: reason,
-  });
+const voidInventoryTransactionInSupabase = async (id: string, reason: string, _user: string): Promise<void> => {
+ await writeInventoryAtomic('VOID', {}, [], id, reason);
 };
 
 const fetchInventoryBatchesFromSupabase = async (): Promise<InventoryBatch[]> => {

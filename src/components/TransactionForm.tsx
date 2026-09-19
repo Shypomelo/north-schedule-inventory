@@ -11,6 +11,8 @@ import { Plus } from 'lucide-react';
 
 interface TransactionSubmitData extends Omit<InventoryTransaction, 'id' | 'created_at' | 'updated_at'> {
   category: string;
+  counted_quantity?: number;
+  expected_balance?: number;
 }
 
 interface TransactionInitialData extends Partial<InventoryTransaction> {
@@ -37,17 +39,22 @@ interface TransactionFormProps {
 export function TransactionForm({ items, projects, balances, allSerials, batches = [], onSubmit, onCancel, isSubmitting, initialData, initialSerials = [], onAddNewItem }: TransactionFormProps) {
   const { currentUser } = useUser();
   const isViewer = currentUser?.role === 'VIEWER';
+  // Keep the balance the operator saw when opening this form. Background
+  // refreshes must not silently rebase an in-progress physical count.
+  const [countBalances] = useState(() => balances);
   const [formData, setFormData] = useState({
     transaction_type: initialData?.transaction_type || 'OUT' as TransactionType,
     item_id: initialData?.item_id || '',
-    quantity: 1,
+    quantity: initialData?.transaction_type === 'ADJUST'
+      ? (balances.find(row => row.item_id === initialData.item_id)?.balance || 0)
+      : (initialData?.quantity ?? 1),
     unit: initialData?.unit || '',
-    project_name: '',
-    handler: currentUser?.name || '',
+    project_name: initialData?.project_name || '',
+    handler: initialData?.handler || currentUser?.name || '',
     category: initialData?.category || '',
     source: initialData?.source || '',
-    transaction_date: format(new Date(), 'yyyy-MM-dd'),
-    notes: '',
+    transaction_date: initialData?.transaction_date || format(new Date(), 'yyyy-MM-dd'),
+    notes: initialData?.notes || '',
   });
 
   const [inSerialInputs, setInSerialInputs] = useState<string[]>(
@@ -105,7 +112,8 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
   );
 
   const selectedItem = items.find(i => i.id === formData.item_id);
-  const currentBalance = balances.find(b => b.item_id === formData.item_id)?.balance || 0;
+  const currentBalance = (formData.transaction_type === 'ADJUST' ? countBalances : balances)
+    .find(b => b.item_id === formData.item_id)?.balance || 0;
   const getItemName = (itemId: string) => items.find(i => i.id === itemId)?.name || `未知品項 (${itemId.slice(0, 8)})`;
 
   const handleItemChange = (itemId: string) => {
@@ -150,7 +158,7 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
     try {
       const result = await dbAdapter.lookupInventorySerial(input, {
         itemId: formData.item_id,
-        allowedStatuses: ['在庫'],
+        allowedStatuses: formData.transaction_type === 'RETURN' ? ['已出庫'] : ['在庫'],
       });
 
       if (result.result_type === 'no_match') {
@@ -190,7 +198,7 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
       .filter(s => (
         s.item_id === formData.item_id
         && classifySerialFormat(s.serial_number) !== 'unknown'
-        && (s.status === '在庫' || (isEditMode && initialSerials.includes(s.serial_number)))
+        && (s.status === (formData.transaction_type === 'RETURN' ? '已出庫' : '在庫') || (isEditMode && initialSerials.includes(s.serial_number)))
       ))
       .map(s => {
         const batch = batches.find(b => b.id === s.batch_id);
@@ -208,7 +216,7 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
     });
 
     return eligible;
-  }, [allSerials, batches, formData.item_id, selectedItem?.requires_serial, initialSerials, isEditMode]);
+  }, [allSerials, batches, formData.item_id, formData.transaction_type, selectedItem?.requires_serial, initialSerials, isEditMode]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -219,7 +227,7 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
 
     if (formData.transaction_type === 'ADJUST') {
       if (formData.quantity < 0) return setErrorMsg('盤點數量不能為負數');
-      if (formData.quantity - currentBalance === 0) return setErrorMsg('盤點數量與目前庫存相同，無需調整');
+      if (!isEditMode && formData.quantity - currentBalance === 0) return setErrorMsg('盤點數量與目前庫存相同，無需調整');
       if (selectedItem?.requires_serial) return setErrorMsg('序號品目前不可直接調整數量，請透過序號入庫／出庫或後續序號修正功能處理。');
     } else {
       if (formData.quantity === 0) return setErrorMsg('數量不能為 0');
@@ -227,9 +235,7 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
     }
     
     if (formData.transaction_type === 'OUT' && formData.quantity > currentBalance) {
-      if (!confirm(`警告：目前庫存僅剩 ${currentBalance}，出庫後庫存將變為負數。確定要繼續嗎？`)) {
-        return;
-      }
+      if (!isEditMode) return setErrorMsg('庫存不足，此次異動無法儲存。');
     }
 
     if ((formData.transaction_type === 'OUT' || formData.transaction_type === 'RETURN') && !formData.project_name) {
@@ -290,7 +296,8 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
       item_id: formData.item_id,
       transaction_type: formData.transaction_type,
       transaction_date: formData.transaction_date,
-      quantity: formData.transaction_type === 'ADJUST' ? (formData.quantity - currentBalance) : formData.quantity,
+      quantity: formData.quantity,
+      ...(formData.transaction_type === 'ADJUST' ? {counted_quantity: formData.quantity, expected_balance: currentBalance} : {}),
       unit: formData.unit,
       project_id: matchedProject ? matchedProject.id : null,
       project_name: formData.project_name || null,

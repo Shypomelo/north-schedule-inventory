@@ -1,14 +1,15 @@
 "use client";
+import { inventorySerialInputs, inventoryWriteError } from '@/lib/db/inventory-atomic';
+
 
 import { useState, useEffect } from 'react';
-import { InventoryTransaction, InventoryItem, Project, TransactionType, InventorySerial, isActiveFormalTransaction, InventorySerialLookupCandidate } from '@/lib/db/types';
+import { InventoryTransaction, InventoryItem, Project, InventorySerial, isActiveFormalTransaction } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { TransactionForm } from '@/components/TransactionForm';
 import { TransactionHistoryModal } from '@/components/TransactionHistoryModal';
 import { useUser } from '@/components/UserContext';
 import { Plus } from 'lucide-react';
 import { format } from 'date-fns';
-import { normalizeSerialInput } from '@/lib/inventory-serial-normalization';
 
 const unwrapSettled = <T,>(result: PromiseSettledResult<T>): T => {
   if (result.status === 'rejected') throw result.reason;
@@ -105,103 +106,7 @@ export default function TransactionsPage() {
     fetchData();
   }, []);
 
-  const formatSerialCandidates = (candidates: InventorySerialLookupCandidate[]) => (
-    candidates
-      .map(candidate => {
-        const itemName = items.find(i => i.id === candidate.item_id)?.name || `未知品項 (${candidate.item_id.slice(0, 8)})`;
-        return `${candidate.serial_number}｜${candidate.status}｜${itemName}`;
-      })
-      .join('\n')
-  );
-
-  const resolveTransactionSerialLinks = async (
-    data: Omit<InventoryTransaction, 'id' | 'created_at' | 'updated_at'> & { category?: string },
-    serialsList: string[],
-    allowedExistingSerialIds = new Set<string>(),
-  ) => {
-    const normalizedInputs = serialsList.map(normalizeSerialInput);
-    if (new Set(normalizedInputs).size !== serialsList.length) {
-      throw new Error('輸入的序號有重複，請檢查！');
-    }
-
-    const resolvedSerials: InventorySerial[] = [];
-    for (const serialInput of serialsList) {
-      const isOutLike = data.transaction_type === 'OUT' || data.transaction_type === 'RETURN';
-      const lookup = await dbAdapter.lookupInventorySerial(serialInput, isOutLike
-        ? { itemId: data.item_id, allowedStatuses: ['在庫'] }
-        : {});
-
-      if (lookup.result_type === 'ambiguous') {
-        throw new Error(`找到多個可能相同的序號，請輸入完整序號或先確認資料：\n${formatSerialCandidates(lookup.candidates)}`);
-      }
-
-      const candidate = lookup.candidates[0];
-      const isExistingLinkedSerial = !!candidate && allowedExistingSerialIds.has(candidate.id);
-
-      if (isOutLike) {
-        if (lookup.result_type === 'no_match') {
-          throw new Error(`找不到此序號，無法出庫：\n${serialInput}`);
-        }
-        if (!candidate || (!candidate.is_allowed_candidate && !isExistingLinkedSerial)) {
-          throw new Error(candidate
-            ? `此序號目前狀態為 ${candidate.status}，不可再次出庫：\n${candidate.serial_number}`
-            : `此序號不符合本次品項或狀態條件：\n${serialInput}`);
-        }
-
-        const existing = allSerials.find(x => x.id === candidate.id) || {
-          ...candidate,
-          batch_id: null,
-          project_id: null,
-          notes: null,
-          created_at: '',
-          updated_at: '',
-        };
-        resolvedSerials.push(existing);
-        await dbAdapter.updateInventorySerial(candidate.id, {
-          status: data.transaction_type === 'OUT' ? '已出庫' : '已退回',
-          project_id: data.transaction_type === 'OUT' ? data.project_id : existing.project_id
-        });
-        continue;
-      }
-
-      if (lookup.result_type !== 'no_match') {
-        if (candidate && isExistingLinkedSerial) {
-          const existing = allSerials.find(x => x.id === candidate.id) || {
-            ...candidate,
-            batch_id: null,
-            project_id: null,
-            notes: null,
-            created_at: '',
-            updated_at: '',
-          };
-          resolvedSerials.push(existing);
-          await dbAdapter.updateInventorySerial(candidate.id, {
-            status: '在庫',
-            project_id: existing.project_id
-          });
-          continue;
-        }
-
-        throw new Error(`此序號可能已存在，請勿重複新增：\n${candidate?.serial_number || serialInput}`);
-      }
-
-      const created = await dbAdapter.createInventorySerial({
-        item_id: data.item_id,
-        batch_id: null,
-        serial_number: serialInput,
-        status: '在庫',
-        project_id: data.project_id,
-        notes: '入庫時建立'
-      });
-      resolvedSerials.push(created);
-    }
-
-    return resolvedSerials.map(serial => ({
-      serial_no: serial.serial_number,
-      serial_id: serial.id,
-      is_pending: false
-    }));
-  };
+  const resolveTransactionSerialLinks = async (_data: unknown, serials: string[], _existing?: Set<string>) => inventorySerialInputs(serials.join('\n'));
 
   const handleCreateTx = async (data: Omit<InventoryTransaction, 'id' | 'created_at' | 'updated_at'> & { category?: string }, serialsInput: string, isPendingSerial: boolean = false) => {
     setIsSubmitting(true);
@@ -227,7 +132,7 @@ export default function TransactionsPage() {
       await fetchData();
     } catch (e) {
       console.error(e);
-      alert('儲存失敗');
+      alert(inventoryWriteError(e).message);
     } finally {
       setIsSubmitting(false);
     }
@@ -256,6 +161,7 @@ export default function TransactionsPage() {
       }
 
       await dbAdapter.updateInventoryTransaction(editingTx.id, {
+        expected_updated_at: editingTx.updated_at,
         ...data,
         pending_serial_count: pendingCount > 0 ? pendingCount : 0
       }, txSerials as any, editReason, currentUser?.name || '未知使用者');
@@ -265,7 +171,7 @@ export default function TransactionsPage() {
       await fetchData();
     } catch (e) {
       console.error(e);
-      alert('修改失敗');
+      alert(inventoryWriteError(e).message);
     } finally {
       setIsSubmitting(false);
     }
@@ -396,7 +302,7 @@ export default function TransactionsPage() {
                     </td>
                     <td className={`p-4 font-medium ${tx.is_voided ? 'text-secondary/50 line-through' : 'text-primary'}`} title={item ? item.name : tx.item_id}>{itemLabel}</td>
                     <td className={`p-4 text-right font-bold text-lg ${tx.is_voided ? 'text-secondary/50 line-through' : isPositive ? 'text-success' : 'text-danger'}`}>
-                      {isPositive ? '+' : tx.transaction_type === 'ADJUST' ? '' : '-'}{Math.abs(tx.quantity)}
+                      {isPositive ? '+' : '-'}{Math.abs(tx.quantity)}
                     </td>
                     <td className={`p-4 ${tx.is_voided ? 'text-secondary/50 line-through' : 'text-secondary'}`}>{tx.unit || item?.unit || '-'}</td>
                     <td className={`p-4 ${tx.is_voided ? 'text-secondary/50 line-through' : 'text-secondary/90'}`}>{tx.project_name || proj?.name || '-'}</td>

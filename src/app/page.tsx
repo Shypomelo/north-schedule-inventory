@@ -94,14 +94,14 @@ export default function DashboardPage() {
   };
   return <div className="min-h-full bg-page text-primary">
     <header className="border-b border-theme-border bg-card/35 px-4 py-3 md:px-6 xl:px-8">
-      <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
-        <div className="shrink-0"><p className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-accent md:hidden">Dashboard</p><h1 className="text-xl font-bold tracking-tight md:text-2xl">{perspectiveLabel(selected.key)}儀表</h1></div>
-        <nav className="flex w-full gap-1 overflow-x-auto rounded-xl border border-theme-border bg-page p-1 md:w-fit" aria-label="Dashboard 視角" role="tablist">
-        {allowed.map(view=><button type="button" role="tab" aria-selected={selected.key===view.key} key={view.id} onClick={()=>select(view.key)} className={`min-h-10 shrink-0 rounded-lg px-4 text-sm font-bold transition ${selected.key===view.key?'bg-accent text-white shadow-sm':'text-secondary hover:text-primary'}`}>{perspectiveLabel(view.key)}</button>)}
+      <div className="flex flex-row flex-wrap items-center gap-2 md:gap-3 min-[1200px]:flex-nowrap">
+        <div className="min-w-0 shrink-0"><p className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-accent md:hidden">Dashboard</p><h1 className="whitespace-nowrap text-lg font-bold tracking-tight md:text-2xl">{perspectiveLabel(selected.key)}儀表</h1></div>
+        <nav className="ml-auto flex w-fit shrink-0 gap-0.5 rounded-xl border border-theme-border bg-page p-1 md:ml-0 md:gap-1" aria-label="Dashboard 視角" role="tablist">
+        {allowed.map(view=><button type="button" role="tab" aria-selected={selected.key===view.key} key={view.id} onClick={()=>select(view.key)} className={`min-h-10 shrink-0 rounded-lg px-2.5 text-xs font-bold transition md:px-4 md:text-sm ${selected.key===view.key?'bg-accent text-white shadow-sm':'text-secondary hover:text-primary'}`}>{perspectiveLabel(view.key)}</button>)}
         </nav>
-        <span className="hidden h-8 w-px shrink-0 bg-theme-border md:block" aria-hidden="true" />
-        <nav className="flex w-full gap-1 overflow-x-auto rounded-xl border border-theme-border bg-card p-1 md:w-fit" aria-label={`${perspectiveLabel(selected.key)}儀表功能`} role="tablist">
-        {availableDashboardSubpages(selected.key).map(page=><button type="button" role="tab" aria-selected={subpage===page} key={page} onClick={()=>chooseSubpage(page)} className={`inline-flex min-h-10 shrink-0 items-center justify-center gap-1 rounded-lg px-3 text-sm font-bold transition ${subpage===page?'bg-accent text-white shadow-sm':'text-secondary hover:text-primary'}`}>{page==='overview'?<LayoutDashboard size={16}/>:page==='maintenance'?<Wrench size={16}/>:<PackageCheck size={16}/>} {subpageLabel(page)}</button>)}
+        <span className="hidden h-8 w-px shrink-0 bg-theme-border min-[1200px]:block" aria-hidden="true" />
+        <nav className="order-1 flex w-full shrink-0 basis-full gap-1 rounded-xl border border-theme-border bg-card p-1 min-[1200px]:order-none min-[1200px]:w-fit min-[1200px]:basis-auto" aria-label={`${perspectiveLabel(selected.key)}儀表功能`} role="tablist">
+        {availableDashboardSubpages(selected.key).map(page=><button type="button" role="tab" aria-selected={subpage===page} key={page} onClick={()=>chooseSubpage(page)} className={`inline-flex min-h-10 shrink-0 items-center justify-center gap-1 rounded-lg px-2 text-xs font-bold transition md:px-3 md:text-sm ${subpage===page?'bg-accent text-white shadow-sm':'text-secondary hover:text-primary'}`}>{page==='overview'?<LayoutDashboard size={16}/>:page==='maintenance'?<Wrench size={16}/>:<PackageCheck size={16}/>} {subpageLabel(page)}</button>)}
         </nav>
         <div className="hidden shrink-0 text-right md:ml-auto md:block"><div className="font-semibold">{format(new Date(), 'M月d日 EEEE', { locale: zhTW })}</div><div className="mt-0.5 text-sm text-secondary">{currentUser?.name}</div></div>
       </div>

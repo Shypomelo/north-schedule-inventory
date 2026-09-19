@@ -36,9 +36,13 @@ test('local preferences are member and perspective scoped', () => {
   assert.notEqual(dashboardSubpageStorageKey('member-a', 'ENGINEERING'), dashboardSubpageStorageKey('member-a', 'DESIGN'));
 });
 
-test('desktop dashboard header keeps title, perspective tabs, and subpage tabs in one row', () => {
+test('dashboard header reserves the full desktop row for 1200px and prevents clipped tabs', () => {
   const dashboard = fs.readFileSync(path.join(__dirname, '..', 'app', 'page.tsx'), 'utf8');
-  assert.match(dashboard, /flex flex-col gap-2 md:flex-row md:items-center/);
+  const header = dashboard.slice(dashboard.indexOf('<header '), dashboard.indexOf('</header>'));
+  assert.match(header, /flex flex-row flex-wrap/);
+  assert.match(header, /min-\[1200px\]:flex-nowrap/);
+  assert.match(header, /basis-full.*min-\[1200px\]:basis-auto/);
+  assert.doesNotMatch(header, /overflow-x-auto|md:flex-nowrap|md:shrink\b/);
   assert.match(dashboard, /aria-label="Dashboard 視角"/);
   assert.match(dashboard, /availableDashboardSubpages\(selected\.key\)/);
 });

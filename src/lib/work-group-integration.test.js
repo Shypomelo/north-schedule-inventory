@@ -5,18 +5,38 @@ const Module = require('node:module');
 const ts = require('typescript');
 const test = require('node:test');
 const read = file => fs.readFileSync(path.join(__dirname, file), 'utf8');
+const dependencyFiles = {
+  './inventory-atomic': 'db/inventory-atomic.ts',
+  './types': 'db/types.ts',
+  './supabase-errors': 'db/supabase-errors.ts',
+  './inventory-stock': 'db/inventory-stock.ts',
+  '../construction-progress': 'construction-progress.ts',
+  '../project-workflow': 'project-workflow.ts',
+  '../contractors': 'contractors.ts',
+  '../engineering-responsibilities': 'engineering-responsibilities.ts',
+  '@/lib/utils/date-utils': 'utils/date-utils.ts',
+  './date-presentation': 'date-presentation.ts',
+  '../date-presentation': 'date-presentation.ts',
+};
 function load(file, imports = {}) {
   const filename = path.join(__dirname, file);
   const m = new Module(filename);
   m.filename = filename;
   m.paths = module.paths;
-  m.require = id => imports[id] || {};
+  m.require = id => {
+    if (Object.hasOwn(imports, id)) return imports[id];
+    if (Object.hasOwn(dependencyFiles, id)) return load(dependencyFiles[id], imports);
+    throw new Error(`Unmapped test dependency "${id}" required by "${file}"`);
+  };
   m._compile(ts.transpileModule(read(file), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText, filename);
   return m.exports;
 }
 const { resolveMemberDefaultWorkGroup: resolve, requireTodoWorkGroup, selectActiveWorkGroups } = load('work-groups.ts');
 const { saveTodoText, canEditTodoText } = load('todo-text-actions.ts');
 const { createWorkGroupAdapter } = load('db/work-group-adapter.ts');
+test('loader rejects missing dependencies instead of silently returning an empty module', () => {
+  assert.throws(() => load('db/poc-supabase.ts'), /Unmapped test dependency "\.\/supabaseClient"/);
+});
 const groups = [
   { id: 'e', key: 'ENGINEERING', is_active: true, sort_order: 10, google_calendar_sync_enabled: true },
   { id: 'p', key: 'PROJECT', is_active: true, sort_order: 20, google_calendar_sync_enabled: false },

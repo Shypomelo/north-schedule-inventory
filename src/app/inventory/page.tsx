@@ -1,7 +1,9 @@
 "use client";
+import { inventorySerialInputs, inventoryWriteError } from '@/lib/db/inventory-atomic';
+
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { InventoryItem, InventoryTransaction, Project, InventorySerial, TransactionType, isActiveFormalTransaction, InventorySerialLookupCandidate } from '@/lib/db/types';
+import { InventoryItem, InventoryTransaction, Project, InventorySerial, TransactionType, isActiveFormalTransaction } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { useUser } from '@/components/UserContext';
 import { Package, AlertTriangle, ArrowRightLeft, Plus, MousePointerClick, MoreVertical } from 'lucide-react';
@@ -12,7 +14,6 @@ import { InventoryInitializationModal } from '@/components/InventoryInitializati
 import { AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { getInventoryInflowQuantity, getInventoryTransactionQuantityDelta } from '@/lib/db/inventory-stock';
-import { normalizeSerialInput } from '@/lib/inventory-serial-normalization';
 
 interface BalanceDisplay {
   item_id: string;
@@ -138,15 +139,6 @@ export default function InventoryBalancePage() {
     setContextMenu({ visible: true, x: e.clientX, y: e.clientY, itemId });
   };
 
-  const formatSerialCandidates = (candidates: InventorySerialLookupCandidate[]) => (
-    candidates
-      .map(candidate => {
-        const itemName = items.find(i => i.id === candidate.item_id)?.name || `未知品項 (${candidate.item_id.slice(0, 8)})`;
-        return `${candidate.serial_number}｜${candidate.status}｜${itemName}`;
-      })
-      .join('\n')
-  );
-
   const handleCreateTx = async (data: Omit<InventoryTransaction, 'id' | 'created_at' | 'updated_at'> & { category?: string }, serialsInput: string, isPendingSerial: boolean = false) => {
     setIsSubmittingTx(true);
     try {
@@ -178,81 +170,7 @@ export default function InventoryBalancePage() {
          }
       }
 
-      const normalizedInputs = serialsList.map(normalizeSerialInput);
-      if (new Set(normalizedInputs).size !== serialsList.length) {
-        alert('輸入的序號有重複，請檢查！');
-        setIsSubmittingTx(false);
-        return;
-      }
-
-      const resolvedSerials: { input: string; serial: InventorySerial }[] = [];
-      for (const s of serialsList) {
-        if (data.transaction_type === 'OUT' || data.transaction_type === 'RETURN') {
-          const lookup = await dbAdapter.lookupInventorySerial(s, {
-            itemId: data.item_id,
-            allowedStatuses: ['在庫'],
-          });
-
-          if (lookup.result_type === 'no_match') {
-            alert(`找不到此序號，無法出庫：\n${s}`);
-            setIsSubmittingTx(false);
-            return;
-          }
-          if (lookup.result_type === 'ambiguous') {
-            alert(`找到多個可能相同的序號，請輸入完整序號或先確認資料：\n${formatSerialCandidates(lookup.candidates)}`);
-            setIsSubmittingTx(false);
-            return;
-          }
-
-          const candidate = lookup.candidates[0];
-          if (!candidate || !candidate.is_allowed_candidate) {
-            alert(candidate
-              ? `此序號目前狀態為 ${candidate.status}，不可再次出庫：\n${candidate.serial_number}`
-              : `此序號不符合本次品項或狀態條件：\n${s}`);
-            setIsSubmittingTx(false);
-            return;
-          }
-
-          const existing = allSerials.find(x => x.id === candidate.id) || {
-            ...candidate,
-            batch_id: null,
-            project_id: null,
-            notes: null,
-            created_at: '',
-            updated_at: '',
-          };
-          resolvedSerials.push({ input: s, serial: existing });
-          await dbAdapter.updateInventorySerial(candidate.id, {
-            status: data.transaction_type === 'OUT' ? '已出庫' : '已退回',
-            project_id: data.transaction_type === 'OUT' ? data.project_id : existing.project_id
-          });
-        } else {
-          const lookup = await dbAdapter.lookupInventorySerial(s);
-          if (lookup.result_type !== 'no_match') {
-            alert(lookup.result_type === 'ambiguous'
-              ? `找到多個可能相同的序號，請確認完整序號：\n${formatSerialCandidates(lookup.candidates)}`
-              : `此序號可能已存在，請勿重複新增：\n${lookup.candidates[0]?.serial_number || s}`);
-            setIsSubmittingTx(false);
-            return;
-          }
-
-          const created = await dbAdapter.createInventorySerial({
-            item_id: data.item_id,
-            batch_id: null,
-            serial_number: s,
-            status: '在庫',
-            project_id: data.project_id,
-            notes: '入庫時建立'
-          });
-          resolvedSerials.push({ input: s, serial: created });
-        }
-      }
-
-      const txSerials: any[] = resolvedSerials.map(({ serial }) => ({
-        serial_no: serial.serial_number,
-        serial_id: serial.id,
-        is_pending: false
-      }));
+      const txSerials = inventorySerialInputs(serialsInput);
 
       let pendingCount = 0;
       if (item?.requires_serial && data.transaction_type === 'IN') {
@@ -270,7 +188,7 @@ export default function InventoryBalancePage() {
       await loadData();
     } catch (e) {
       console.error(e);
-      alert('儲存失敗');
+      alert(inventoryWriteError(e).message);
     } finally {
       setIsSubmittingTx(false);
     }

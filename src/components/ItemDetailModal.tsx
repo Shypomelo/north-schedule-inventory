@@ -156,7 +156,8 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
       return;
     }
 
-    await dbAdapter.createInventorySerial({
+    try {
+      await dbAdapter.createInventorySerial({
       item_id: item.id,
       // @ts-ignore
       batch_id: batchId,
@@ -165,7 +166,11 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
       project_id: null,
       notes: '手動補登',
       created_at: new Date().toISOString()
-    } as any);
+      } as any);
+    } catch (error) {
+      alert(getDatabaseErrorMessage(error, '補登序號失敗'));
+      return;
+    }
 
     setNewSerialNo('');
     const srls = await dbAdapter.getInventorySerials();
@@ -189,7 +194,7 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
       onItemUpdated();
     } catch (e) {
       console.error(e);
-      alert('刪除失敗');
+      alert(getDatabaseErrorMessage(e, '刪除失敗'));
     }
   };
 

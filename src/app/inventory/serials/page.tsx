@@ -65,67 +65,7 @@ export default function SerialsPage() {
     if (!tx) return;
 
     try {
-      let targetSerial: InventorySerial | null = null;
-      const isOut = tx.transaction_type === 'OUT';
-      const lookup = await dbAdapter.lookupInventorySerial(serialStr, isOut
-        ? { itemId: tx.item_id, allowedStatuses: ['在庫'] }
-        : {});
-
-      if (lookup.result_type === 'ambiguous') {
-        alert(`找到多個可能相同的序號，請輸入完整序號或先確認資料：\n${formatSerialCandidates(lookup.candidates)}`);
-        return;
-      }
-
-      if (lookup.result_type === 'no_match') {
-        if (isOut && !confirm(`警告：系統找不到序號「${serialStr}」的入庫紀錄！\n是否確定要補登？`)) {
-          return;
-        }
-
-        targetSerial = await dbAdapter.createInventorySerial({
-          item_id: tx.item_id,
-          batch_id: null,
-          serial_number: serialStr,
-          status: isOut ? '已出庫' : '在庫',
-          project_id: tx.project_id,
-          notes: isOut ? '出庫時待補登' : '入庫時待補登'
-        });
-      } else {
-        const candidate = lookup.candidates[0];
-        if (!candidate) {
-          alert('序號查詢結果異常，請稍後重試');
-          return;
-        }
-
-        if (!isOut) {
-          alert(`此序號可能已存在，請勿重複補登：\n${candidate.serial_number}`);
-          return;
-        }
-
-        if (!candidate.is_allowed_candidate) {
-          alert(`此序號目前狀態為 ${candidate.status}，不可再次出庫：\n${candidate.serial_number}`);
-          return;
-        }
-
-        targetSerial = allSerials.find(s => s.id === candidate.id) || {
-          ...candidate,
-          batch_id: null,
-          project_id: null,
-          notes: null,
-          created_at: '',
-          updated_at: '',
-        };
-        await dbAdapter.updateInventorySerial(targetSerial.id, {
-          status: '已出庫',
-          project_id: tx.project_id
-        });
-      }
-
-      await dbAdapter.updateInventoryTransactionSerial(txSerialId, {
-        serial_id: targetSerial.id,
-        serial_no: targetSerial.serial_number,
-        is_pending: false
-      });
-
+      await dbAdapter.updateInventoryTransactionSerial(txSerialId, {serial_no:serialStr,is_pending:false});
       await fetchData();
     } catch(e) {
       console.error(e);
