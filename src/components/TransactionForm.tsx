@@ -5,6 +5,7 @@ import { InventoryTransaction, InventoryItem, Project, TransactionType, Inventor
 import { dbAdapter } from '@/lib/db';
 import { previewInventoryInitialization } from '@/lib/db/inventory-initialization';
 import { classifySerialFormat, normalizeSerialInput } from '@/lib/inventory-serial-normalization';
+import { filterAvailableSerials, findExactAvailableSerial, getAvailableSerialsFIFO, getNoAvailableSerialMatchMessage } from '@/lib/inventory-serial-selector';
 import { useUser } from './UserContext';
 import { format } from 'date-fns';
 import { Plus } from 'lucide-react';
@@ -129,7 +130,6 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
     setSelectedSerials([]);
     setSerialLookupInput('');
     setSerialLookupMsg(null);
-    setAmbiguousSerialCandidates([]);
     setIsPendingSerial(false);
   };
 
@@ -145,78 +145,49 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
     });
   };
 
-  const handleOutSerialLookup = async () => {
+  const handleOutSerialLookup = () => {
     const input = serialLookupInput.trim();
     setSerialLookupMsg(null);
-    setAmbiguousSerialCandidates([]);
     if (!input) return;
     if (!formData.item_id) {
       setSerialLookupMsg('請先選擇品項');
       return;
     }
 
-    try {
-      const result = await dbAdapter.lookupInventorySerial(input, {
-        itemId: formData.item_id,
-        allowedStatuses: formData.transaction_type === 'RETURN' ? ['已出庫'] : ['在庫'],
-      });
-
-      if (result.result_type === 'no_match') {
-        setSerialLookupMsg('找不到此序號');
-        return;
-      }
-
-      if (result.result_type === 'ambiguous') {
-        setAmbiguousSerialCandidates(result.candidates);
-        setSerialLookupMsg('找到多個可能相同的序號，請確認完整序號');
-        return;
-      }
-
-      const candidate = result.candidates[0];
-      if (!candidate || !candidate.is_allowed_candidate) {
-        setSerialLookupMsg(candidate
-          ? `此序號目前狀態為 ${candidate.status}，不可再次出庫`
-          : '此序號不符合本次品項或狀態條件');
-        return;
-      }
-
-      addSelectedSerial(candidate.serial_number);
-      setSerialLookupInput('');
-      setSerialLookupMsg(`已選取 ${candidate.serial_number}`);
-    } catch (error) {
-      console.error(error);
-      setSerialLookupMsg('序號查詢失敗，請稍後重試');
+    const exactMatch = findExactAvailableSerial(availableSerialsFIFO, input);
+    if (!exactMatch) {
+      setSerialLookupMsg(
+        filterAvailableSerials(availableSerialsFIFO, input).length === 0
+          ? getNoAvailableSerialMatchMessage(formData.transaction_type)
+          : formData.transaction_type === 'RETURN'
+            ? '請從篩選結果選取可退料序號'
+            : '請從篩選結果選取可出庫序號',
+      );
+      return;
     }
+
+    addSelectedSerial(exactMatch.serial_number);
+    setSerialLookupInput('');
+    setSerialLookupMsg(`已選取 ${exactMatch.serial_number}`);
   };
 
   // FIFO Logic
   const availableSerialsFIFO = useMemo(() => {
-    if (!selectedItem?.requires_serial || !formData.item_id) return [];
-    
-    // Combine serial with batch in_date for sorting
-    const eligible = allSerials
-      .filter(s => (
-        s.item_id === formData.item_id
-        && classifySerialFormat(s.serial_number) !== 'unknown'
-        && (s.status === (formData.transaction_type === 'RETURN' ? '已出庫' : '在庫') || (isEditMode && initialSerials.includes(s.serial_number)))
-      ))
-      .map(s => {
-        const batch = batches.find(b => b.id === s.batch_id);
-        return {
-          ...s,
-          in_date: batch?.in_date || '9999-12-31'
-        };
-      });
-
-    // Sort by batch in_date ascending, then serial created_at ascending
-    eligible.sort((a, b) => {
-      const dateDiff = new Date(a.in_date).getTime() - new Date(b.in_date).getTime();
-      if (dateDiff !== 0) return dateDiff;
-      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    return getAvailableSerialsFIFO({
+      allSerials,
+      batches,
+      itemId: formData.item_id,
+      transactionType: formData.transaction_type,
+      requiresSerial: !!selectedItem?.requires_serial,
+      isEditMode,
+      initialSerials,
     });
-
-    return eligible;
   }, [allSerials, batches, formData.item_id, formData.transaction_type, selectedItem?.requires_serial, initialSerials, isEditMode]);
+
+  const filteredAvailableSerials = useMemo(
+    () => filterAvailableSerials(availableSerialsFIFO, serialLookupInput),
+    [availableSerialsFIFO, serialLookupInput],
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -603,7 +574,15 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
                       <input
                         type="text"
                         value={serialLookupInput}
-                        onChange={e => setSerialLookupInput(e.target.value)}
+                        onChange={e => {
+                          const nextInput = e.target.value;
+                          setSerialLookupInput(nextInput);
+                          setSerialLookupMsg(
+                            nextInput.trim() && filterAvailableSerials(availableSerialsFIFO, nextInput).length === 0
+                              ? getNoAvailableSerialMatchMessage(formData.transaction_type)
+                              : null,
+                          );
+                        }}
                         onKeyDown={e => {
                           if (e.key === 'Enter') {
                             e.preventDefault();
@@ -655,7 +634,7 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
                       <div className="text-sm text-secondary/70 py-2 text-center">目前無可用的庫存序號</div>
                     ) : (
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        {availableSerialsFIFO.map(s => {
+                        {filteredAvailableSerials.map(s => {
                             const isSelected = selectedSerials.includes(s.serial_number);
                             return (
                               <label key={s.id} className={`flex items-center gap-2 cursor-pointer p-2 rounded transition-colors ${isSelected ? 'bg-accent/30 border border-accent' : 'hover:bg-card border border-transparent'}`}>
