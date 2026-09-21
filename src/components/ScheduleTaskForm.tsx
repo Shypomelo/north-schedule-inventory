@@ -1,5 +1,6 @@
 "use client";
 
+import { MaintenanceEquipmentRecords } from './MaintenanceUsage';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ActivityLog, ScheduleTask, Project, User, TaskStatus, WorkGroup } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
@@ -86,6 +87,19 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [memberIds, setMemberIds] = useState<string[]>(initialMemberIds || []);
+  const savedForm = useRef(formData);
+  const canAddEquipment = () => {
+    if (isViewer || isSubmitting) return false;
+    const fields = ['task_type', 'title', 'project_id', 'project_name', 'address', 'description',
+      'task_date', 'start_time', 'end_time', 'is_all_day', 'is_tentative', 'main_assignee_id', 'status'] as const;
+    const changed = fields.some(field => {
+      if (field === 'project_name' && formData.project_id === savedForm.current.project_id && !savedForm.current.project_name) return false;
+      return (formData[field] ?? '') !== (savedForm.current[field] ?? '');
+    }) || [...memberIds].sort().join(',') !== [...(initialMemberIds || [])].sort().join(',');
+    if (changed) { setErrorMsg('請先儲存排程變更，再新增設備維修紀錄。'); return false; }
+    setErrorMsg(null);
+    return true;
+  };
   const [projectNameInput, setProjectNameInput] = useState(initialProjectNameInput);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -592,7 +606,7 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
           </select>
         </label>
 
-        <label className="flex flex-col gap-1 mt-1">
+        <div className="flex flex-col gap-1 mt-1">
           <span className="font-semibold text-[var(--modal-text)]">任務狀態</span>
           <div className="flex bg-[var(--input-bg)] border border-[var(--input-border)] rounded overflow-hidden">
             {[
@@ -609,7 +623,7 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
               </label>
             ))}
           </div>
-        </label>
+        </div>
 
         {/* 第六列：協同人員 (橫向勾選) */}
         <div className="flex flex-col gap-1 md:col-span-2 mt-2">
@@ -657,6 +671,8 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
           </button>
         ) : null}
       </div>
+
+      {initialData?.id && getScheduleTaskSemanticType(initialData.task_type) === 'maintenance' && <MaintenanceEquipmentRecords taskId={initialData.id} beforeAdd={canAddEquipment} />}
 
       <div className="flex justify-between items-center mt-3 pt-3 border-t border-[var(--border)]">
         <div className="text-[var(--danger)] text-sm font-semibold">{errorMsg || ''}</div>

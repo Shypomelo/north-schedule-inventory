@@ -1,0 +1,96 @@
+{
+  "baseline": "9b99ef38b7c7f9b2f234d64a107cc0346de00045",
+  "candidate": "fssogssryeunkjkdgewx",
+  "migration": "20260921131242_maintenance_material_usage_phase_b",
+  "candidateBefore": {
+    "auth": [
+      3,
+      "269b40543c9153b79b2dbe9304fe8ae6"
+    ],
+    "audit": [
+      34,
+      "bf468156b0643fa2679a9a86994be7e9"
+    ],
+    "items": [
+      35,
+      "d9e1743aa1280aa7388c5e39bae98e3b"
+    ],
+    "links": [
+      22,
+      "a8ac9decd286c5e927d0be01e7e25132"
+    ],
+    "atomic": "04455adfbc37cce57e66489c49c97a55",
+    "ledger": [
+      18,
+      "a5ad650b50afea9b29fcc6bb24c1ca1f"
+    ],
+    "batches": [
+      40,
+      "83c21b0a766e0994f8b9bd8075787ce1"
+    ],
+    "serials": [
+      127,
+      "cfd25bcc82847f009e712202140651b3"
+    ],
+    "schedule": [
+      82,
+      "4bdff6f6603381ddb1bf96c26c27df87"
+    ]
+  },
+  "candidateAfter": {
+    "auth": [
+      3,
+      "269b40543c9153b79b2dbe9304fe8ae6"
+    ],
+    "audit": [
+      34,
+      "bf468156b0643fa2679a9a86994be7e9"
+    ],
+    "items": [
+      35,
+      "d9e1743aa1280aa7388c5e39bae98e3b"
+    ],
+    "links": [
+      22,
+      "a8ac9decd286c5e927d0be01e7e25132"
+    ],
+    "atomic": "04455adfbc37cce57e66489c49c97a55",
+    "ledger": [
+      18,
+      "a5ad650b50afea9b29fcc6bb24c1ca1f"
+    ],
+    "batches": [
+      40,
+      "83c21b0a766e0994f8b9bd8075787ce1"
+    ],
+    "serials": [
+      127,
+      "cfd25bcc82847f009e712202140651b3"
+    ],
+    "schedule": [
+      82,
+      "4bdff6f6603381ddb1bf96c26c27df87"
+    ]
+  },
+  "unchanged": true,
+  "productionWrites": 0,
+  "nodeTests": {
+    "pass": 8,
+    "fail": 0
+  },
+  "sql": "PASS on local PostgreSQL and Candidate; additional ADMIN/unique-index assertions PASS on Candidate",
+  "concurrency": {
+    "pass": 5,
+    "fixtureCleanup": true,
+    "realLockWaitObserved": true
+  },
+  "tsc": "PASS",
+  "diffCheck": "PASS",
+  "http": {
+    "/": 200,
+    "/schedule": 200
+  },
+  "browserUI": "NOT RUN: no connected browser; iab and chrome unavailable",
+  "commit": false,
+  "push": false
+}

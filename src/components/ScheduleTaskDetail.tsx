@@ -7,6 +7,8 @@ import type { WeatherDisplay } from '@/lib/weather';
 import { formatScheduleTaskTime } from '@/lib/schedule-selectors';
 import { getScheduleCreationSourceLabel, getScheduleTaskPresentation } from '@/lib/schedule-presentation';
 import { formatScheduleAuditValue, getScheduleAuditPresentation, getScheduleHistoryEntries } from '@/lib/schedule-audit';
+import { isMaintenanceScheduleTask } from '@/lib/schedule-task-semantics';
+import { MaintenanceEquipmentRecords } from '@/components/MaintenanceUsage';
 
 export function ScheduleTaskDetail({
   task,
@@ -102,6 +104,7 @@ export function ScheduleTaskDetail({
             <div className="mt-1 whitespace-pre-wrap break-words text-[var(--modal-muted)]">{task.description?.trim() || '無'}</div>
           </div>
 
+          {isMaintenanceScheduleTask(task) && <MaintenanceEquipmentRecords taskId={task.id} />}
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--border)] px-4 py-3 text-xs text-[var(--modal-muted)]">
             <dl className="grid gap-x-5 gap-y-1 sm:grid-cols-2">
               <SecondaryRow label="建立" value={`${audit.creatorName} · ${formatAuditTime(audit.createdAt)}`} />

@@ -9,6 +9,7 @@ export type StockCategory = 'CONSTRUCTION' | 'MAINTENANCE' | 'VENDOR_SPARE';
 export type SerialStatus = '在庫' | '已出庫' | '已使用' | '已退回' | '待補' | '報廢' | '作廢';
 
 export type ActivityActionType =
+  | 'REGISTER_MAINTENANCE_EQUIPMENT'
   | 'CREATE_TASK'
   | 'UPDATE_TASK'
   | 'COMPLETE_TASK'
@@ -62,6 +63,7 @@ export interface ActivityLog {
 }
 
 export interface SESupplyRecord {
+  inventory_serial_id?: string | null;
   id: string;
   project_id: string | null;
   project_name: string | null;
@@ -357,6 +359,7 @@ export interface PrivateTodoUpdate {
 }
 
 export interface InventoryItem {
+  is_se_maintenance_equipment?: boolean;
   id: string;
   code: string;
   category: string;
@@ -532,6 +535,7 @@ export interface ReverseMaterialReceiptInput {
 
 export interface InventoryTransaction {
   id: string;
+  schedule_task_id?: string | null;
   item_id: string;
   transaction_type: TransactionType;
   transaction_date: string; // YYYY-MM-DD

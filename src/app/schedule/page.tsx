@@ -665,6 +665,8 @@ export default function SchedulePage() {
         setIsFormOpen(true);
         return;
       } else if (action === 'COMPLETE_TASK') {
+        if (currentUser?.role === 'VIEWER') return;
+        if (task.status === '完成' || task.status === '已完成') return;
         setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: '完成' } : t));
         if (task.source_todo_id) setTodos(prev => prev.map(td => td.id === task.source_todo_id ? { ...td, status: '已完成' } : td));
         await completeScheduleTaskWithActivity(task, { id: currentUser?.id, name: currentUser?.name }, {
@@ -1271,7 +1273,7 @@ export default function SchedulePage() {
           >改期</button>
           <button 
             className="w-full text-left px-4 py-2 text-sm text-[var(--accent)] hover:bg-[var(--surface-secondary)] transition disabled:opacity-50 disabled:cursor-not-allowed"
-            onClick={(e) => handleContextAction(e, 'COMPLETE_TASK')} disabled={currentUser?.role === 'VIEWER'}
+            onClick={(e) => handleContextAction(e, 'COMPLETE_TASK')} disabled={currentUser?.role === 'VIEWER' || tasks.some(task => task.id === contextMenu.taskId && (task.status === '完成' || task.status === '已完成'))}
           >完成</button>
           <button 
             className="w-full text-left px-4 py-2 text-sm text-[var(--danger)] hover:bg-[var(--surface-secondary)] transition disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1319,6 +1321,7 @@ export default function SchedulePage() {
 
       {isFormOpen && (
         <ScheduleTaskFormDialog
+          key={`schedule-editor-${editingTask?.id || 'new'}`}
           initialData={editingTask || undefined}
           initialMemberIds={editingTaskMembers}
           onSubmit={handleCreateOrUpdateTask}
