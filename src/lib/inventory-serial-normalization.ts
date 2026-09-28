@@ -1,4 +1,4 @@
-export type InventorySerialFormat = 'full' | 'short' | 'unknown';
+export type InventorySerialFormat = 'full' | 'short' | 'exact' | 'unknown';
 
 import type {
   InventorySerial,
@@ -9,6 +9,7 @@ import type {
 
 const DASH_VARIANTS = /[－–—]/g;
 const SPACES_AROUND_DASH = /\s*-\s*/g;
+const EXACT_SE_SERIAL_PATTERN = /^[A-Z0-9]{8}-[A-Z0-9]{2}$/;
 const SHORT_SERIAL_PATTERN = /^[A-Z0-9]{9}-[A-Z0-9]{2}$/;
 const FULL_SERIAL_PATTERN = /^[A-Z]{2}[0-9]{4}[A-Z]?-[A-Z0-9]{9}-[A-Z0-9]{2}$/;
 
@@ -31,6 +32,7 @@ export function normalizeSerialInput(input: string): string {
 export function classifySerialFormat(input: string): InventorySerialFormat {
   const normalized = normalizeSerialInput(input);
 
+  if (EXACT_SE_SERIAL_PATTERN.test(normalized)) return 'exact';
   if (SHORT_SERIAL_PATTERN.test(normalized)) return 'short';
   if (FULL_SERIAL_PATTERN.test(normalized)) return 'full';
   return 'unknown';

@@ -87,8 +87,10 @@ export function summarizeMaterialReceipts(
   sourceType: MaterialReceiptSourceType,
   sourceId: string,
   requestedQuantity: number,
+  location?: string,
 ): MaterialReceiptSummary {
   const sourceReceipts = receipts.filter(receipt => {
+    if (location && receipt.receipt_location && receipt.receipt_location !== location) return false;
     if (receipt.source_type !== sourceType) return false;
     return sourceType === 'PROJECT_MATERIAL'
       ? receipt.project_material_id === sourceId
@@ -196,6 +198,7 @@ export function selectReceivingItems({
       'PROJECT_MATERIAL',
       material.id,
       Number(material.quantity),
+      'OFFICE',
     );
     const isLegacyReceived = sourceReceipts.length === 0 && (
       material.procurement_status === 'RECEIVED' || Boolean(material.received_at)
@@ -233,15 +236,18 @@ export function selectReceivingItems({
   });
 
   const seItems = seRecords.flatMap(record => {
-    if (record.receiving_archived_at) return [];
+    if (record.receiving_archived_at || record.cancelled_at) return [];
     const itemLabel = seLabel(record);
     if (!itemLabel) return [];
     const sourceReceipts = sourceReceiptsFor(receipts, 'SE_SUPPLY', record.id);
+    // Routing-generated SE records are not arrivals; an actual OFFICE receipt remains history.
+    if (record.inventory_routed && !sourceReceipts.some(receipt => receipt.receipt_location === 'OFFICE' && getReceiptEventType(receipt) === 'RECEIVE')) return [];
     const receiptSummary = summarizeMaterialReceipts(
       receipts,
       'SE_SUPPLY',
       record.id,
       Number(record.quantity),
+      'OFFICE',
     );
     const isLegacyReceived = sourceReceipts.length === 0 && (
       record.procurement_status === 'RECEIVED'
@@ -461,4 +467,13 @@ export function formatTaipeiReceivingTime(value: string | null): string {
     minute: '2-digit',
     hourCycle: 'h23',
   }).format(date);
+}
+
+/** Legacy receipt evidence alone does not prove an Inventory posting. */
+export function receivingInventoryLabel(receipts: MaterialReceipt[], sourceId: string, receivedQuantity: number): string {
+  const linkedQuantity = receipts.filter(receipt => receipt.inventory_linked
+    && receipt.receipt_location === 'OFFICE'
+    && (receipt.project_material_id === sourceId || receipt.se_supply_record_id === sourceId))
+    .reduce((quantity, receipt) => quantity + receiptQuantityEffect(receipt), 0);
+  return receivedQuantity > 0 && linkedQuantity >= receivedQuantity ? '已入庫' : '已收貨 · 庫存關聯待確認';
 }

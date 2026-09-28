@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { InventoryTransaction, InventoryItem, Project, TransactionType, InventorySerial, InventoryBatch, User, InventorySerialLookupCandidate } from '@/lib/db/types';
+import { isActiveSEReservation } from '@/lib/db/receiving-routing';
 import { dbAdapter } from '@/lib/db';
 import { previewInventoryInitialization } from '@/lib/db/inventory-initialization';
 import { classifySerialFormat, normalizeSerialInput } from '@/lib/inventory-serial-normalization';
@@ -71,6 +72,8 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
   const [editReason, setEditReason] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [users, setUsers] = useState<User[]>([]);
+  const [reservedIds, setReservedIds] = useState<Set<string> | null>(null);
+  useEffect(() => { let active = true; dbAdapter.getSESupplyRecords().then(rows => { if (active) setReservedIds(new Set(rows.filter(isActiveSEReservation).map(r => r.inventory_serial_id!))); }).catch(() => { if (active) setErrorMsg('無法確認 SE 預留狀態，暫停選取出庫序號'); }); return () => { active = false; }; }, []);
   const isEditMode = !!initialData?.id;
 
   const [minDate, setMinDate] = useState<string | undefined>(undefined);
@@ -174,7 +177,7 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
   // FIFO Logic
   const availableSerialsFIFO = useMemo(() => {
     return getAvailableSerialsFIFO({
-      allSerials,
+      allSerials: formData.transaction_type === 'OUT' ? allSerials.filter(s => reservedIds && !reservedIds.has(s.id)) : allSerials,
       batches,
       itemId: formData.item_id,
       transactionType: formData.transaction_type,
@@ -182,7 +185,7 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
       isEditMode,
       initialSerials,
     });
-  }, [allSerials, batches, formData.item_id, formData.transaction_type, selectedItem?.requires_serial, initialSerials, isEditMode]);
+  }, [allSerials, reservedIds, batches, formData.item_id, formData.transaction_type, selectedItem?.requires_serial, initialSerials, isEditMode]);
 
   const filteredAvailableSerials = useMemo(
     () => filterAvailableSerials(availableSerialsFIFO, serialLookupInput),

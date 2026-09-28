@@ -252,17 +252,16 @@ test('all allowed Dashboard perspectives expose one shared receiving center with
   assert.match(dashboard, /物料到貨/);
   assert.equal((dashboard.match(/<MaterialReceivingCenter\/>/g) || []).length, 1);
   assert.match(center, /aria-label="物料到貨狀態"/);
-  assert.match(center, />確認收到</);
+  assert.match(center, /<PendingListRow/);
+  assert.match(center, /<ActualListRow/);
   assert.doesNotMatch(sidebar, /物料到貨/);
 });
 
-test('receiving group delete archives exact canonical rows and receipt history stays delete-free', () => {
-  const center = fs.readFileSync(path.join(__dirname, '..', 'components', 'MaterialReceivingCenter.tsx'), 'utf8');
-  assert.match(center, /Promise\.all\(group\.items\.map/);
-  assert.match(center, /updateProjectMaterial\(item\.sourceId, \{ receiving_archived_at: archivedAt \}\)/);
-  assert.match(center, /updateSESupplyRecord\(item\.sourceId, \{ receiving_archived_at: archivedAt \}\)/);
-  assert.doesNotMatch(center, /deleteProjectMaterial|deleteSESupplyRecord/);
-  assert.doesNotMatch(center, /deleteMaterialReceipt|deleteReceipt/);
+test('V4 cancellation and hide are distinct RPC actions; no hard delete', () => {
+  const row = fs.readFileSync(path.join(__dirname, '..', 'components', 'ReceivingSourceRow.tsx'), 'utf8');
+  assert.match(row, /取消待收/); assert.match(row, /撤銷收貨/); assert.match(row, /從列表隱藏/);
+  assert.match(row, /api\.cancelArrival/); assert.match(row, /p_hide_only: action === 'hide'/);
+  assert.doesNotMatch(row, /deleteProjectMaterial|deleteSESupplyRecord|deleteReceipt/);
 });
 
 test('receiving archive migration is additive and grants only the new SE update column', () => {
@@ -276,15 +275,11 @@ test('receiving archive migration is additive and grants only the new SE update 
   assert.doesNotMatch(migration, /DELETE FROM|DROP TABLE|material_receipts/);
 });
 
-test('receiving center offers canonical procurement-created project materials without replacing SE creation', () => {
+test('V5 center separates pending creation and physical arrival composers', () => {
   const center = fs.readFileSync(path.join(__dirname, '..', 'components', 'MaterialReceivingCenter.tsx'), 'utf8');
-  assert.match(center, />新增到貨</);
-  assert.match(center, /onChoose\('project'\)/);
-  assert.match(center, /onChoose\('se'\)/);
-  assert.match(center, /createProjectMaterialBatch/);
-  assert.match(center, /createProjectMaterial\(buildProcurementCreatedProjectMaterial/);
-  assert.match(center, /createSESupplyRecord/);
-  assert.doesNotMatch(center, /incoming_materials|temporary_receipts/);
+  assert.match(center, /＋新增北辦待收/); assert.match(center, /＋新增到貨/);
+  assert.match(center, /<PendingForm/); assert.match(center, /<ActualArrivalComposer/);
+  assert.doesNotMatch(center, /<OfficeArrivalDialog|<ReceivingDetailDialog|<InventoryRoutingPanel/);
 });
 
 test('receiving detail edits expected time through canonical default and override flows', () => {
@@ -292,9 +287,10 @@ test('receiving detail edits expected time through canonical default and overrid
   const projectMaterials = fs.readFileSync(path.join(__dirname, '..', 'components', 'ProjectMaterials.tsx'), 'utf8');
   const migration = fs.readFileSync(path.join(__dirname, '..', '..', 'supabase', 'migrations', '20260915163310_material_receipt_plan_convergence.sql'), 'utf8');
   const relationMigration = fs.readFileSync(path.join(__dirname, '..', '..', 'supabase', 'migrations', '20260915155604_material_reminder_schedule_relation.sql'), 'utf8');
-  assert.match(center, /dbAdapter\.updateMaterialReceiptPlan\(editingItem\.batchId, expectedAt\)/);
-  assert.match(center, /dbAdapter\.updateMaterialReceiptOverride\(editingItem\.sourceId, expectedAt\)/);
-  assert.match(center, /dbAdapter\.updateSESupplyRecord\(editingItem\.sourceId, \{ expected_delivery_at: expectedAt \}\)/);
+  const row = fs.readFileSync(path.join(__dirname, '..', 'components', 'ReceivingSourceRow.tsx'), 'utf8');
+  assert.match(row, /dbAdapter\.updateMaterialReceiptPlan\(item\.batchId,expectedAt\)/);
+  assert.match(row, /dbAdapter\.updateMaterialReceiptOverride\(item\.sourceId,expectedAt\)/);
+  assert.match(row, /dbAdapter\.updateSESupplyRecord\(item\.sourceId,\{expected_delivery_at:expectedAt\}\)/);
   assert.match(projectMaterials, /dbAdapter\.updateMaterialReceiptPlan\(batch\.id, batch\.planned_receipt_at\)/);
   assert.match(projectMaterials, /dbAdapter\.updateMaterialReceiptOverride\(material\.id, expectedDeliveryAt\)/);
   assert.match(migration, /UPDATE public\.project_materials[\s\S]*SET expected_delivery_at = p_planned_receipt_at/);
@@ -329,31 +325,29 @@ test('received history and project material actual display both open the shared 
   assert.match(dialog, /原收料保留/);
 });
 
-test('procurement-created project selection reuses the Schedule autocomplete filter contract', () => {
-  const center = fs.readFileSync(path.join(__dirname, '..', 'components', 'MaterialReceivingCenter.tsx'), 'utf8');
-  const scheduleForm = fs.readFileSync(path.join(__dirname, '..', 'components', 'ScheduleTaskForm.tsx'), 'utf8');
-  assert.match(center, /filterProjectsForAutocomplete\(projects, query\)/);
-  assert.match(scheduleForm, /filterProjectsForAutocomplete\(projects, projectNameInput\)/);
-  assert.match(center, /setOpen\(Boolean\(value\.trim\(\)\)\)/);
-  assert.match(center, /if \(projectId\) onSelect\(''\)/);
+test('V5 planning and metadata project selectors retain Schedule autocomplete contract', () => {
+  const combo = fs.readFileSync(path.join(__dirname, '..', 'components', 'ReceivingProjectCombobox.tsx'), 'utf8');
+  const schedule = fs.readFileSync(path.join(__dirname, '..', 'components', 'ScheduleTaskForm.tsx'), 'utf8');
+  assert.match(combo, /filterProjectsForAutocomplete\(projects, query\)/);
+  assert.match(schedule, /filterProjectsForAutocomplete\(projects, projectNameInput\)/);
 });
 
-test('project arrival uses five expandable slots and creates only canonical project material rows', () => {
+test('V5 pending and actual rows have separate projection identities', () => {
   const center = fs.readFileSync(path.join(__dirname, '..', 'components', 'MaterialReceivingCenter.tsx'), 'utf8');
-  const projectMaterials = fs.readFileSync(path.join(__dirname, 'project-materials.ts'), 'utf8');
-  assert.match(center, /createArrivalSlots\(0\)/);
-  assert.match(center, /createArrivalSlots\(current\.length\)/);
-  assert.match(center, /filledSlots = slots\.filter\(slot => slot\.itemName\.trim\(\)\)/);
-  assert.match(center, /Promise\.all\(filledSlots\.map/);
-  assert.match(projectMaterials, /include_in_purchase_request: false/);
-  assert.doesNotMatch(center, /incoming_materials|receiving_only/);
+  assert.match(center, /pendingRows\(data\)/); assert.match(center, /actualRows\(data\)/);
+  assert.doesNotMatch(center, /selectReceivingItems|receivedQuantity|setCreateMode/);
 });
 
-test('project arrival uses active canonical material groups instead of legacy group names', () => {
-  const center = fs.readFileSync(path.join(__dirname, '..', 'components', 'MaterialReceivingCenter.tsx'), 'utf8');
-  assert.match(center, /dbAdapter\.listMaterialGroups\(false\)/);
-  assert.match(center, /filterSelectableMaterialCatalogItems\(catalog, activeGroups\)/);
-  assert.match(center, /filterMaterialCatalogByGroupId\(selectableCatalog, slot\.groupId\)/);
-  assert.match(center, /activeGroups\.map\(group => <option key=\{group\.id\} value=\{group\.id\}>\{group\.name\}<\/option>\)/);
-  assert.doesNotMatch(center, /catalog\.map\(item => item\.group_name/);
+test('V5 new pending and actual composers share canonical inventory item search', () => {
+  const forms = fs.readFileSync(path.join(__dirname, '..', 'components', 'ReceivingV5Forms.tsx'), 'utf8');
+  assert.match(forms, /<InventoryItemCombobox/);
+  assert.match(forms, /i\.is_active/);
+  assert.doesNotMatch(forms, /createInventoryItem|createProjectMaterialBatch/);
+});
+
+test('V4 routing flags never remove an original OFFICE receipt from receiving history', () => {
+ const rows = selectReceivingItems({ projects: [project], batches: [batch], projectMaterials: [], users,
+ seRecords: [seRecord({ inventory_routed: true })],
+ receipts: [receipt({ source_type: 'SE_SUPPLY', project_material_id: null, se_supply_record_id: 'se-1', receipt_location: 'OFFICE', quantity_received: 2 })] });
+ assert.equal(rows.length, 1); assert.equal(rows[0].sourceId, 'se-1');
 });

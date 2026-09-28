@@ -2,6 +2,8 @@
 
 import { FormEvent, useMemo, useState } from 'react';
 import { Loader2, RotateCcw, X } from 'lucide-react';
+import { ReceivingCorrectionDialog } from './ReceivingInventoryRouting';
+import { ReceivingSiteReceiptEvidence } from './ReceivingSiteReceiptEvidence';
 import { dbAdapter } from '@/lib/db';
 import type { MaterialReceipt, MaterialReceiptSourceType } from '@/lib/db/types';
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
@@ -22,6 +24,7 @@ export function MaterialReceiptHistoryDialog({
   canEdit,
   onClose,
   onChanged,
+  events = [],
 }: {
   receipts: MaterialReceipt[];
   sourceType: MaterialReceiptSourceType;
@@ -32,6 +35,7 @@ export function MaterialReceiptHistoryDialog({
   canEdit: boolean;
   onClose: () => void;
   onChanged: () => void | Promise<void>;
+  events?: { id: string; at: string | null; label: string; description: string }[];
 }) {
   const sourceReceipts = useMemo(() => receipts.filter(receipt => (
     receipt.source_type === sourceType
@@ -39,7 +43,7 @@ export function MaterialReceiptHistoryDialog({
       ? receipt.project_material_id === sourceId
       : receipt.se_supply_record_id === sourceId)
   )).sort((left, right) => (
-    right.received_at.localeCompare(left.received_at) || right.id.localeCompare(left.id)
+    (right.received_at || '').localeCompare(left.received_at || '') || right.id.localeCompare(left.id)
   )), [receipts, sourceId, sourceType]);
   const [correcting, setCorrecting] = useState<MaterialReceipt | null>(null);
   const [quantity, setQuantity] = useState('');
@@ -84,6 +88,8 @@ export function MaterialReceiptHistoryDialog({
     }
   };
 
+  if (correcting?.inventory_linked) return <ReceivingCorrectionDialog receipt={correcting} onClose={() => setCorrecting(null)} onChanged={onChanged} />;
+
   return <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/55 p-4" role="dialog" aria-modal="true" aria-label={`${itemLabel}收料紀錄`}>
     <div className="max-h-[88vh] w-full max-w-xl overflow-y-auto rounded-xl border border-theme-border bg-card shadow-2xl">
       <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-theme-border bg-card p-4">
@@ -91,16 +97,18 @@ export function MaterialReceiptHistoryDialog({
         <button type="button" onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-lg text-secondary hover:bg-page" aria-label="關閉收料紀錄"><X size={18} /></button>
       </div>
       <div className="space-y-2 p-4">
-        {sourceReceipts.length === 0 ? <p className="rounded-lg border border-dashed border-theme-border p-6 text-center text-sm text-secondary">尚無收料紀錄。</p> : sourceReceipts.map(receipt => {
+        {events.map(event => <div key={event.id} className="space-y-1 rounded-lg border border-theme-border p-3 text-sm"><p className="font-semibold">{event.label}</p><p className="break-words">{event.description}</p>{event.at && <p className="text-xs text-secondary">{formatTaipeiReceivingTime(event.at)}</p>}</div>)}
+        {sourceReceipts.length === 0 && events.length === 0 ? <p className="rounded-lg border border-dashed border-theme-border p-6 text-center text-sm text-secondary">尚無收料紀錄。</p> : sourceReceipts.map(receipt => {
           const eventType = getReceiptEventType(receipt);
           const reversible = getReceiptReversibleQuantity(receipt, receipts);
           return <div key={receipt.id} className="rounded-lg border border-theme-border bg-page/25 p-3">
             <div className="flex flex-wrap items-start justify-between gap-2">
-              <div><span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-bold ${eventType === 'REVERSAL' ? 'border-warning/40 bg-warning/10 text-warning' : 'border-success/40 bg-success/10 text-success'}`}>{eventType === 'REVERSAL' ? '收料更正' : '確認收到'}</span><p className="mt-2 text-sm font-semibold text-primary">{eventType === 'REVERSAL' ? '−' : '+'}{formatReceivingQuantity(Number(receipt.quantity_received))} {unit}</p></div>
+              <div><span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-bold ${eventType === 'REVERSAL' ? 'border-warning/40 bg-warning/10 text-warning' : 'border-success/40 bg-success/10 text-success'}`}>{eventType === 'REVERSAL' ? '收料更正' : receipt.receipt_location === 'SITE' ? '案場已收到' : receipt.inventory_linked ? '北辦已入庫' : '已收貨 · 庫存關聯待確認'}</span><p className="mt-2 text-sm font-semibold text-primary">{eventType === 'REVERSAL' ? '−' : '+'}{formatReceivingQuantity(Number(receipt.quantity_received))} {unit}</p></div>
               <div className="text-right text-xs text-secondary"><p>{formatTaipeiReceivingTime(receipt.received_at)}</p>{receipt.notes ? <p className="mt-1 max-w-64 break-words">{receipt.notes}</p> : null}</div>
             </div>
             {eventType === 'REVERSAL' && receipt.reversal_of_id ? <p className="mt-2 text-[11px] text-secondary">更正原收料：{receipt.reversal_of_id}</p> : null}
-            {canEdit && eventType === 'RECEIVE' && reversible > 0 ? <div className="mt-2 flex justify-end"><button type="button" onClick={() => startCorrection(receipt)} className="inline-flex h-8 items-center gap-1 rounded-md border border-warning/40 px-2 text-xs font-bold text-warning hover:bg-warning/10"><RotateCcw size={13} />收料更正</button></div> : null}
+            {receipt.receipt_location === 'SITE' && receipt.inventory_transaction_id && <ReceivingSiteReceiptEvidence receiptId={receipt.reversal_of_id || receipt.id} transactionId={receipt.inventory_transaction_id} />}
+            {canEdit && eventType === 'RECEIVE' && reversible > 0 && receipt.receipt_location !== 'SITE' ? <div className="mt-2 flex justify-end"><button type="button" onClick={() => startCorrection(receipt)} className="inline-flex h-8 items-center gap-1 rounded-md border border-warning/40 px-2 text-xs font-bold text-warning hover:bg-warning/10"><RotateCcw size={13} />收料更正</button></div> : null}
           </div>;
         })}
       </div>

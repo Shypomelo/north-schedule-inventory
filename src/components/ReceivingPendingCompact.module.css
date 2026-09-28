@@ -1,0 +1,80 @@
+/* Opt-in styling for the new pending composer only; other shared modal uses
+   and the serial/scanner controls retain their existing presentation. */
+:global([role='dialog']):has(.form) {
+  max-width: 768px;
+}
+
+:global([role='dialog']):has(.form) > header {
+  padding: 6px 16px;
+}
+
+:global([role='dialog']):has(.form) > div {
+  padding: 16px;
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+}
+
+.detailsGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  align-items: start;
+  gap: 12px;
+}
+
+.dateField {
+  min-width: 0;
+  grid-column: 1 / -1;
+}
+
+/* Target the top-level fields, without changing nested serial entry controls. */
+.form > fieldset > div > label,
+.dateField > label {
+  display: block;
+}
+
+.form > fieldset > div > input,
+.form > fieldset > div > div > input,
+.detailsGrid > label > input,
+.dateField > label > select,
+.form > fieldset > label > textarea {
+  margin-top: 6px;
+  display: block;
+}
+
+.detailsGrid > label > input,
+.dateField input:not([type='date']),
+.dateField select,
+.dateField button {
+  height: 44px;
+}
+
+.form .notes {
+  height: 76px;
+  min-height: 76px;
+  resize: vertical;
+}
+
+.form > div:last-child {
+  justify-content: flex-end;
+}
+
+.form > div:last-child > button {
+  height: 44px;
+}
+
+@media (min-width: 768px) {
+  :global([role='dialog']):has(.form) > header {
+    padding-inline: 20px;
+  }
+
+  :global([role='dialog']):has(.form) > div {
+    padding-inline: 20px;
+  }
+
+  .detailsGrid {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) minmax(0, 5fr);
+  }
+
+  .dateField {
+    grid-column: auto;
+  }
+}

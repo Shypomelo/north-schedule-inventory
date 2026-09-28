@@ -1,8 +1,10 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { createReceivingApi, isActiveSEReservation } from '@/lib/db/receiving-routing';
+import { supabase } from '@/lib/db/supabaseClient';
 import { dbAdapter } from '@/lib/db';
-import { Project, SESupplyRecord } from '@/lib/db/types';
+import { Project, SESupplyRecord, InventorySerial } from '@/lib/db/types';
 import { Plus, Trash2, Download, Search, Filter } from 'lucide-react';
 import { useUser } from '@/components/UserContext';
 import * as XLSX from 'xlsx';
@@ -18,6 +20,7 @@ const RECEIVE_METHODS = [
 export default function SESupplyPage() {
   const { currentUser } = useUser();
   const [records, setRecords] = useState<SESupplyRecord[]>([]);
+  const [inventorySerials, setInventorySerials] = useState<InventorySerial[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -35,13 +38,15 @@ export default function SESupplyPage() {
 
   const loadData = async () => {
     setIsLoading(true);
-    const [recs, projs] = await Promise.all([
+    const [recs, projs, serials] = await Promise.all([
       // @ts-ignore
       dbAdapter.getSESupplyRecords ? dbAdapter.getSESupplyRecords() : Promise.resolve([]),
-      dbAdapter.getProjects()
+      dbAdapter.getProjects(),
+      dbAdapter.getInventorySerials()
     ]);
-    setRecords(recs);
+    setRecords(recs.filter((r: SESupplyRecord) => !r.receiving_only));
     setProjects(projs);
+    setInventorySerials(serials);
     setIsLoading(false);
   };
 
@@ -50,7 +55,9 @@ export default function SESupplyPage() {
   }, []);
 
   const getStatus = (record: SESupplyRecord) => {
+    if (record.cancelled_at) return '已取消預留';
     if (record.replace_date) return '已更換';
+    if (isActiveSEReservation(record)) return '已預留 · 在庫';
     if (record.procurement_status === 'PARTIAL_RECEIVED') return '部分收到';
     if (record.procurement_status === 'RECEIVED' || record.receive_date || record.received_at) return '已收料 / 待更換';
     return '待收料';
@@ -147,6 +154,12 @@ export default function SESupplyPage() {
   };
 
   const handleDeleteRow = async (id: string) => {
+    const record = records.find(r => r.id === id);
+    if (record?.inventory_serial_id) {
+      if (!confirm('取消此設備預留？庫存數量不變。')) return;
+      try { await createReceivingApi(supabase).cancelReservation(record); await loadData(); } catch (e) { alert(e instanceof Error ? e.message : '取消失敗'); }
+      return;
+    }
     if (!confirm('確定刪除此筆 SE 供貨紀錄？')) return;
     try {
       // @ts-ignore
@@ -339,7 +352,7 @@ export default function SESupplyPage() {
                         onClick={() => handleDeleteRow(r.id)}
                         disabled={currentUser?.role === 'VIEWER'}
                         className="text-secondary/50 hover:text-danger opacity-0 group-hover:opacity-100 transition-all p-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="刪除紀錄"
+                        title={r.inventory_serial_id ? "取消預留" : "刪除紀錄"}
                       >
                         <Trash2 size={16} />
                       </button>
@@ -408,7 +421,7 @@ export default function SESupplyPage() {
                       />
                     </td>
                     <td className="px-1 py-1">
-                      <input 
+                      {r.inventory_serial_id ? <select aria-label="預留設備序號" value={r.inventory_serial_id} disabled={currentUser?.role === 'VIEWER' || Boolean(r.replace_date || r.cancelled_at)} className="w-full min-h-9 bg-transparent text-sm" onChange={async event => { try { await createReceivingApi(supabase).changeReservation(r, event.target.value); await loadData(); } catch (error) { alert(error instanceof Error ? error.message : '換台失敗'); } }}><option value={r.inventory_serial_id}>{r.new_serial}</option>{inventorySerials.filter(serial => serial.status === '在庫' && serial.id !== r.inventory_serial_id && !records.some(other => isActiveSEReservation(other) && other.inventory_serial_id === serial.id)).map(serial => <option key={serial.id} value={serial.id}>{serial.serial_number}</option>)}</select> : <input
                         type="text"
                         value={r.new_serial || ''}
                         onChange={e => handleCellChange(r.id, 'new_serial', e.target.value)}
@@ -417,7 +430,7 @@ export default function SESupplyPage() {
                         placeholder="新序號..."
                         className="w-full bg-transparent border border-transparent hover:border-theme-border focus:border-accent focus:bg-page rounded px-2 py-1 outline-none text-primary placeholder:text-secondary/60 font-mono text-[13px] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         disabled={currentUser?.role === 'VIEWER'}
-                      />
+                      />}
                     </td>
                     <td className="px-1 py-1">
                       <input 

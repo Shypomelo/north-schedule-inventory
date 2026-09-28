@@ -7,6 +7,7 @@ import { X, Box, History, List, ChevronDown, ChevronUp, Pencil } from 'lucide-re
 import { format } from 'date-fns';
 import { getInventoryInflowQuantity, getInventoryTransactionQuantityDelta } from '@/lib/db/inventory-stock';
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
+import { InventoryRoutingPanel } from './ReceivingInventoryRouting';
 import { ItemForm } from './ItemForm';
 import { useUser } from './UserContext';
 import { getInventoryBatchUsageSummary, isEffectiveInventorySerial } from '@/lib/db/inventory-batch-status';
@@ -22,6 +23,7 @@ type TabKey = 'SUMMARY' | 'EDIT' | 'BATCHES' | 'HISTORY';
 export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailModalProps) {
   const { currentUser } = useUser();
   const [activeTab, setActiveTab] = useState<TabKey>('SUMMARY');
+  const [routingRevision, setRoutingRevision] = useState(0);
   
   const [item, setItem] = useState<InventoryItem | null>(null);
   const [transactions, setTransactions] = useState<InventoryTransaction[]>([]);
@@ -61,7 +63,7 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
       setIsLoading(false);
     }
     load();
-  }, [itemId]);
+  }, [itemId, routingRevision]);
 
   // Focus input automatically when expanded
   useEffect(() => {
@@ -285,6 +287,7 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
             {/* Main Content Area */}
             <div className="min-w-0 flex-1 overflow-y-auto bg-card/50 p-3 sm:p-6">
               
+              {activeTab === 'SUMMARY' && itemId && currentUser?.role !== 'VIEWER' && <InventoryRoutingPanel itemId={itemId} onChanged={() => { setRoutingRevision(value => value + 1); onItemUpdated(); }} />}
               {activeTab === 'SUMMARY' && (
                 <div className="flex flex-col gap-5 max-w-2xl">
                   <h3 className="text-lg font-bold text-primary border-b border-theme-border/50 pb-2">庫存摘要</h3>

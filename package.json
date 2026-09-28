@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.2",
+    "@zxing/browser": "0.1.5",
+    "@zxing/library": "0.21.3",
     "clsx": "^2.1.0",
     "date-fns": "^4.4.0",
     "googleapis": "^174.0.1",

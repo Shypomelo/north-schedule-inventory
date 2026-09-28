@@ -63,6 +63,10 @@ export interface ActivityLog {
 }
 
 export interface SESupplyRecord {
+  inventory_item_id?: string | null;
+  receiving_only?: boolean;
+  inventory_routed?: boolean;
+  cancelled_at?: string | null;
   inventory_serial_id?: string | null;
   id: string;
   project_id: string | null;
@@ -359,6 +363,7 @@ export interface PrivateTodoUpdate {
 }
 
 export interface InventoryItem {
+  canonical_identity_key?: string | null;
   is_se_maintenance_equipment?: boolean;
   id: string;
   code: string;
@@ -458,6 +463,7 @@ export type ProjectMaterialBatchUpdateInput = Partial<Omit<
 >>;
 
 export interface ProjectMaterial {
+  inventory_item_id?: string | null;
   id: string;
   project_id: string;
   batch_id: string;
@@ -505,6 +511,9 @@ export type ProjectMaterialUpdateInput = Partial<Omit<
 >>;
 
 export interface MaterialReceipt {
+  receipt_location?: 'OFFICE' | 'SITE' | null;
+  inventory_transaction_id?: string | null;
+  inventory_linked?: boolean;
   id: string;
   source_type: MaterialReceiptSourceType;
   project_material_id: string | null;

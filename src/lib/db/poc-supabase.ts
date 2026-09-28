@@ -150,6 +150,7 @@ const SERIAL_STATUS_OUT = '已出庫';
 const SERIAL_STATUS_RETURNED = '已退回';
 
 const mapInventoryItem = (row: any): InventoryItem => ({
+  canonical_identity_key: row.canonical_identity_key ?? null,
   id: row.id,
   code: row.code || '',
   category: row.category || '',
@@ -160,6 +161,7 @@ const mapInventoryItem = (row: any): InventoryItem => ({
   opening_quantity: toNumber(row.opening_quantity),
   low_stock_threshold: toNumber(row.low_stock_threshold),
   requires_serial: !!row.requires_serial,
+  is_se_maintenance_equipment: !!row.is_se_maintenance_equipment,
   notes: row.notes || null,
   is_active: row.is_active ?? true,
   created_at: row.created_at || new Date().toISOString(),
@@ -199,30 +201,6 @@ const buildInventoryItemPayload = (
 
   return payload;
 };
-
-const resolveUniqueInventoryItemCode = async (baseCode: string): Promise<string> => {
-  const normalizedBaseCode = baseCode.trim() || `ITEM-${Date.now()}`;
-  let candidate = normalizedBaseCode;
-
-  for (let attempt = 0; attempt < 100; attempt++) {
-    const { data, error } = await supabase
-      .from('inventory_items')
-      .select('id')
-      .eq('code', candidate)
-      .maybeSingle();
-
-    if (error) {
-      console.error('Error checking inventory_item code:', error);
-      throw error;
-    }
-
-    if (!data) return candidate;
-    candidate = `${normalizedBaseCode}-${attempt + 2}`;
-  }
-
-  return `${normalizedBaseCode}-${Date.now()}`;
-};
-
 
 const mapInventoryTransaction = (row: any): InventoryTransaction => ({
   id: row.id,
@@ -403,20 +381,19 @@ const createInventoryItemInSupabase = async (
   item: Omit<InventoryItem, 'id' | 'created_at' | 'updated_at'>,
 ): Promise<InventoryItem> => {
   const payload = buildInventoryItemPayload(item, { isNew: true });
-  payload.code = await resolveUniqueInventoryItemCode(String(payload.code || ''));
-
-  const { data, error } = await supabase
-    .from('inventory_items')
-    .insert(payload)
-    .select()
-    .single();
+  const { data, error } = await supabase.rpc('get_or_create_inventory_item', {
+    p_identity_key: item.canonical_identity_key?.trim() || item.code?.trim() || item.name,
+    p_unit: item.unit,
+    p_requires_serial: item.requires_serial,
+    p_definition: payload,
+  });
 
   if (error) {
     console.error('Error creating inventory_item:', error);
     throw error;
   }
 
-  return mapInventoryItem(data);
+  return mapInventoryItem(data.item);
 };
 
 const updateInventoryItemInSupabase = async (

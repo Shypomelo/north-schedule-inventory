@@ -144,31 +144,13 @@ export default function InventoryBalancePage() {
     try {
       const serialsList = serialsInput.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
       const isExistingItemContext = !!txModal.itemId;
-      let item = items.find(i => i.id === (isExistingItemContext ? txModal.itemId : data.item_id));
+      const item = items.find(i => i.id === (isExistingItemContext ? txModal.itemId : data.item_id));
       if (isExistingItemContext) {
         data.item_id = txModal.itemId!;
       }
       
-      // 動態分列邏輯 (IN)
-      if (!isExistingItemContext && data.transaction_type === 'IN' && item) {
-         if (item.source_type !== data.source || item.category !== data.category) {
-            let existingItem = items.find(i => i.name === item!.name && i.source_type === data.source && i.category === data.category);
-            if (!existingItem) {
-               // Create a new item to separate the source/category row
-               const newItem = await dbAdapter.createInventoryItem({
-                  ...item,
-                  opening_quantity: 0,
-                  source_type: data.source,
-                  category: data.category,
-               } as Omit<InventoryItem, 'id' | 'created_at' | 'updated_at'>);
-               data.item_id = newItem.id;
-               item = newItem;
-            } else {
-               data.item_id = existingItem.id;
-               item = existingItem;
-            }
-         }
-      }
+      // Source/category belong to the transaction. Keep the explicitly selected
+      // item identity; same-name rows can be different legitimate models.
 
       const txSerials = inventorySerialInputs(serialsInput);
 
