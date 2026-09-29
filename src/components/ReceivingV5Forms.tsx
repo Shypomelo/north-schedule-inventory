@@ -74,6 +74,7 @@ export function SerialInput({ draft, data, disabled, planning = false, initialSc
   const [mode, setMode] = useState<'manual' | 'batch' | 'scan' | null>(initialScan ? 'scan' : null);
   const [raw, setRaw] = useState('');
   const [feedback, setFeedback] = useState('');
+  const [scanWarning, setScanWarning] = useState('');
   const [duplicates, setDuplicates] = useState(0);
   const accept = async (value: string) => {
     try { const text = await draft.accept(value); setFeedback(text); if (text === '已在本批清單') setDuplicates(n => n + 1); return true; }
@@ -96,7 +97,7 @@ export function SerialInput({ draft, data, disabled, planning = false, initialSc
     <p role="status" className="text-sm">已加入 {draft.drafts.length} 筆 · 可辨識 {draft.drafts.filter(d => d.state === 'known').length} · 待補資料 {draft.drafts.filter(d => d.state !== 'known').length} · 重複 {duplicates}</p>
     {compact && mode !== 'scan' ? draft.drafts.length > 0 && <details><summary className="cursor-pointer py-2 text-sm">查看序號（{draft.drafts.length}）</summary>{list}</details> : list}{feedback && <p role="status" className="break-all text-sm">{feedback}</p>}
     {Boolean(draft.resolving) && <p role="status" className="text-sm">正在確認序號…</p>}
-    {mode === 'scan' && <BarcodeScanner mode="continuous" items={onScanBatch ? data.items : undefined} onBatch={onScanBatch ? codes => onScanBatch(codes).then(setFeedback).catch(e => { setFeedback(receivingError(e)); throw e; }) : undefined} onDetected={value => { void accept(value); }} onCancel={() => setMode(null)} onFinish={() => setMode(null)}>
+    {mode === 'scan' && <BarcodeScanner mode="continuous" items={onScanBatch ? data.items : undefined} warning={onScanBatch ? scanWarning : undefined} onBatch={onScanBatch ? codes => onScanBatch(codes).then(text => { setFeedback(text); setScanWarning(''); }).catch(e => { setFeedback(receivingError(e)); setScanWarning('確認失敗，請重新掃描。'); throw e; }) : undefined} onDetected={value => { void accept(value); }} onCancel={() => setMode(null)} onFinish={() => setMode(null)}>
       <p className="font-semibold">本批 {draft.drafts.length}</p><p role="status" className="break-all">{feedback}</p>{list}
     </BarcodeScanner>}
   </div>;

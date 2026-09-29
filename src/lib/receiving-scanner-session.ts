@@ -1,8 +1,18 @@
 import { classifySerialFormat, normalizeSerialInput } from './inventory-serial-normalization';
 import type { InventoryItem } from './db/types';
+import { isStructuralMetadataToken, parseScannedPayload } from './receiving-scanned-payload';
 
 export type ScannerKind = 'MODEL' | 'SERIAL' | 'UNKNOWN';
 export interface ScannerCode { raw: string; normalized: string; kind: ScannerKind; itemId?: string }
+
+export function scannerCounts(codes: ScannerCode[]) {
+  return {
+    total: codes.length,
+    model: codes.filter(code => code.kind === 'MODEL').length,
+    serial: codes.filter(code => code.kind === 'SERIAL').length,
+    unknown: codes.filter(code => code.kind === 'UNKNOWN').length,
+  };
+}
 
 export function classifyScannerCode(raw: string, items: InventoryItem[]): ScannerCode {
   const normalized = normalizeSerialInput(raw);
@@ -25,11 +35,22 @@ export class ScannerSession {
   readonly codes: ScannerCode[] = [];
   add(raw: string) {
     if (this.disposed) return false;
-    const code = classifyScannerCode(raw, this.items);
-    if (!code.normalized || this.seen.has(code.normalized)) return false;
-    this.seen.add(code.normalized);
-    this.codes.push(code);
-    this.pending.push(code);
+    const payload = parseScannedPayload(raw);
+    const classified = payload.candidates.map(candidate => classifyScannerCode(candidate, this.items));
+    const recognized = classified.filter(code => code.kind !== 'UNKNOWN');
+    const unresolved = classified.filter(code => code.kind === 'UNKNOWN' && !isStructuralMetadataToken(code.raw));
+    const incoming = payload.composite
+      ? [...recognized, ...(unresolved.length || !recognized.length ? [{ raw: payload.raw, normalized: normalizeSerialInput(payload.raw), kind: 'UNKNOWN' as const }] : [])]
+      : classified;
+    let added = false;
+    for (const code of incoming) {
+      if (!code.normalized || this.seen.has(code.normalized)) continue;
+      this.seen.add(code.normalized);
+      this.codes.push(code);
+      this.pending.push(code);
+      added = true;
+    }
+    if (!added) return false;
     this.onChange([...this.codes]);
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.flush(), this.quietMs);
