@@ -51,6 +51,41 @@ test('failed lookup releases serial for a retry while preserving model evidence'
   session.dispose();
 });
 
+test('quiet-window resolve leaves session open for new serials while pending and afterward', async () => {
+  let release;
+  const first = new Promise(resolve => { release = resolve; });
+  const batches = [];
+  const session = new ScannerSession(items, batch => { batches.push(batch); return batches.length === 1 ? first : Promise.resolve(); }, () => {}, 10000);
+  session.add('P401'); session.flush();
+  assert.equal(session.add('ABC123456-01'), true);
+  session.flush();
+  release();
+  await first;
+  assert.equal(session.add('ABC123457-01'), true);
+  session.flush();
+  assert.deepEqual(session.codes.map(code => code.kind), ['MODEL', 'SERIAL', 'SERIAL']);
+  assert.equal(batches.length, 3);
+  session.dispose();
+});
+
+test('repeated model frames do not block the next serial', () => {
+  const session = new ScannerSession(items, () => {}, () => {}, 10000);
+  for (let frame = 0; frame < 3; frame++) session.add('P401');
+  assert.equal(session.add('ABC123456-01'), true);
+  assert.deepEqual(session.codes.map(code => code.kind), ['MODEL', 'SERIAL']);
+  session.dispose();
+});
+
+test('reopened session retains prior codes and deduplicates them', () => {
+  const original = new ScannerSession(items, () => {}, () => {}, 10000);
+  original.add('P401'); original.add('ABC123456-01'); original.flush(); original.dispose();
+  const resumed = new ScannerSession(items, () => {}, () => {}, 10000, original.codes);
+  assert.equal(resumed.add('P401'), false);
+  assert.equal(resumed.add('ABC123457-01'), true);
+  assert.equal(resumed.codes.length, 3);
+  resumed.dispose();
+});
+
 test('one indexed batch read preserves exact, short and ambiguous identities', async () => {
   let calls = 0;
   const serials = [

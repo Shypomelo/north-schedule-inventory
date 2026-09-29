@@ -2,42 +2,48 @@
 
 import { ReactNode, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CameraOff, Flashlight, SwitchCamera } from 'lucide-react';
+import { CameraOff, ChevronDown, Flashlight, SwitchCamera, X } from 'lucide-react';
 import { BarcodeCamera } from '@/lib/barcode-camera';
 import { ScannerSession, scannerCounts, type ScannerCode } from '@/lib/receiving-scanner-session';
 import type { InventoryItem } from '@/lib/db/types';
 
-export interface BarcodeScannerProps { onDetected: (raw: string) => void; onBatch?: (codes: ScannerCode[]) => void | Promise<void>; items?: InventoryItem[]; warning?: string; onCancel: () => void; initialMode?: 'camera' | 'manual'; initialValue?: string; mode?: 'single' | 'continuous'; onFinish?: () => void; children?: ReactNode }
+export interface BarcodeScannerProps { onDetected: (raw: string) => void; onBatch?: (codes: ScannerCode[]) => void | Promise<void>; items?: InventoryItem[]; initialCodes?: ScannerCode[]; onCodesChange?: (codes: ScannerCode[]) => void; warning?: string; onNoBarcode?: () => void; onCancel: () => void; initialMode?: 'camera' | 'manual'; initialValue?: string; mode?: 'single' | 'continuous'; onFinish?: () => void; children?: ReactNode }
 const button = 'min-h-11 rounded-lg border border-white/40 px-4 py-2 disabled:opacity-50';
 
-export function ScannerCaptureResults({ codes }: { codes: ScannerCode[] }) {
+export function ScannerCaptureResults({ codes, expanded = false, onToggle }: { codes: ScannerCode[]; expanded?: boolean; onToggle?: () => void }) {
   const counts = scannerCounts(codes);
-  const recognized = codes.filter(code => code.kind !== 'UNKNOWN');
+  const serials = codes.filter(code => code.kind === 'SERIAL');
+  const models = codes.filter(code => code.kind === 'MODEL');
   const unknown = codes.filter(code => code.kind === 'UNKNOWN');
-  return <div className="shrink-0 space-y-2 px-4 py-2" aria-live="polite">
-    <div className="flex flex-wrap gap-1.5 text-xs" aria-label="掃描統計">
-      <span className="rounded-full bg-white/15 px-2.5 py-1 font-semibold">已掃描 {counts.total}</span>
-      <span className="rounded-full bg-teal-400/15 px-2.5 py-1 text-teal-200">型號 {counts.model}</span>
-      <span className="rounded-full bg-sky-400/15 px-2.5 py-1 text-sky-200">序號 {counts.serial}</span>
-      <span className="rounded-full bg-amber-400/15 px-2.5 py-1 text-amber-200">待確認 {counts.unknown}</span>
-    </div>
-    {!!recognized.length && <ul className="max-h-24 space-y-1 overflow-y-auto text-xs" aria-label="掃描結果">{recognized.map(code => <li key={code.normalized} className="flex min-w-0 gap-2 rounded-lg bg-white/10 px-2.5 py-1.5"><span className="w-8 shrink-0 text-slate-400">{code.kind === 'MODEL' ? '型號' : '序號'}</span><span className="min-w-0 break-all font-medium">{code.normalized}</span></li>)}</ul>}
-    {!!unknown.length && <details className="rounded-lg border border-amber-400/25 bg-amber-400/5 text-xs"><summary className="cursor-pointer px-2.5 py-2 text-amber-200">待確認 {unknown.length} 筆 ›</summary><ul className="max-h-24 space-y-2 overflow-y-auto px-2.5 pb-2">{unknown.map(code => <li key={code.normalized} className="break-all whitespace-pre-wrap text-slate-300">{code.raw}</li>)}</ul></details>}
+  return <div className="space-y-1 text-[#303b35]" aria-live="polite">
+    <button type="button" className="flex min-h-11 w-full items-center justify-between text-left" aria-expanded={expanded} onClick={onToggle}>
+      <span className="text-base font-semibold tabular-nums">已掃 {counts.serial} 台</span>
+      <ChevronDown size={18} className={`text-[#61756a] transition-transform ${expanded ? 'rotate-180' : ''}`} aria-hidden="true" />
+    </button>
+    {expanded ? <ul className="max-h-32 space-y-1 overflow-y-auto text-sm" aria-label="已掃序號">{serials.map(code => <li key={code.normalized} className="break-all py-0.5 font-medium">{code.normalized}</li>)}</ul>
+      : serials.length > 0 && <p className="truncate text-sm font-medium" aria-label="最新序號">{serials[serials.length - 1].normalized}</p>}
+    {models.length > 0 && <p className="truncate text-xs text-[#68776e]"><span className="mr-2">型號</span>{models.map(code => code.normalized).join('、')}</p>}
+    {unknown.length > 0 && <details className="pt-1 text-xs text-amber-800"><summary className="cursor-pointer py-1">待確認 {counts.unknown} ›</summary><ul className="max-h-20 space-y-1 overflow-y-auto pb-1">{unknown.map(code => <li key={code.normalized} className="break-all whitespace-pre-wrap">{code.raw}</li>)}</ul></details>}
   </div>;
 }
 
-export function BarcodeScanner({ onDetected, onBatch, items, warning, onCancel, initialMode = 'camera', initialValue = '', mode = 'single', onFinish, children }: BarcodeScannerProps) {
+export function BarcodeScanner({ onDetected, onBatch, items, initialCodes = [], onCodesChange, warning, onNoBarcode, onCancel, initialMode = 'camera', initialValue = '', mode = 'single', onFinish, children }: BarcodeScannerProps) {
   const video = useRef<HTMLVideoElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const dialog = useRef<HTMLElement>(null);
   const camera = useRef<BarcodeCamera>();
   const session = useRef<ScannerSession>();
-  const [codes, setCodes] = useState<ScannerCode[]>([]);
+  const [codes, setCodes] = useState<ScannerCode[]>(initialCodes);
   const [flash, setFlash] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [inlineManual, setInlineManual] = useState(false);
   const flashTimer = useRef<ReturnType<typeof setTimeout>>();
   const callbacks = useRef({ onDetected, onCancel });
   callbacks.current = { onDetected, onCancel };
   const batchCallback = useRef(onBatch); batchCallback.current = onBatch;
+  const codesCallback = useRef(onCodesChange); codesCallback.current = onCodesChange;
+  const itemsAtOpen = useRef(items);
+  const initialCodesAtOpen = useRef(initialCodes);
   const [mounted, setMounted] = useState(false);
   const [manual, setManual] = useState(initialMode === 'manual');
   const [raw, setRaw] = useState(initialValue);
@@ -58,9 +64,9 @@ export function BarcodeScanner({ onDetected, onBatch, items, warning, onCancel, 
     const overflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     dialog.current?.focus();
-    if (batchCallback.current && items) session.current = new ScannerSession(items, batch => batchCallback.current?.(batch), setCodes);
+    if (batchCallback.current && itemsAtOpen.current) session.current = new ScannerSession(itemsAtOpen.current, batch => batchCallback.current?.(batch), next => { setCodes(next); codesCallback.current?.(next); }, 450, initialCodesAtOpen.current);
     const cameraSession = new BarcodeCamera(video.current, value => {
-      const added = batchCallback.current && items ? session.current?.add(value) : (callbacks.current.onDetected(value), true);
+      const added = batchCallback.current && itemsAtOpen.current ? session.current?.add(value) : (callbacks.current.onDetected(value), true);
       if (added) {
         try { navigator.vibrate?.(50); } catch { /* Optional feedback. */ }
         setFlash(true);
@@ -97,9 +103,48 @@ export function BarcodeScanner({ onDetected, onBatch, items, warning, onCancel, 
       document.body.style.overflow = overflow;
       previous?.focus();
     };
-  }, [mounted, initialMode, mode, items]);
+  }, [mounted, initialMode, mode]);
 
   if (!mounted) return null;
+  if (onBatch) return createPortal(<div className="fixed inset-0 z-[200] bg-black" onKeyDown={event => { event.stopPropagation(); if (event.key === 'Escape') { event.preventDefault(); cancel(); } }}>
+    <section ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-label="實際到貨掃描" data-scanner-state={cameraState === 'error' ? 'ERROR' : 'READY'}
+      className="flex h-[100dvh] min-h-0 w-full flex-col overflow-hidden bg-black outline-none sm:mx-auto sm:max-w-lg sm:shadow-2xl">
+      <div className="relative min-h-0 flex-1 overflow-hidden bg-black">
+        <video ref={video} muted playsInline autoPlay className="absolute inset-0 h-full w-full object-contain" aria-label="相機預覽" />
+        {cameraState === 'error' ? <div className="absolute inset-0 flex items-center justify-center text-white/60"><CameraOff size={48} strokeWidth={1.25} aria-hidden="true" /></div>
+          : <div aria-hidden="true" className={`pointer-events-none absolute inset-x-[7%] top-[22%] h-[56%] rounded-2xl border-2 transition-colors duration-200 ${flash ? 'border-emerald-300' : 'border-white/60'}`} />}
+        <header className="absolute inset-x-0 top-0 flex items-center justify-between gap-2 bg-gradient-to-b from-black/75 to-transparent px-3 pb-5 text-white" style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}>
+          <button type="button" aria-label="取消掃描" className="flex h-11 w-11 items-center justify-center rounded-full bg-black/30" onClick={cancel}><X size={22} /></button>
+          <h2 className="text-base font-semibold">實際到貨</h2>
+          <button type="button" aria-label="補光" title="補光" disabled={!ready || !torchTrack} aria-pressed={torch} className="flex h-11 w-11 items-center justify-center rounded-full bg-black/30 disabled:opacity-40" onClick={async () => {
+            if (!torchTrack) return;
+            try { await torchTrack.applyConstraints({ advanced: [{ torch: !torch } as MediaTrackConstraintSet] }); setTorch(!torch); }
+            catch { setMessage('無法開啟補光'); }
+          }}><Flashlight size={19} aria-hidden="true" /></button>
+        </header>
+        {devices.length > 1 && <button type="button" aria-label="切換鏡頭" title="切換鏡頭" className="absolute bottom-3 right-3 flex h-11 w-11 items-center justify-center rounded-full bg-black/55 text-white" onClick={() => {
+          const index = devices.findIndex(row => row.deviceId === device);
+          const next = devices[(index + 1) % devices.length];
+          if (next) { setDevice(next.deviceId); void camera.current?.start(next.deviceId); }
+        }}><SwitchCamera size={19} aria-hidden="true" /></button>}
+        {(cameraState === 'error' || cameraState === 'stopped') && <div className="absolute inset-x-4 bottom-4 flex items-center justify-between gap-2 rounded-lg bg-black/75 px-3 py-2 text-xs text-white"><span>{message}</span><button type="button" className="min-h-11 shrink-0 font-semibold text-emerald-300" onClick={() => void camera.current?.start()}>重試</button></div>}
+        <p role="status" className="sr-only">{message}</p>
+      </div>
+      <div className="flex max-h-[43dvh] shrink-0 flex-col rounded-t-xl bg-[#f8f7f3] text-[#303b35]" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
+        <div className="min-h-0 overflow-y-auto px-4 pt-2"><ScannerCaptureResults codes={codes} expanded={expanded} onToggle={() => setExpanded(value => !value)} />
+          {warning && <p role="alert" className="mt-1 text-xs text-amber-800">{warning}</p>}
+          {inlineManual && <form className="mt-2 flex items-end gap-2" onSubmit={event => { event.preventDefault(); event.stopPropagation(); if (!raw.trim()) return; camera.current?.accept(raw); setRaw(''); setInlineManual(false); }}>
+            <label className="min-w-0 flex-1 text-xs text-[#68776e]">序號<input ref={input} autoFocus autoComplete="off" autoCapitalize="characters" autoCorrect="off" spellCheck={false} value={raw} onChange={event => setRaw(event.target.value)} className="mt-1 h-11 w-full rounded-lg bg-white px-3 text-base text-[#303b35] outline-none ring-1 ring-[#d6ddd5] focus:ring-emerald-600" /></label>
+            <button type="submit" disabled={!raw.trim()} className="h-11 rounded-lg bg-emerald-700 px-4 text-sm font-semibold text-white disabled:opacity-40">加入</button>
+          </form>}
+          {!inlineManual && <button type="button" className="min-h-11 text-sm font-medium text-emerald-800" onClick={() => setInlineManual(true)}>＋ 手動輸入序號</button>}
+        </div>
+        <div className="shrink-0 px-4 pt-1"><button type="button" className="min-h-12 w-full rounded-lg bg-emerald-700 px-4 text-base font-semibold text-white" onClick={() => { camera.current?.dispose(); session.current?.flush(); (onFinish || onCancel)(); }}>完成掃描</button>
+          {onNoBarcode && scannerCounts(codes).serial === 0 && <button type="button" className="mt-1 min-h-11 w-full text-center text-xs text-[#68776e]" onClick={() => { camera.current?.dispose(); session.current?.dispose(); onNoBarcode(); }}>無條碼物料</button>}
+        </div>
+      </div>
+    </section>
+  </div>, document.body);
   return createPortal(<div className={`fixed inset-0 z-[200] flex justify-center bg-black/80 text-white sm:items-center sm:p-4 ${manual ? 'items-start pt-[max(1rem,env(safe-area-inset-top))]' : 'items-center'}`} onKeyDown={event => {
     event.stopPropagation();
     if (event.key === 'Escape') { event.preventDefault(); cancel(); }
@@ -118,9 +163,8 @@ export function BarcodeScanner({ onDetected, onBatch, items, warning, onCancel, 
         <h2 className="text-lg font-semibold">掃描序號</h2>
         <button type="button" className="min-h-11 min-w-11 rounded-lg px-3 text-sm text-slate-300 hover:bg-white/10" onClick={cancel}>取消</button>
       </header>
-      {onBatch ? <ScannerCaptureResults codes={codes} /> : children && <div className="max-h-40 shrink-0 overflow-y-auto px-4 py-2 text-sm" aria-live="polite">{children}</div>}
-      {warning && onBatch && <p role="alert" className="mx-4 mb-1 rounded-lg bg-amber-400/10 px-2.5 py-1.5 text-xs text-amber-200">{warning}</p>}
-      <p role="status" className={onBatch && !manual && cameraState !== 'error' && cameraState !== 'stopped' ? 'sr-only' : 'shrink-0 px-4 py-2 text-sm text-slate-300'}>{manual ? '手動輸入序號' : message}</p>
+      {children && <div className="max-h-40 shrink-0 overflow-y-auto px-4 py-2 text-sm" aria-live="polite">{children}</div>}
+      <p role="status" className="shrink-0 px-4 py-2 text-sm text-slate-300">{manual ? '手動輸入序號' : message}</p>
       <div className={`relative mx-3 min-h-0 flex-1 overflow-hidden rounded-xl bg-black ${manual ? 'hidden' : ''}`}>
         <video ref={video} muted playsInline autoPlay className="absolute inset-0 h-full w-full object-contain" aria-label="相機預覽" />
         {cameraState === 'error' ? <div className="absolute inset-0 flex items-center justify-center text-slate-500"><CameraOff size={48} strokeWidth={1.25} aria-hidden="true" /></div>

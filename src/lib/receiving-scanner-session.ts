@@ -31,7 +31,10 @@ export class ScannerSession {
   private timer?: ReturnType<typeof setTimeout>;
   private disposed = false;
   constructor(private items: InventoryItem[], private onBatch: (codes: ScannerCode[]) => void | Promise<void>,
-    private onChange: (codes: ScannerCode[]) => void, private quietMs = 450) {}
+    private onChange: (codes: ScannerCode[]) => void, private quietMs = 450, initialCodes: ScannerCode[] = []) {
+    this.codes.push(...initialCodes);
+    initialCodes.forEach(code => this.seen.add(code.normalized));
+  }
   readonly codes: ScannerCode[] = [];
   add(raw: string) {
     if (this.disposed) return false;

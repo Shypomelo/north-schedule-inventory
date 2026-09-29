@@ -59,13 +59,17 @@ test('a model that looks like a formal serial stays UNKNOWN', () => {
   assert.deepEqual(scan('ABC12345-01').codes.map(c => c.kind), ['UNKNOWN']);
 });
 
-test('compact results show correct counts and keep raw UNKNOWN collapsed', () => {
+test('serial-first summary expands and collapses inline, with model secondary and UNKNOWN collapsed', () => {
   const codes = scan('SE5000H-RW000BEN4|ABC123456-01|33127').codes;
-  const html = renderToStaticMarkup(React.createElement(ScannerCaptureResults, { codes }));
-  assert.match(html, /已掃描 3/);
-  assert.match(html, /型號 1/);
-  assert.match(html, /序號 1/);
-  assert.match(html, /待確認 1/);
-  assert.match(html, /<details(?![^>]*open)/);
-  assert.match(html, /<summary[^>]*>待確認 1 筆/);
+  const collapsed = renderToStaticMarkup(React.createElement(ScannerCaptureResults, { codes }));
+  const expanded = renderToStaticMarkup(React.createElement(ScannerCaptureResults, { codes, expanded: true }));
+  assert.match(collapsed, /已掃 1 台/);
+  assert.match(collapsed, /aria-expanded="false"/);
+  assert.match(collapsed, /aria-label="最新序號"/);
+  assert(!collapsed.includes('aria-label="已掃序號"'));
+  assert.match(expanded, /aria-expanded="true"/);
+  assert.match(expanded, /aria-label="已掃序號"/);
+  assert(expanded.indexOf('ABC123456-01') < expanded.indexOf('型號'));
+  assert.match(collapsed, /<details(?![^>]*open)/);
+  assert.match(collapsed, /<summary[^>]*>待確認 1/);
 });
