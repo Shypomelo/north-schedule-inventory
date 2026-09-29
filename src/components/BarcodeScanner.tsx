@@ -4,11 +4,28 @@ import { ReactNode, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CameraOff, ChevronDown, Flashlight, SwitchCamera, X } from 'lucide-react';
 import { BarcodeCamera } from '@/lib/barcode-camera';
-import { ScannerSession, scannerCounts, type ScannerCode } from '@/lib/receiving-scanner-session';
+import { ScannerSession, scannerCounts, type ScannerCode, type ScannerKind } from '@/lib/receiving-scanner-session';
 import type { InventoryItem } from '@/lib/db/types';
 
 export interface BarcodeScannerProps { onDetected: (raw: string) => void; onBatch?: (codes: ScannerCode[]) => void | Promise<void>; items?: InventoryItem[]; initialCodes?: ScannerCode[]; onCodesChange?: (codes: ScannerCode[]) => void; warning?: string; onNoBarcode?: () => void; onCancel: () => void; initialMode?: 'camera' | 'manual'; initialValue?: string; mode?: 'single' | 'continuous'; onFinish?: () => void; children?: ReactNode }
 const button = 'min-h-11 rounded-lg border border-white/40 px-4 py-2 disabled:opacity-50';
+type ScanDiagnostic = { raw: string; session: 'PENDING' | 'ACCEPTED' | 'REJECTED'; reason?: string; kinds: ScannerKind[] };
+
+export function ScannerDiagnostics({ entries }: { entries: ScanDiagnostic[] }) {
+  const rows = entries.length === 0 ? [{ raw: '等待解碼', session: 'PENDING' as const, kinds: [] }]
+    : entries.length === 1 ? [...entries, { raw: '等待不同碼', session: 'PENDING' as const, kinds: [] }] : entries;
+  return <details open className="mt-2 border-t border-[#d6ddd5] pt-1 text-xs text-[#303b35]">
+    <summary className="min-h-9 cursor-pointer py-2 font-semibold">掃碼診斷 · {entries.length} 筆</summary>
+    <div className="max-h-36 space-y-1 overflow-y-auto pb-2 font-mono tabular-nums">
+      <p className="font-semibold">CAMERA DECODE</p>
+      {rows.map((entry, index) => <p key={`decode-${index}`} className="break-all">{String(index + 1).padStart(2, '0')}　{entry.raw}</p>)}
+      <p className="pt-1 font-semibold">SESSION</p>
+      {rows.map((entry, index) => <p key={`session-${index}`} className="break-all">{String(index + 1).padStart(2, '0')}　{entry.session}{entry.reason ? ` / ${entry.reason}` : ''}</p>)}
+      <p className="pt-1 font-semibold">CLASSIFY</p>
+      {rows.map((entry, index) => <p key={`classify-${index}`}>{String(index + 1).padStart(2, '0')}　{entry.kinds.length ? Array.from(new Set(entry.kinds)).join(' / ') : '—'}</p>)}
+    </div>
+  </details>;
+}
 
 export function ScannerCaptureResults({ codes, expanded = false, onToggle }: { codes: ScannerCode[]; expanded?: boolean; onToggle?: () => void }) {
   const counts = scannerCounts(codes);
@@ -34,6 +51,8 @@ export function BarcodeScanner({ onDetected, onBatch, items, initialCodes = [], 
   const camera = useRef<BarcodeCamera>();
   const session = useRef<ScannerSession>();
   const [codes, setCodes] = useState<ScannerCode[]>(initialCodes);
+  const [diagnostics, setDiagnostics] = useState<ScanDiagnostic[]>([]);
+  const pendingCameraRaw = useRef<string>();
   const [flash, setFlash] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [inlineManual, setInlineManual] = useState(false);
@@ -66,7 +85,13 @@ export function BarcodeScanner({ onDetected, onBatch, items, initialCodes = [], 
     dialog.current?.focus();
     if (batchCallback.current && itemsAtOpen.current) session.current = new ScannerSession(itemsAtOpen.current, batch => batchCallback.current?.(batch), next => { setCodes(next); codesCallback.current?.(next); }, 450, initialCodesAtOpen.current);
     const cameraSession = new BarcodeCamera(video.current, value => {
-      const added = batchCallback.current && itemsAtOpen.current ? session.current?.add(value) : (callbacks.current.onDetected(value), true);
+      const cameraRaw = pendingCameraRaw.current === value;
+      pendingCameraRaw.current = undefined;
+      const result = batchCallback.current && itemsAtOpen.current ? session.current?.addDetailed(value) : undefined;
+      const added = result ? result.accepted : (callbacks.current.onDetected(value), true);
+      if (cameraRaw && result) setDiagnostics(previous => previous.map(entry => entry.raw === value && entry.session === 'PENDING'
+        ? { ...entry, session: result.accepted ? 'ACCEPTED' : 'REJECTED', reason: result.reason, kinds: result.classified.map(code => code.kind) }
+        : entry));
       if (added) {
         try { navigator.vibrate?.(50); } catch { /* Optional feedback. */ }
         setFlash(true);
@@ -87,7 +112,14 @@ export function BarcodeScanner({ onDetected, onBatch, items, initialCodes = [], 
       navigator.mediaDevices.enumerateDevices().then(rows => {
         if (active) setDevices(rows.filter(row => row.kind === 'videoinput'));
       }).catch(() => { /* Scanning still works when enumeration is unavailable. */ });
-    }, undefined, mode);
+    }, undefined, mode, (value, accepted) => {
+      if (!batchCallback.current || !itemsAtOpen.current) return;
+      if (accepted) pendingCameraRaw.current = value;
+      setDiagnostics(previous => previous.some(entry => entry.raw === value) ? previous : [
+        ...previous.slice(-5), { raw: value, session: accepted ? 'PENDING' : 'REJECTED',
+          reason: accepted ? undefined : 'camera debounce', kinds: [] },
+      ]);
+    });
     camera.current = cameraSession;
     if (initialMode === 'camera') void cameraSession.start();
     const background = () => {
@@ -132,6 +164,7 @@ export function BarcodeScanner({ onDetected, onBatch, items, initialCodes = [], 
       </div>
       <div className="flex max-h-[43dvh] shrink-0 flex-col rounded-t-xl bg-[#f8f7f3] text-[#303b35]" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
         <div className="min-h-0 overflow-y-auto px-4 pt-2"><ScannerCaptureResults codes={codes} expanded={expanded} onToggle={() => setExpanded(value => !value)} />
+          <ScannerDiagnostics entries={diagnostics} />
           {warning && <p role="alert" className="mt-1 text-xs text-amber-800">{warning}</p>}
           {inlineManual && <form className="mt-2 flex items-end gap-2" onSubmit={event => { event.preventDefault(); event.stopPropagation(); if (!raw.trim()) return; camera.current?.accept(raw); setRaw(''); setInlineManual(false); }}>
             <label className="min-w-0 flex-1 text-xs text-[#68776e]">序號<input ref={input} autoFocus autoComplete="off" autoCapitalize="characters" autoCorrect="off" spellCheck={false} value={raw} onChange={event => setRaw(event.target.value)} className="mt-1 h-11 w-full rounded-lg bg-white px-3 text-base text-[#303b35] outline-none ring-1 ring-[#d6ddd5] focus:ring-emerald-600" /></label>

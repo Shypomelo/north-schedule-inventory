@@ -14,6 +14,16 @@ const { ReceivingV6Composer, SerializedArrivalReview } = load(path.resolve(__dir
 });
 const empty = () => ({ projects: [], items: [], materials: [], supplies: [], batches: [], arrivals: [], lines: [], observations: [], matches: [], matchObservations: [], receipts: [], fulfilment: {} });
 
+test('phone diagnostics show decoder, session, and classification for two distinct codes', () => {
+  const { ScannerDiagnostics } = load(path.resolve(__dirname, '../components/BarcodeScanner.tsx'));
+  const html = renderToStaticMarkup(React.createElement(ScannerDiagnostics, { entries: [
+    { raw: 'SE10000H-RWSKBF57', session: 'ACCEPTED', kinds: ['MODEL'] },
+    { raw: 'SB4725-07515C69D-ED', session: 'REJECTED', reason: 'duplicate', kinds: ['SERIAL'] },
+  ] }));
+  for (const label of ['CAMERA DECODE', 'SESSION', 'CLASSIFY', 'SE10000H-RWSKBF57', 'SB4725-07515C69D-ED', 'REJECTED / duplicate', 'MODEL', 'SERIAL'])
+    assert(html.includes(label));
+});
+
 test('actual arrival opens the continuous camera directly', () => {
   const html = renderToStaticMarkup(React.createElement(ReceivingV6Composer, {
     data: empty(), api: {}, onClose() {}, async onSaved() {},

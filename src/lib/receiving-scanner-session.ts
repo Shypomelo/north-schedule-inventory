@@ -4,6 +4,7 @@ import { isStructuralMetadataToken, parseScannedPayload } from './receiving-scan
 
 export type ScannerKind = 'MODEL' | 'SERIAL' | 'UNKNOWN';
 export interface ScannerCode { raw: string; normalized: string; kind: ScannerKind; itemId?: string }
+export interface ScannerAddResult { accepted: boolean; reason?: 'closed' | 'empty' | 'duplicate'; classified: ScannerCode[] }
 
 export function scannerCounts(codes: ScannerCode[]) {
   return {
@@ -36,8 +37,9 @@ export class ScannerSession {
     initialCodes.forEach(code => this.seen.add(code.normalized));
   }
   readonly codes: ScannerCode[] = [];
-  add(raw: string) {
-    if (this.disposed) return false;
+  add(raw: string) { return this.addDetailed(raw).accepted; }
+  addDetailed(raw: string): ScannerAddResult {
+    if (this.disposed) return { accepted: false, reason: 'closed', classified: [] };
     const payload = parseScannedPayload(raw);
     const classified = payload.candidates.map(candidate => classifyScannerCode(candidate, this.items));
     const recognized = classified.filter(code => code.kind !== 'UNKNOWN');
@@ -53,11 +55,11 @@ export class ScannerSession {
       this.pending.push(code);
       added = true;
     }
-    if (!added) return false;
+    if (!added) return { accepted: false, reason: incoming.some(code => code.normalized) ? 'duplicate' : 'empty', classified: incoming };
     this.onChange([...this.codes]);
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.flush(), this.quietMs);
-    return true;
+    return { accepted: true, classified: incoming };
   }
   flush() {
     clearTimeout(this.timer); this.timer = undefined;

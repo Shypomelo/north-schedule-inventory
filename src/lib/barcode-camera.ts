@@ -45,7 +45,8 @@ export class BarcodeCamera {
     private onState: (state: CameraState, message?: string) => void,
     private onStream: (stream: MediaStream) => void,
     private deps: CameraDependencies = dependencies,
-    private mode: 'single' | 'continuous' = 'single') {}
+    private mode: 'single' | 'continuous' = 'single',
+    private onCameraDecode?: (raw: string, accepted: boolean) => void) {}
 
   stop() {
     this.generation++;
@@ -60,14 +61,15 @@ export class BarcodeCamera {
 
   dispose() { this.disposed = true; this.stop(); }
 
-  accept(raw: string) {
+  accept(raw: string, source: 'manual' | 'camera' = 'manual') {
     if (this.disposed || this.detected || !raw.trim()) return;
     if (this.mode === 'continuous') {
       const now = Date.now();
       const repeated = raw === this.lastCode && now - this.lastDetectedAt < 1200;
       this.lastCode = raw; this.lastDetectedAt = now;
-      if (repeated) return;
+      if (repeated) { if (source === 'camera') this.onCameraDecode?.(raw, false); return; }
     } else { this.detected = true; this.stop(); }
+    if (source === 'camera') this.onCameraDecode?.(raw, true);
     this.onState('success');
     this.onDetected(raw);
   }
@@ -125,7 +127,7 @@ export class BarcodeCamera {
         }
         this.decoding = false;
         if (!active()) return;
-        for (const raw of values) if (raw?.trim()) this.accept(raw);
+        for (const raw of values) if (raw?.trim()) this.accept(raw, 'camera');
         if (active()) this.timer = setTimeout(() => { void decode(); }, 160);
       };
       void decode();

@@ -76,6 +76,18 @@ test('repeated model frames do not block the next serial', () => {
   session.dispose();
 });
 
+test('diagnostic result identifies classification and duplicate rejection', () => {
+  const session = new ScannerSession(items, () => {}, () => {}, 10000);
+  const first = session.addDetailed('P401');
+  const repeated = session.addDetailed('P401');
+  const second = session.addDetailed('ABC123456-01');
+  assert.deepEqual([first.accepted, first.classified[0].kind], [true, 'MODEL']);
+  assert.deepEqual([repeated.accepted, repeated.reason, repeated.classified[0].kind], [false, 'duplicate', 'MODEL']);
+  assert.deepEqual([second.accepted, second.classified[0].kind], [true, 'SERIAL']);
+  session.dispose();
+  assert.equal(session.addDetailed('ABC123457-01').reason, 'closed');
+});
+
 test('reopened session retains prior codes and deduplicates them', () => {
   const original = new ScannerSession(items, () => {}, () => {}, 10000);
   original.add('P401'); original.add('ABC123456-01'); original.flush(); original.dispose();
