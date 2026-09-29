@@ -1,4 +1,9 @@
-type Decoder = { decode(video: HTMLVideoElement): { getText(): string } | undefined };
+type Decoder = { decode(video: HTMLVideoElement): string[] };
+type NativeDetector = { detect(video: HTMLVideoElement): Promise<{ rawValue: string }[]> };
+type NativeDetectorConstructor = {
+  new(options: { formats: string[] }): NativeDetector;
+  getSupportedFormats(): Promise<string[]>;
+};
 type CameraState = 'starting' | 'ready' | 'stopped' | 'success' | 'error';
 interface CameraDependencies {
   getUserMedia(constraints: MediaStreamConstraints): Promise<MediaStream>;
@@ -13,10 +18,10 @@ const dependencies: CameraDependencies = {
     ]);
     const reader = new BrowserMultiFormatReader();
     return { decode(video) {
-      try { return reader.decode(video); }
+      try { const result = reader.decode(video); return result ? [result.getText()] : []; }
       catch (cause) {
         // constructor.name is not stable after bundling/minification.
-        if (cause instanceof NotFoundException || cause instanceof ChecksumException || cause instanceof FormatException) return undefined;
+        if (cause instanceof NotFoundException || cause instanceof ChecksumException || cause instanceof FormatException) return [];
         throw cause;
       }
     } };
@@ -34,6 +39,7 @@ export class BarcodeCamera {
   private timer?: ReturnType<typeof setTimeout>;
   private lastCode = '';
   private lastDetectedAt = 0;
+  private decoding = false;
 
   constructor(private video: HTMLVideoElement, private onDetected: (raw: string) => void,
     private onState: (state: CameraState, message?: string) => void,
@@ -43,6 +49,7 @@ export class BarcodeCamera {
 
   stop() {
     this.generation++;
+    this.decoding = false;
     clearTimeout(this.timer);
     this.timer = undefined;
     this.stream?.getTracks().forEach(track => track.stop());
@@ -78,23 +85,50 @@ export class BarcodeCamera {
       if (!active()) { stream.getTracks().forEach(track => track.stop()); return; }
       this.stream = stream;
       this.video.srcObject = stream;
-      const decoder = await this.deps.loadDecoder();
+      // Native detection returns every visible code. ZXing remains the fallback on iOS
+      // and browsers without a supported BarcodeDetector implementation.
+      const Detector = (globalThis as typeof globalThis & { BarcodeDetector?: NativeDetectorConstructor }).BarcodeDetector;
+      let native = Detector ? await (async () => {
+        try {
+          const formats = await Detector.getSupportedFormats();
+          const supported = ['qr_code', 'code_128', 'code_39', 'ean_13', 'data_matrix'].filter(format => formats.includes(format));
+          return supported.length ? new Detector({ formats: supported }) : undefined;
+        } catch { return undefined; }
+      })() : undefined;
+      let decoder = native ? undefined : await this.deps.loadDecoder();
       if (!active()) return;
       await this.video.play();
       if (!active()) return;
       this.onStream(stream);
       this.onState('ready');
-      const decode = () => {
+      const decode = async () => {
         if (!active()) return;
-        let raw: string | undefined;
-        try { if (this.video.readyState >= 2) raw = decoder.decode(this.video)?.getText(); }
+        if (this.decoding) return;
+        this.decoding = true;
+        let values: string[] = [];
+        try {
+          if (this.video.readyState >= 2) values = native
+            ? (await native.detect(this.video)).map(result => result.rawValue)
+            : decoder!.decode(this.video);
+        }
         catch {
+          this.decoding = false;
+          if (!active()) return;
+          if (native) {
+            native = undefined;
+            try { decoder = await this.deps.loadDecoder(); }
+            catch { this.stop(); this.onState('error', '辨識失敗，請重試或手動輸入。'); return; }
+            if (active()) this.timer = setTimeout(() => { void decode(); }, 160);
+            return;
+          }
           this.stop(); this.onState('error', '辨識失敗，請重試或手動輸入。'); return;
         }
-        if (raw?.trim()) this.accept(raw);
-        if (active()) this.timer = setTimeout(decode, 200);
+        this.decoding = false;
+        if (!active()) return;
+        for (const raw of values) if (raw?.trim()) this.accept(raw);
+        if (active()) this.timer = setTimeout(() => { void decode(); }, 160);
       };
-      decode();
+      void decode();
     } catch (cause) {
       if (!active()) return;
       this.stop();

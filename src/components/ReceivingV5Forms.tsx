@@ -13,6 +13,7 @@ import {
   type ArrivalSerialDraft, type PendingRow, type ReceivingSnapshot,
 } from '@/lib/receiving-v5';
 import { parseSerialBatch } from '@/lib/receiving-serial-draft';
+import type { ScannerCode } from '@/lib/receiving-scanner-session';
 import { selectActiveProjects } from '@/lib/project-selectors';
 import { formatTaipeiReceivingTime } from '@/lib/material-receiving';
 
@@ -66,8 +67,9 @@ function useSerialDraft(data: ReceivingSnapshot, api: ReceivingV5Api, preferred?
   return { drafts, accept, resolving, remove: (raw: string) => update(current.current.filter(d => d.raw !== raw)), reset: () => update([]) };
 }
 
-export function SerialInput({ draft, data, disabled, planning = false, initialScan = false, compact = false }: {
+export function SerialInput({ draft, data, disabled, planning = false, initialScan = false, compact = false, onScanBatch }: {
   draft: ReturnType<typeof useSerialDraft>; data: ReceivingSnapshot; disabled: boolean; planning?: boolean; initialScan?: boolean; compact?: boolean;
+  onScanBatch?: (codes: ScannerCode[]) => Promise<string>;
 }) {
   const [mode, setMode] = useState<'manual' | 'batch' | 'scan' | null>(initialScan ? 'scan' : null);
   const [raw, setRaw] = useState('');
@@ -94,7 +96,7 @@ export function SerialInput({ draft, data, disabled, planning = false, initialSc
     <p role="status" className="text-sm">已加入 {draft.drafts.length} 筆 · 可辨識 {draft.drafts.filter(d => d.state === 'known').length} · 待補資料 {draft.drafts.filter(d => d.state !== 'known').length} · 重複 {duplicates}</p>
     {compact && mode !== 'scan' ? draft.drafts.length > 0 && <details><summary className="cursor-pointer py-2 text-sm">查看序號（{draft.drafts.length}）</summary>{list}</details> : list}{feedback && <p role="status" className="break-all text-sm">{feedback}</p>}
     {Boolean(draft.resolving) && <p role="status" className="text-sm">正在確認序號…</p>}
-    {mode === 'scan' && <BarcodeScanner mode="continuous" onDetected={value => { void accept(value); }} onCancel={() => setMode(null)} onFinish={() => setMode(null)}>
+    {mode === 'scan' && <BarcodeScanner mode="continuous" items={onScanBatch ? data.items : undefined} onBatch={onScanBatch ? codes => onScanBatch(codes).then(setFeedback).catch(e => { setFeedback(receivingError(e)); throw e; }) : undefined} onDetected={value => { void accept(value); }} onCancel={() => setMode(null)} onFinish={() => setMode(null)}>
       <p className="font-semibold">本批 {draft.drafts.length}</p><p role="status" className="break-all">{feedback}</p>{list}
     </BarcodeScanner>}
   </div>;

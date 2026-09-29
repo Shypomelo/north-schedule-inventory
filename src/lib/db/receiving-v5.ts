@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { InventoryItem, InventorySerialLookupResult, Project, ProjectMaterial, ProjectMaterialBatch, SESupplyRecord } from './types';
-import { classifySerialFormat } from '../inventory-serial-normalization';
+import type { InventoryItem, InventorySerial, InventorySerialLookupResult, Project, ProjectMaterial, ProjectMaterialBatch, SESupplyRecord } from './types';
+import { classifySerialFormat, deriveShortSerialKey, normalizeSerialInput, resolveInventorySerialLookupFromList } from '../inventory-serial-normalization';
 import {
   pendingKey, pendingRows, matchSourceKey,
   type Arrival, type ArrivalLine, type ArrivalMatch, type ArrivalObservation, type ArrivalReceipt,
@@ -33,6 +33,22 @@ export function createReceivingV5Api(client: SupabaseClient) {
     const data = await rpc<(InventorySerialLookupResult['candidates'][number] & Omit<InventorySerialLookupResult, 'candidates'>)[]>('lookup_inventory_serial', { p_input: raw, p_item_id: null, p_allowed_statuses: null });
     if (!data.length) throw new Error('序號查詢未回傳結果，請重試。');
     return { result_type: data[0].result_type, candidate_count: data[0].candidate_count, filtered_candidate_count: data[0].filtered_candidate_count, candidates: data.filter(r => r.id) };
+  }
+  async function lookupBatch(raws: string[]): Promise<InventorySerialLookupResult[]> {
+    if (!raws.length) return [];
+    if (raws.some(raw => classifySerialFormat(raw) === 'unknown')) throw new Error('掃描批次包含無法辨識的序號。');
+    // These values have already passed the serial format classifier. PostgREST
+    // reads the same indexed identity columns as lookup_inventory_serial.
+    const full = Array.from(new Set(raws.map(normalizeSerialInput)));
+    const short = Array.from(new Set(raws.map(deriveShortSerialKey).filter((v): v is string => Boolean(v))));
+    const filters = [`normalized_full.in.(${full.join(',')})`];
+    if (short.length) filters.push(`short_key.in.(${short.join(',')})`);
+    const { data, error } = await client.from('inventory_serials')
+      .select('id,item_id,serial_number,normalized_full,short_key,status')
+      .or(filters.join(',')).limit(1001);
+    if (error) throw new Error(error.message);
+    if ((data || []).length > 1000) throw new Error('序號候選過多，請縮小掃描批次後重試。');
+    return raws.map(raw => resolveInventorySerialLookupFromList(raw, (data || []) as InventorySerial[]));
   }
   async function fulfilments(materials: ProjectMaterial[], supplies: SESupplyRecord[]) {
     const sources = [...materials.map(m => ({ kind: 'PROJECT_MATERIAL' as const, id: m.id })), ...supplies.filter(s => s.receiving_only).map(s => ({ kind: 'SE_SUPPLY' as const, id: s.id }))];
@@ -98,6 +114,7 @@ export function createReceivingV5Api(client: SupabaseClient) {
       return compatible;
     },
     lookup,
+    lookupBatch,
     create: (args: { p_request_id: string; p_actual_received_at: string; p_lines: CreateArrivalLine[]; p_project_id: string | null; p_matches: (MatchInput & { line_index: number; raw_serials?: string[] })[] }) => rpc<CreateArrivalResult>('create_receiving_arrival', { ...args, p_match_all_or_nothing: false }),
     complete: (args: { p_request_id: string; p_line_id: string; p_item_id: string }) => rpc<ArrivalLine>('complete_receiving_arrival_line', args),
     metadata: (args: { p_request_id: string; p_arrival_id: string; p_expected_version: number; p_project_id: string | null; p_notes: string | null }) => rpc<Arrival>('update_receiving_arrival_metadata', args),

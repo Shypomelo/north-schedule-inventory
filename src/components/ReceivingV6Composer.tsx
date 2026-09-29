@@ -9,6 +9,7 @@ import { InventoryItemCombobox } from './ReceivingSerialControls';
 import { useReceivingItems } from './useReceivingItems';
 import { ReceiptDateTimeInput } from './ReceiptDateTimeInput';
 import { ActionError, SerialInput, useV5Action, useV5Request, v5Button, v5Field, v5Primary } from './ReceivingV5Forms';
+import type { ScannerCode } from '@/lib/receiving-scanner-session';
 
 export function ReceivingV6Composer({ data: initialData, api, preferred, onClose, onSaved }: {
   data: ReceivingSnapshot; api: ReceivingV6Api; preferred?: PendingRow; onClose: () => void; onSaved: (result: CreateArrivalResult) => Promise<void>;
@@ -24,6 +25,7 @@ export function ReceivingV6Composer({ data: initialData, api, preferred, onClose
   const [adjustTime, setAdjustTime] = useState(false);
   const [drafts, setDrafts] = useState<SerialAutoDraft[]>([]);
   const current = useRef<SerialAutoDraft[]>([]), queue = useRef(Promise.resolve());
+  const scannedModels = useRef(new Set<string>());
   const [resolving, setResolving] = useState(0);
   const action = useV5Action(), request = useV5Request();
   const update = (next: SerialAutoDraft[]) => { current.current = next; setDrafts(next); };
@@ -40,6 +42,34 @@ export function ReceivingV6Composer({ data: initialData, api, preferred, onClose
     });
     queue.current = task.then(() => {}, () => {});
     return task.finally(() => setResolving(n => n - 1));
+  };
+  const acceptScanBatch = (codes: ScannerCode[]): Promise<string> => {
+    const models = codes.filter(code => code.kind === 'MODEL' && code.itemId);
+    models.forEach(code => scannedModels.current.add(code.itemId!));
+    const serials = codes.filter(code => code.kind === 'SERIAL' && !current.current.some(d => serialsAlias(d.raw, code.normalized)));
+    if (!serials.length) return Promise.resolve(codes.some(code => code.kind === 'UNKNOWN') ? '有無法確認的條碼，請手動核對。' : '已擷取型號，請繼續掃描序號。');
+    setResolving(n => n + serials.length);
+    const task = queue.current.then(async () => {
+      // One indexed read resolves the quiet-window batch using the canonical
+      // normalization and ambiguity rules, then one UI update commits it.
+      const lookups = await api.lookupBatch(serials.map(code => code.normalized));
+      const added: SerialAutoDraft[] = [];
+      for (let i = 0; i < serials.length; i++) {
+        const raw = serials[i].normalized;
+        if (current.current.some(d => serialsAlias(d.raw, raw)) || added.some(d => serialsAlias(d.raw, raw))) continue;
+        let draft = finishSerialDraft(pendingSerialDraft(raw, data, preferred?.projectId), lookups[i], data, preferred);
+        if (draft.state === 'unknown' && !draft.candidates.length && scannedModels.current.size === 1) {
+          const hinted = data.items.find(item => item.id === Array.from(scannedModels.current)[0] && item.is_active && item.requires_serial);
+          if (hinted) draft = { ...draft, itemId: hinted.id, state: 'known' };
+        }
+        if (preferred && !draft.candidates.length && draft.state === 'known' && draft.itemId === preferred.itemId) draft = { ...draft, pendingKey: preferred.key };
+        added.push(draft);
+      }
+      if (added.length) update([...current.current, ...added]);
+      return `已加入 ${added.length} 筆序號${codes.some(code => code.kind === 'UNKNOWN') ? '；另有條碼待確認' : ''}`;
+    });
+    queue.current = task.then(() => {}, () => {});
+    return task.finally(() => setResolving(n => n - serials.length));
   };
   const item = data.items.find(i => i.id === itemId && !i.requires_serial);
   const suggestions = pending.filter(p => !p.legacy && p.itemId === item?.id && p.fulfilment.active && p.fulfilment.remaining >= Number(quantity));
@@ -64,7 +94,7 @@ export function ReceivingV6Composer({ data: initialData, api, preferred, onClose
       <div className="flex gap-2">{(['serial', 'plain'] as const).map(m => <button key={m} type="button" aria-pressed={mode === m} className={mode === m ? v5Primary : v5Button} disabled={Boolean(resolving || drafts.length)} onClick={() => setMode(m)}>{m === 'serial' ? '有序號設備' : '無序號物料'}</button>)}</div>
       {preferred && <p className="text-sm text-secondary">繼續收貨：{preferred.label}｜{preferred.projectLabel}｜剩餘 {preferred.fulfilment.remaining}</p>}
       {mode === 'serial' ? <>
-        <SerialInput compact data={data} disabled={action.busy} draft={{ drafts, resolving, accept, remove: raw => update(current.current.filter(d => d.raw !== raw)), reset: () => update([]) }} />
+        <SerialInput compact data={data} disabled={action.busy} onScanBatch={acceptScanBatch} draft={{ drafts, resolving, accept, remove: raw => update(current.current.filter(d => d.raw !== raw)), reset: () => update([]) }} />
         {drafts.length > 0 && <div className="space-y-2 border-t border-theme-border pt-3" aria-label="本批分組"><p className="font-semibold">本批 {drafts.length}</p>{Array.from(groups).map(([key, n]) => { const p = pending.find(p => p.key === key); return <p className="flex justify-between gap-3 text-sm" key={key}><span className="min-w-0 break-words">{p ? `${p.label}｜${p.projectLabel}` : key === 'unknown' ? '未對應・待補資料' : '未對應預計收貨'}</span><span className="shrink-0">{n} 台</span></p>; })}</div>}
         {drafts.filter(d => d.choiceRequired).map(d => <label key={d.raw} className="block text-sm">{d.raw}：找到 {d.candidates.length} 筆可能的預計收貨<select className={v5Field} value="" disabled={Boolean(resolving)} onChange={e => { const target = pending.find(p => p.key === e.target.value); update(current.current.map(x => x.raw === d.raw ? { ...x, pendingKey: target?.key || null, itemId: target?.itemId || x.itemId, state: target?.itemId || x.itemId ? 'known' : 'unknown', choiceRequired: false } : x)); }}><option value="" disabled>請選擇</option>{d.candidates.map(key => { const p = pending.find(p => p.key === key)!; return <option value={key} key={key}>{p.label}｜{p.projectLabel}｜剩餘 {p.fulfilment.remaining}</option>; })}<option value="standalone">保留未對應</option></select></label>)}
       </> : <>

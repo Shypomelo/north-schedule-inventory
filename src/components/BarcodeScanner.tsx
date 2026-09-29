@@ -4,17 +4,22 @@ import { ReactNode, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CameraOff } from 'lucide-react';
 import { BarcodeCamera } from '@/lib/barcode-camera';
+import { ScannerSession, type ScannerCode } from '@/lib/receiving-scanner-session';
+import type { InventoryItem } from '@/lib/db/types';
 
-export interface BarcodeScannerProps { onDetected: (raw: string) => void; onCancel: () => void; initialMode?: 'camera' | 'manual'; initialValue?: string; mode?: 'single' | 'continuous'; onFinish?: () => void; children?: ReactNode }
+export interface BarcodeScannerProps { onDetected: (raw: string) => void; onBatch?: (codes: ScannerCode[]) => void | Promise<void>; items?: InventoryItem[]; onCancel: () => void; initialMode?: 'camera' | 'manual'; initialValue?: string; mode?: 'single' | 'continuous'; onFinish?: () => void; children?: ReactNode }
 const button = 'min-h-11 rounded-lg border border-white/40 px-4 py-2 disabled:opacity-50';
 
-export function BarcodeScanner({ onDetected, onCancel, initialMode = 'camera', initialValue = '', mode = 'single', onFinish, children }: BarcodeScannerProps) {
+export function BarcodeScanner({ onDetected, onBatch, items, onCancel, initialMode = 'camera', initialValue = '', mode = 'single', onFinish, children }: BarcodeScannerProps) {
   const video = useRef<HTMLVideoElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const dialog = useRef<HTMLElement>(null);
   const camera = useRef<BarcodeCamera>();
+  const session = useRef<ScannerSession>();
+  const [codes, setCodes] = useState<ScannerCode[]>([]);
   const callbacks = useRef({ onDetected, onCancel });
   callbacks.current = { onDetected, onCancel };
+  const batchCallback = useRef(onBatch); batchCallback.current = onBatch;
   const [mounted, setMounted] = useState(false);
   const [manual, setManual] = useState(initialMode === 'manual');
   const [raw, setRaw] = useState(initialValue);
@@ -25,7 +30,7 @@ export function BarcodeScanner({ onDetected, onCancel, initialMode = 'camera', i
   const [ready, setReady] = useState(false);
   const [torch, setTorch] = useState(false);
   const [torchTrack, setTorchTrack] = useState<MediaStreamTrack>();
-  const cancel = () => { camera.current?.dispose(); callbacks.current.onCancel(); };
+  const cancel = () => { session.current?.dispose(); camera.current?.dispose(); callbacks.current.onCancel(); };
 
   useEffect(() => { setMounted(true); }, []);
   useEffect(() => {
@@ -35,9 +40,11 @@ export function BarcodeScanner({ onDetected, onCancel, initialMode = 'camera', i
     const overflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     dialog.current?.focus();
-    const session = new BarcodeCamera(video.current, value => {
+    if (batchCallback.current && items) session.current = new ScannerSession(items, batch => batchCallback.current?.(batch), setCodes);
+    const cameraSession = new BarcodeCamera(video.current, value => {
       try { navigator.vibrate?.(60); } catch { /* Optional feedback. */ }
-      callbacks.current.onDetected(value);
+      if (batchCallback.current && items) session.current?.add(value);
+      else callbacks.current.onDetected(value);
     }, (state, error) => {
       setCameraState(state);
       setReady(state === 'ready' || (mode === 'continuous' && state === 'success'));
@@ -53,22 +60,22 @@ export function BarcodeScanner({ onDetected, onCancel, initialMode = 'camera', i
         if (active) setDevices(rows.filter(row => row.kind === 'videoinput'));
       }).catch(() => { /* Scanning still works when enumeration is unavailable. */ });
     }, undefined, mode);
-    camera.current = session;
-    if (initialMode === 'camera') void session.start();
+    camera.current = cameraSession;
+    if (initialMode === 'camera') void cameraSession.start();
     const background = () => {
-      if (document.hidden) { session.stop(); setCameraState('stopped'); setReady(false); setTorchTrack(undefined); setTorch(false); setMessage('相機已暫停'); }
+      if (document.hidden) { cameraSession.stop(); setCameraState('stopped'); setReady(false); setTorchTrack(undefined); setTorch(false); setMessage('相機已暫停'); }
     };
-    const pagehide = () => { session.stop(); setCameraState('stopped'); setReady(false); setTorchTrack(undefined); setTorch(false); setMessage('相機已暫停'); };
+    const pagehide = () => { cameraSession.stop(); setCameraState('stopped'); setReady(false); setTorchTrack(undefined); setTorch(false); setMessage('相機已暫停'); };
     document.addEventListener('visibilitychange', background);
     window.addEventListener('pagehide', pagehide);
     return () => {
-      active = false; session.dispose(); camera.current = undefined;
+      active = false; cameraSession.dispose(); session.current?.dispose(); session.current = undefined; camera.current = undefined;
       document.removeEventListener('visibilitychange', background);
       window.removeEventListener('pagehide', pagehide);
       document.body.style.overflow = overflow;
       previous?.focus();
     };
-  }, [mounted, initialMode, mode]);
+  }, [mounted, initialMode, mode, items]);
 
   if (!mounted) return null;
   return createPortal(<div className={`fixed inset-0 z-[200] flex justify-center bg-black/80 text-white sm:items-center sm:p-4 ${manual ? 'items-start pt-[max(1rem,env(safe-area-inset-top))]' : 'items-center'}`} onKeyDown={event => {
@@ -90,6 +97,10 @@ export function BarcodeScanner({ onDetected, onCancel, initialMode = 'camera', i
         <button type="button" className="min-h-11 min-w-11 rounded-lg px-3 text-sm text-slate-300 hover:bg-white/10" onClick={cancel}>取消</button>
       </header>
       {children && <div className="max-h-40 shrink-0 overflow-y-auto px-4 py-2 text-sm" aria-live="polite">{children}</div>}
+      {onBatch && <div className="shrink-0 px-4 text-sm" aria-live="polite">
+        <p>已擷取 {codes.length} 碼 · 型號 {codes.filter(c => c.kind === 'MODEL').length} · 序號 {codes.filter(c => c.kind === 'SERIAL').length} · 待確認 {codes.filter(c => c.kind === 'UNKNOWN').length}</p>
+        {!!codes.length && <div className="max-h-20 overflow-y-auto text-xs">{codes.map(code => <span key={code.normalized} className="mr-2 inline-block break-all">{code.kind} {code.normalized}</span>)}</div>}
+      </div>}
       <p role="status" className="flex min-h-10 shrink-0 items-center px-4 pb-2 text-sm text-slate-300">{manual ? '手動輸入序號' : message}</p>
       <div className={`relative mx-3 min-h-0 flex-1 overflow-hidden rounded-xl bg-black ${manual ? 'hidden' : ''}`}>
         <video ref={video} muted playsInline autoPlay className="absolute inset-0 h-full w-full object-contain" aria-label="相機預覽" />
@@ -119,7 +130,7 @@ export function BarcodeScanner({ onDetected, onCancel, initialMode = 'camera', i
           <button type="button" className="min-h-12 flex-1 rounded-xl bg-white px-4 font-semibold text-slate-950" onClick={() => { camera.current?.stop(); setReady(false); setTorchTrack(undefined); setManual(true); }}>手動輸入</button>
         </div>
       </footer>}
-      {mode === 'continuous' && <button type="button" className="mx-3 mt-3 min-h-12 shrink-0 rounded-xl bg-teal-400 px-4 font-semibold text-slate-950" onClick={() => { camera.current?.dispose(); (onFinish || onCancel)(); }}>完成掃描</button>}
+      {mode === 'continuous' && <button type="button" className="mx-3 mt-3 min-h-12 shrink-0 rounded-xl bg-teal-400 px-4 font-semibold text-slate-950" onClick={() => { camera.current?.dispose(); session.current?.flush(); (onFinish || onCancel)(); }}>完成掃描</button>}
     </section>
   </div>, document.body);
 }
