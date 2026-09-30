@@ -174,8 +174,8 @@ test('schedule input and presentation UI keep one canonical data flow', () => {
   assert.doesNotMatch(schedule, /isPresentationMode[\s\S]{0,200}dbAdapter\.getScheduleTasks/);
 
   assert.doesNotMatch(schedule, />\s*\u91cd\u65b0\u540c\u6b65 Google \u65e5\u66c6\s*</);
-  assert.match(schedule, /fetch\('\/api\/google-calendar\/reconcile'/);
-  assert.match(schedule, /reconcileGoogleCalendar\(\)\.then/);
+  assert.doesNotMatch(schedule, /fetch\('\/api\/google-calendar\/reconcile'/);
+  assert.doesNotMatch(schedule, /reconcileGoogleCalendar|reconcileInFlight|RECONCILE_COOLDOWN_MS|lastReconcileAt/);
   assert.match(schedule, /currentUser\?\.role === 'ADMIN'/);
   assert.match(schedule, /<ScheduleDeletedAuditDialog/);
 });

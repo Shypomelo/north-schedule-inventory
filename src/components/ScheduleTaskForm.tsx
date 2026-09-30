@@ -128,7 +128,7 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
       setUsers(activeUsers);
       setWorkGroups(selectActiveWorkGroups(groupData));
       
-      if (initialData?.project_id && !initialData?.project_name) {
+      if (initialData?.project_id && !initialProjectNameInput) {
         const p = pData.find(x => x.id === initialData.project_id);
         if (p) {
           setProjectNameInput(p.name);
@@ -146,7 +146,7 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
         };
       });
     });
-  }, [initialData?.project_id, initialData?.project_name, initialData?.id, initialData?.main_assignee_id]);
+  }, [initialData?.project_id, initialProjectNameInput, initialData?.id, initialData?.main_assignee_id]);
 
   useEffect(() => {
     setMemberIds(initialMemberIds || []);
@@ -281,8 +281,8 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
     const previousUsesProjectBinding = usesScheduleProjectBinding(formData.task_type);
     const nextUsesProjectBinding = usesScheduleProjectBinding(taskType);
     const nextAllowsLocation = allowsScheduleTaskLocation(taskType);
-    const keepLocation = nextAllowsLocation && allowsScheduleTaskLocation(formData.task_type);
-    const nextProjectName = (nextUsesProjectBinding && previousUsesProjectBinding) || keepLocation
+    const keepLocation = nextUsesProjectBinding || nextAllowsLocation;
+    const nextProjectName = keepLocation
       ? projectNameInput
       : '';
 
@@ -299,7 +299,12 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
 
   const selectProject = (p: Project) => {
     setProjectNameInput(p.name);
-    setFormData(prev => ({ ...prev, project_name: p.name, project_id: p.id, address: p.address }));
+    setFormData(prev => ({
+      ...prev,
+      project_name: p.name,
+      project_id: usesScheduleProjectBinding(prev.task_type) ? p.id : null,
+      address: usesScheduleProjectBinding(prev.task_type) ? p.address : null,
+    }));
     setIsDropdownOpen(false);
   };
 
@@ -397,18 +402,19 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
         
-        {/* 第一列：只有工程工作使用案場綁定；開會／其他使用獨立地點。 */}
-        {taskUsesProjectBinding && <div className="flex flex-col gap-1 md:col-span-2 relative" ref={wrapperRef}>
+        {/* 第一列：共用地點快選；只有工程工作使用案場綁定。 */}
+        {(taskUsesProjectBinding || taskAllowsLocation) && <div className="flex flex-col gap-1 md:col-span-2 relative" ref={wrapperRef}>
           <span className="font-semibold text-[var(--modal-text)]">
-            案場（選填，可快選既有案場或手動輸入）
+            {taskUsesProjectBinding ? '案場（選填，可快選既有案場或手動輸入）' : '地點（選填，可快選既有地點或手動輸入）'}
           </span>
-          {initialData?.google_event_id && !formData.project_id && !formData.project_name && (
+          {taskUsesProjectBinding && initialData?.google_event_id && !formData.project_id && !formData.project_name && (
             <span className="text-xs font-semibold text-amber-400">目前：未匹配案場</span>
           )}
           <input 
             type="text"
             className="bg-[var(--input-bg)] text-[var(--input-text)] border border-[var(--input-border)] rounded p-1.5 focus:border-[var(--accent)] outline-none w-full placeholder:text-[var(--input-placeholder)]"
-            placeholder="請輸入或選擇案場名稱..."
+            aria-label={taskUsesProjectBinding ? '案場' : '地點'}
+            placeholder={taskUsesProjectBinding ? '請輸入或選擇案場名稱...' : '輸入或選擇地點...'}
             value={projectNameInput}
             onChange={e => handleProjectSearch(e.target.value)}
             onFocus={() => setIsDropdownOpen(Boolean(projectNameInput.trim()))}
@@ -416,7 +422,7 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
           />
           {isDropdownOpen && projectNameInput.trim() !== '' && filteredProjects.length === 0 && (
             <div className="absolute top-[100%] left-0 z-[100] w-full mt-1 bg-[var(--modal-bg)] border border-[var(--border)] rounded-md shadow-2xl p-2 text-sm text-[var(--modal-muted)]">
-              找不到既有案場，將直接使用「<span className="text-[var(--accent)] font-bold">{projectNameInput}</span>」作為案場名稱。
+              找不到既有{taskUsesProjectBinding ? '案場' : '地點'}，將直接使用「<span className="text-[var(--accent)] font-bold">{projectNameInput}</span>」作為{taskUsesProjectBinding ? '案場名稱' : '地點'}。
             </div>
           )}
           {isDropdownOpen && filteredProjects.length > 0 && (
@@ -448,22 +454,6 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
             </div>
           )}
         </div>}
-        {taskAllowsLocation && (
-          <label className="flex flex-col gap-1 md:col-span-2">
-            <span className="font-semibold text-[var(--modal-text)]">地點（選填）</span>
-            <input
-              type="text"
-              className="bg-[var(--input-bg)] text-[var(--input-text)] border border-[var(--input-border)] rounded p-1.5 focus:border-[var(--accent)] outline-none w-full placeholder:text-[var(--input-placeholder)]"
-              placeholder="輸入地點"
-              value={projectNameInput}
-              onChange={event => {
-                const location = event.target.value;
-                setProjectNameInput(location);
-                setFormData(prev => ({ ...prev, project_id: null, project_name: location, address: null }));
-              }}
-            />
-          </label>
-        )}
 
         {/* 第二列：任務類型 + 任務標題 */}
         <label className="flex flex-col gap-1 mt-1">

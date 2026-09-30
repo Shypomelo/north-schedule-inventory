@@ -15,7 +15,6 @@ import { startOfWeek, endOfWeek, addDays, subDays, format, isSameDay, startOfMon
 import { ChevronLeft, ChevronRight, Plus, X, ArrowLeft, Maximize2, Minimize2, Trash2 } from 'lucide-react';
 import { useUser } from '@/components/UserContext';
 import { getDatabaseErrorMessage, isMissingCoreTablesError } from '@/lib/db/supabase-errors';
-import { supabase } from '@/lib/db/supabaseClient';
 import { formatScheduleTaskTime, selectScheduleTasksByWorkGroup, sortScheduleTasks } from '@/lib/schedule-selectors';
 import { selectActiveTeamTodos } from '@/lib/todo-selectors';
 import { type MemberWorkGroup, selectActiveWorkGroups } from '@/lib/work-groups';
@@ -69,28 +68,7 @@ const SCHEDULE_FONT_SIZE_CLASSES: Record<ScheduleFontSize, {
   },
 };
 
-type ReconcileResult = {
-  success?: boolean;
-  updated?: number;
-  deleted?: number;
-  imported?: number;
-  skipped?: number;
-  skipped_system_created?: number;
-  skippedEvents?: { eventId: string; reason: string }[];
-  unmatchedProjectImported?: number;
-  unassignedMemberImported?: number;
-  failed?: number;
-  error?: string;
-};
-
-const RECONCILE_COOLDOWN_MS = 30000;
 const DAILY_TASK_DISPLAY_LIMIT = 8;
-let reconcileInFlight: Promise<ReconcileResult | null> | null = null;
-let lastReconcileAt = 0;
-
-const isAbortError = (error: unknown) => (
-  error instanceof Error && error.name === 'AbortError'
-);
 
 const sortTasks = sortScheduleTasks;
 const formatTaskTime = formatScheduleTaskTime;
@@ -181,47 +159,6 @@ export default function SchedulePage() {
 
   const [error, setError] = useState<string | null>(null);
 
-  const reconcileGoogleCalendar = useCallback(async () => {
-    if (currentUser?.role?.toUpperCase() === 'VIEWER') return null;
-
-    const now = Date.now();
-    if (reconcileInFlight) return reconcileInFlight;
-    if (now - lastReconcileAt < RECONCILE_COOLDOWN_MS) return null;
-
-    const reconcilePromise = supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session?.access_token) return;
-
-      return fetch('/api/google-calendar/reconcile', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({}),
-      });
-    }).then(async response => {
-      if (!response) return null;
-
-      const result = await response.json().catch(() => null) as ReconcileResult | null;
-      if (!response.ok) {
-        throw new Error(result?.error || `Google Calendar reconcile failed (${response.status})`);
-      }
-
-      return result;
-    }).catch((error: unknown) => {
-      if (!isAbortError(error)) {
-        console.error('Google Calendar reconcile failed:', error);
-      }
-      return null;
-    }).finally(() => {
-      lastReconcileAt = Date.now();
-      reconcileInFlight = null;
-    });
-
-    reconcileInFlight = reconcilePromise;
-    return reconcilePromise;
-  }, [currentUser?.role]);
-
   const fetchData = useCallback(async (showLoading = true) => {
     if (showLoading) setIsLoading(true);
     setError(null);
@@ -257,20 +194,12 @@ export default function SchedulePage() {
       setGroupMemberships(memberships);
 
       if (showLoading) setIsLoading(false);
-
-      if (showLoading) {
-        reconcileGoogleCalendar().then((res: any) => {
-          if (res?.updated || res?.deleted || res?.imported) {
-            fetchData(false); // Silently refresh data
-          }
-        });
-      }
     } catch (err: any) {
       console.error('Fetch data failed:', err);
       setError(getDatabaseErrorMessage(err, '無法載入排程資料'));
       if (showLoading) setIsLoading(false);
     }
-  }, [reconcileGoogleCalendar]);
+  }, []);
 
   useEffect(() => {
     fetchData();
