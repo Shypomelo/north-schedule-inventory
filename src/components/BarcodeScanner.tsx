@@ -34,12 +34,13 @@ export function ScannerCaptureResults({ codes, expanded = false, onToggle }: { c
   const unknown = codes.filter(code => code.kind === 'UNKNOWN');
   return <div className="space-y-1 text-[#303b35]" aria-live="polite">
     <button type="button" className="flex min-h-11 w-full items-center justify-between text-left" aria-expanded={expanded} onClick={onToggle}>
-      <span className="text-base font-semibold tabular-nums">已掃 {counts.serial} 台</span>
+      <span className="text-base font-semibold tabular-nums">已掃 {counts.total}</span>
       <ChevronDown size={18} className={`text-[#61756a] transition-transform ${expanded ? 'rotate-180' : ''}`} aria-hidden="true" />
     </button>
+    <p className="text-xs text-[#68776e]">序號 {counts.serial} · 型號 {counts.model} · 待確認 {counts.unknown}</p>
     {expanded ? <ul className="max-h-32 space-y-1 overflow-y-auto text-sm" aria-label="已掃序號">{serials.map(code => <li key={code.normalized} className="break-all py-0.5 font-medium">{code.normalized}</li>)}</ul>
       : serials.length > 0 && <p className="truncate text-sm font-medium" aria-label="最新序號">{serials[serials.length - 1].normalized}</p>}
-    {models.length > 0 && <p className="truncate text-xs text-[#68776e]"><span className="mr-2">型號</span>{models.map(code => code.normalized).join('、')}</p>}
+    {models.length > 0 && <p className="truncate text-xs text-[#68776e]"><span className="mr-2">型號</span>{models.map(code => code.normalized + (code.modelCandidate ? '（待確認型號）' : '')).join('、')}</p>}
     {unknown.length > 0 && <details className="pt-1 text-xs text-amber-800"><summary className="cursor-pointer py-1">待確認 {counts.unknown} ›</summary><ul className="max-h-20 space-y-1 overflow-y-auto pb-1">{unknown.map(code => <li key={code.normalized} className="break-all whitespace-pre-wrap">{code.raw}</li>)}</ul></details>}
   </div>;
 }

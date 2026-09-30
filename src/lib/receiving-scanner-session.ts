@@ -3,7 +3,7 @@ import type { InventoryItem } from './db/types';
 import { isStructuralMetadataToken, parseScannedPayload } from './receiving-scanned-payload';
 
 export type ScannerKind = 'MODEL' | 'SERIAL' | 'UNKNOWN';
-export interface ScannerCode { raw: string; normalized: string; kind: ScannerKind; itemId?: string }
+export interface ScannerCode { raw: string; normalized: string; kind: ScannerKind; itemId?: string; modelCandidate?: boolean }
 export interface ScannerAddResult { accepted: boolean; reason?: 'closed' | 'empty' | 'duplicate'; classified: ScannerCode[] }
 
 export function scannerCounts(codes: ScannerCode[]) {
@@ -16,8 +16,22 @@ export function scannerCounts(codes: ScannerCode[]) {
 }
 
 export function classifyScannerCode(raw: string, items: InventoryItem[]): ScannerCode {
-  const normalized = normalizeSerialInput(raw);
+  const input = normalizeSerialInput(raw);
+  // Only explicit fields in decoded text supply label evidence.
+  // This is field syntax, not a second serial identity contract.
+  const field = /^(S\/?N|P\/?N)(?:\s*[:=]\s*|\s+)(.+)$/.exec(input);
+  const normalized = field ? normalizeSerialInput(field[2]) : input;
+  if (!normalized || /[|\r\n\t\x1d]/.test(normalized)
+    || (field && /(?:^|\s)(?:S\/?N|P\/?N)(?:\s*[:=]|\s)/.test(normalized)))
+    return { raw, normalized: input, kind: 'UNKNOWN' };
   const models = items.filter(item => normalizeSerialInput(item.code) === normalized);
+  if (field?.[1].replace('/', '') === 'SN') return { raw, normalized, kind: 'SERIAL' };
+  if (field?.[1].replace('/', '') === 'PN') {
+    if (models.length > 1) return { raw, normalized, kind: 'UNKNOWN' };
+    return models.length === 1
+      ? { raw, normalized, kind: 'MODEL', itemId: models[0].id }
+      : { raw, normalized, kind: 'MODEL', modelCandidate: true };
+  }
   const serial = classifySerialFormat(normalized) !== 'unknown';
   // An overlapping model and serial must be resolved by a human.
   if (models.length === 1 && !serial) return { raw, normalized, kind: 'MODEL', itemId: models[0].id };
