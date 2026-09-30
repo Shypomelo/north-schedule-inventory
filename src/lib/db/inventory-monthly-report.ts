@@ -1,5 +1,6 @@
 import type {
   InventoryItem,
+  InventoryMonthlyClosing,
   InventoryMonthlyClosingItem,
   InventoryTransaction,
 } from './types';
@@ -15,10 +16,23 @@ export interface InventoryYearMonth {
   month: string;
 }
 
+export interface InventoryMonthlyInitializationBaseline {
+  inventory_item_id: string;
+  baseline_date: string;
+  initialized_at: string;
+}
+
+// PostgreSQL date boundaries, independent of the browser's timezone.
+const monthEnd = (year: string, month: string): string => (
+  new Date(Date.UTC(Number(year), Number(month), 0)).toISOString().slice(0, 10)
+);
+
 interface CalculateMonthlyReportOptions extends InventoryYearMonth {
   items: readonly InventoryItem[];
   transactions: readonly InventoryTransaction[];
   previousClosingItems?: readonly InventoryMonthlyClosingItem[] | null;
+  previousClosing?: InventoryMonthlyClosing | null;
+  initializationBaselines?: readonly InventoryMonthlyInitializationBaseline[];
 }
 
 export const getPreviousInventoryYearMonth = (
@@ -44,11 +58,35 @@ export const calculateInventoryMonthlyReport = ({
   items,
   transactions,
   previousClosingItems = null,
+  previousClosing = null,
+  initializationBaselines = [],
 }: CalculateMonthlyReportOptions): InventoryMonthlyClosingItem[] => {
   const targetMonth = `${year}-${month}`;
+  const targetMonthEnd = monthEnd(year, month);
+  const previousMonth = previousClosing || getPreviousInventoryYearMonth(year, month);
+  const previousMonthEnd = monthEnd(previousMonth.year, previousMonth.month);
+  const baselineByItemId = new Map<string, InventoryMonthlyInitializationBaseline>();
+  initializationBaselines.forEach(baseline => {
+    if (baseline.baseline_date > targetMonthEnd) return;
+    const existing = baselineByItemId.get(baseline.inventory_item_id);
+    if (!existing || baseline.baseline_date > existing.baseline_date
+      || (baseline.baseline_date === existing.baseline_date
+        && Date.parse(baseline.initialized_at) > Date.parse(existing.initialized_at))) {
+      baselineByItemId.set(baseline.inventory_item_id, baseline);
+    }
+  });
   const previousClosingQuantityByItemId = new Map(
     (previousClosingItems || [])
       .filter(item => Boolean(item.inventory_item_id))
+      .filter(item => {
+        const baseline = baselineByItemId.get(item.inventory_item_id);
+        if (!baseline) return true;
+        // A preserved snapshot at/before the reset boundary belongs to the old
+        // baseline even when it was sealed later. A later month's snapshot can
+        // resume the chain, provided it was actually sealed after initialization.
+        return previousMonthEnd > baseline.baseline_date
+          && (!previousClosing || Date.parse(previousClosing.closed_at) >= Date.parse(baseline.initialized_at));
+      })
       .map(item => [item.inventory_item_id, item.closing_quantity]),
   );
   const rows: Record<string, InventoryMonthlyClosingItem> = {};
@@ -81,6 +119,10 @@ export const calculateInventoryMonthlyReport = ({
 
   transactions.forEach(transaction => {
     if (!isActiveFormalTransaction(transaction)) return;
+    const baseline = baselineByItemId.get(transaction.item_id);
+    // Match enforce_inventory_cutoff_guard: the baseline date is inclusive.
+    // Do not filter on created_at: a valid post-reset row may be backdated.
+    if (baseline && transaction.transaction_date <= baseline.baseline_date) return;
 
     // transaction_date is a PostgreSQL date serialized as YYYY-MM-DD.
     // Comparing its YYYY-MM prefix avoids timezone conversion at month boundaries.
