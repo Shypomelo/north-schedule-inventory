@@ -75,7 +75,7 @@ test('observed five-code batch gives 3 SERIAL / 1 MODEL / 1 UNKNOWN and compact 
     assert.deepEqual(scannerCounts(session.codes), { total: 5, serial: 3, model: 1, unknown: 1 });
     const collapsed = renderToStaticMarkup(React.createElement(ScannerCaptureResults, { codes: session.codes }));
     const expanded = renderToStaticMarkup(React.createElement(ScannerCaptureResults, { codes: session.codes, expanded: true }));
-    for (const text of ['已掃 5', '序號 3', '型號 1', '待確認 1', model, '27382202']) assert(collapsed.includes(text), text);
+    for (const text of ['已掃 3 台', '序號 3', '型號 1', '待確認 1', model, '27382202']) assert(collapsed.includes(text), text);
     assert.match(collapsed, /<details(?![^>]*open)/);
     assert(!collapsed.includes('aria-label="已掃序號"'));
     const list = expanded.match(/<ul[^>]*aria-label="已掃序號"[^>]*>(.*?)<\/ul>/)[1];

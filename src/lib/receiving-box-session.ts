@@ -11,10 +11,14 @@ export interface ScanBox {
   status: 'open' | 'complete' | 'incomplete';
 }
 export interface BoxSnapshot { currentBox: ScanBox; completedBoxes: ScanBox[]; conflict?: ScannerCode }
-export interface BoxScanResult { accepted: boolean; duplicate?: { serial: string; boxId: number }; conflict?: boolean }
+export interface BoxScanResult { accepted: boolean; duplicate?: { serial: string; boxId: number }; conflict?: boolean; classified?: ScannerCode[] }
 const emptyBox = (id: number): ScanBox => ({ id, serials: [], unknown: [], status: 'open' });
 const copyBox = (box: ScanBox): ScanBox => ({ ...box, model: box.model && { ...box.model }, serials: box.serials.map(c => ({ ...c })), unknown: box.unknown.map(c => ({ ...c })) });
-export const boxDeviceCount = (box: ScanBox) => box.serials.length;
+export const uniqueBoxSerials = (boxes: ScanBox[]) => boxes.flatMap(box => box.serials).filter(code => code.kind === 'SERIAL').reduce<ScannerCode[]>((unique, code) => {
+  if (!unique.some(other => serialsAlias(other.normalized, code.normalized))) unique.push(code);
+  return unique;
+}, []);
+export const boxDeviceCount = (box: ScanBox) => uniqueBoxSerials([box]).length;
 export const completedBoxCount = (boxes: ScanBox[]) => boxes.filter(b => b.status === 'complete' && b.serials.length > 0).length;
 
 /** Ephemeral pre-arrival grouping. No storage, timers, network or DB callbacks. */
@@ -31,7 +35,7 @@ export class BoxScanSession {
     this.nextId = Math.max(this.current.id, ...this.completed.map(b => b.id)) + 1;
   }
   snapshot(): BoxSnapshot { return { currentBox: copyBox(this.current), completedBoxes: this.completed.map(copyBox), conflict: this.conflict && { ...this.conflict } }; }
-  get deviceCount() { return [this.current, ...this.completed].reduce((n, b) => n + boxDeviceCount(b), 0); }
+  get deviceCount() { return uniqueBoxSerials([this.current, ...this.completed]).length; }
   private assertOpen() { if (this.closed) throw new Error('掃描已結束，正式到貨資料請使用修改／撤回／更正。'); }
   add(raw: string): BoxScanResult {
     this.assertOpen();
@@ -40,10 +44,10 @@ export class BoxScanSession {
     let accepted = false;
     // Resolve model disagreement before assigning any serials from this payload.
     for (const code of codes.filter(c => c.kind === 'MODEL')) {
-      if (this.current.model && this.current.model.normalized !== code.normalized) { this.conflict = code; return { accepted: false, conflict: true }; }
+      if (this.current.model && this.current.model.normalized !== code.normalized) { this.conflict = code; return { accepted: false, conflict: true, classified: codes }; }
       if (!this.current.model) { this.current.model = code; accepted = true; }
     }
-    if (this.conflict) return { accepted: false, conflict: true };
+    if (this.conflict) return { accepted: false, conflict: true, classified: codes };
     let duplicate: BoxScanResult['duplicate'];
     for (const code of codes.filter(c => c.kind !== 'MODEL')) {
       if (code.kind === 'SERIAL') {
@@ -55,7 +59,7 @@ export class BoxScanSession {
         if (!this.current.unknown.some(c => c.normalized === code.normalized)) { this.current.unknown.push(code); accepted = true; }
       }
     }
-    return { accepted, duplicate };
+    return { accepted, duplicate, classified: codes };
   }
   confirmModel(useDetected: boolean) {
     this.assertOpen();

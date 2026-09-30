@@ -63,7 +63,7 @@ test('serial-first summary expands and collapses inline, with model secondary an
   const codes = scan('SE5000H-RW000BEN4|ABC123456-01|33127').codes;
   const collapsed = renderToStaticMarkup(React.createElement(ScannerCaptureResults, { codes }));
   const expanded = renderToStaticMarkup(React.createElement(ScannerCaptureResults, { codes, expanded: true }));
-  assert.match(collapsed, /已掃 3/);
+  assert.match(collapsed, /已掃 1 台/);
   assert.match(collapsed, /aria-expanded="false"/);
   assert.match(collapsed, /aria-label="最新序號"/);
   assert(!collapsed.includes('aria-label="已掃序號"'));

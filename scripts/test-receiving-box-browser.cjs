@@ -26,7 +26,7 @@ test.before(async () => {
   browser = await chromium.launch({headless:true,channel:'msedge'});
 });
 test.after(async () => { await browser?.close(); });
-async function pageFor() { const page=await browser.newPage({viewport:{width:390,height:844}}); page.on('dialog',d=>d.accept()); await page.setContent('<html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div></html>'); await page.addStyleTag({content:css}); await page.addScriptTag({content:bundle}); await page.getByRole('button',{name:'完成這箱',exact:true}).waitFor(); return page; }
+async function pageFor(debug = false) { const page=await browser.newPage({viewport:{width:390,height:844}}); page.on('dialog',d=>d.accept()); await page.route('https://scanner.test/**', route => route.fulfill({contentType:'text/html',body:'<html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div></html>'})); await page.goto('https://scanner.test/' + (debug ? '?scannerDebug=1' : '')); await page.addStyleTag({content:css}); await page.addScriptTag({content:bundle}); await page.getByRole('button',{name:'完成這箱',exact:true}).waitFor(); return page; }
 const scan = (page, codes) => page.evaluate(values=>values.forEach(window.scan),codes);
 const button = (page,name) => page.getByRole('button',{name,exact:true});
 async function expandedCurrent(page) { const b=page.getByRole('button',{name:/已掃序號/}); if(await b.getAttribute('aria-expanded')==='false') await b.click(); }
@@ -78,4 +78,33 @@ test('failed final lookup resumes camera and keeps deletion editable without sta
     await p.evaluate(()=>window.failLookup=false); await button(p,'完成掃描').click(); await button(p,'完成實際到貨').waitFor();
     assert.match(await p.locator('body').innerText(),/共 1 台/); assert.equal((await p.evaluate(()=>window.calls.writes)).length,0);
   } finally { await p.close(); }
+});
+
+for (const [label, codes, devices, decoded] of [
+  ['model only', [model], 0, 1],
+  ['model and one serial', [model,serial(1)], 1, 2],
+  ['model and two serials', [model,serial(1),serial(2)], 2, 3],
+  ['repeated model', [...Array(10).fill(model),serial(1),serial(2)], 2, 3],
+  ['unknown and model', ['27382202',model,serial(1),serial(2)], 2, 4],
+]) test('classified box source: '+label, async () => {
+  const p=await pageFor(true); try {
+    await scan(p,codes);
+    assert.equal(await p.getByLabel('目前這箱設備數').innerText(), devices+' 台');
+    assert.match(await p.locator('body').innerText(), new RegExp('掃碼診斷 · '+decoded+' 筆'));
+    for (const layer of ['CAMERA DECODE','SESSION','CLASSIFY']) assert.equal(await p.getByText(layer,{exact:true}).count(),1);
+    const diagnostic=p.locator('details').filter({hasText:'CAMERA DECODE'});
+    assert((await diagnostic.innerText()).includes('MODEL'));
+    if(devices) assert((await diagnostic.innerText()).includes('SERIAL'));
+    await expandedCurrent(p); const list=p.getByRole('list',{name:'箱 1 序號',exact:true});
+    assert.equal(await list.getByRole('listitem').count(),devices);
+    assert(!(await list.innerText()).includes(model)); assert(!(await list.innerText()).includes('27382202'));
+  } finally { await p.close(); }
+});
+test('normal scanner hides all raw diagnostics and shows only classified device count',async()=>{
+ const p=await pageFor();try{
+   await scan(p,[model,serial(1),serial(2),'27382202']);
+   assert.equal(await p.getByLabel('目前這箱設備數').innerText(),'2 台');
+   for(const label of ['CAMERA DECODE','SESSION','CLASSIFY','掃碼量測']) assert.equal(await p.getByText(label,{exact:true}).count(),0);
+   assert.equal(await p.locator('summary').filter({hasText:'掃碼診斷'}).count(),0);
+ }finally{await p.close();}
 });

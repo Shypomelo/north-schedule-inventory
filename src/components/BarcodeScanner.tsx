@@ -13,11 +13,11 @@ export interface BarcodeScannerProps { initialBoxes?: BoxSnapshot; onBoxesFinish
 const button = 'min-h-11 rounded-lg border border-white/40 px-4 py-2 disabled:opacity-50';
 type ScanDiagnostic = { raw: string; session: 'PENDING' | 'ACCEPTED' | 'REJECTED'; reason?: string; kinds: ScannerKind[] };
 
-export function ScannerDiagnostics({ entries }: { entries: ScanDiagnostic[] }) {
+export function ScannerDiagnostics({ entries, decodedCount }: { entries: ScanDiagnostic[]; decodedCount?: number }) {
   const rows = entries.length === 0 ? [{ raw: '等待解碼', session: 'PENDING' as const, kinds: [] }]
     : entries.length === 1 ? [...entries, { raw: '等待不同碼', session: 'PENDING' as const, kinds: [] }] : entries;
   return <details open className="mt-2 border-t border-[#d6ddd5] pt-1 text-xs text-[#303b35]">
-    <summary className="min-h-9 cursor-pointer py-2 font-semibold">掃碼診斷 · {entries.length} 筆</summary>
+    <summary className="min-h-9 cursor-pointer py-2 font-semibold">掃碼診斷 · {decodedCount ?? entries.length} 筆</summary>
     <div className="max-h-36 space-y-1 overflow-y-auto pb-2 font-mono tabular-nums">
       <p className="font-semibold">CAMERA DECODE</p>
       {rows.map((entry, index) => <p key={`decode-${index}`} className="break-all">{String(index + 1).padStart(2, '0')}　{entry.raw}</p>)}
@@ -36,7 +36,7 @@ export function ScannerCaptureResults({ codes, expanded = false, onToggle }: { c
   const unknown = codes.filter(code => code.kind === 'UNKNOWN');
   return <div className="space-y-1 text-[#303b35]" aria-live="polite">
     <button type="button" className="flex min-h-11 w-full items-center justify-between text-left" aria-expanded={expanded} onClick={onToggle}>
-      <span className="text-base font-semibold tabular-nums">已掃 {counts.total}</span>
+      <span className="text-base font-semibold tabular-nums">已掃 {counts.serial} 台</span>
       <ChevronDown size={18} className={`text-[#61756a] transition-transform ${expanded ? 'rotate-180' : ''}`} aria-hidden="true" />
     </button>
     <p className="text-xs text-[#68776e]">序號 {counts.serial} · 型號 {counts.model} · 待確認 {counts.unknown}</p>
@@ -56,12 +56,16 @@ export function BarcodeScanner({ initialBoxes, onBoxesFinish, onDetected, onBatc
   const finishingRef = useRef(false);
   const decodedCodes = useRef(new Set<string>());
   const [decodeCount, setDecodeCount] = useState(0);
+  const [debug, setDebug] = useState(false);
+  const debugRef = useRef(false);
   const boxFinishCallback = useRef(onBoxesFinish); boxFinishCallback.current = onBoxesFinish;
   const editBox = (action: () => void) => { try { action(); setBoxSnapshot(boxSession.snapshot()); setBoxWarning(''); } catch (error) { setBoxWarning((error as Error).message); } };
   const acceptBoxCode = (value: string, manualEntry = false) => {
     if (finishingRef.current) return false;
     const result = boxSession.add(manualEntry ? 'SN: ' + value : value);
     setBoxSnapshot(boxSession.snapshot());
+    if (debugRef.current && !manualEntry) setDiagnostics(previous => previous.map(entry => entry.raw === value
+      ? { ...entry, session: result.accepted ? 'ACCEPTED' : 'REJECTED', reason: result.duplicate ? 'duplicate' : result.conflict ? 'model conflict' : undefined, kinds: (result.classified || []).map(code => code.kind) } : entry));
     if (result.duplicate) {
       setBoxWarning('已掃過此序號 ' + result.duplicate.serial + ' · 箱 ' + result.duplicate.boxId);
       if (manualEntry) setDuplicate(result.duplicate);
@@ -113,7 +117,11 @@ export function BarcodeScanner({ initialBoxes, onBoxesFinish, onDetected, onBatc
   const [torchTrack, setTorchTrack] = useState<MediaStreamTrack>();
   const cancel = () => { session.current?.dispose(); camera.current?.dispose(); callbacks.current.onCancel(); };
 
-  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => {
+    debugRef.current = new URLSearchParams(window.location.search).get('scannerDebug') === '1';
+    setDebug(debugRef.current);
+    setMounted(true);
+  }, []);
   useEffect(() => {
     if (!mounted || !video.current) return;
     let active = true;
@@ -151,8 +159,10 @@ export function BarcodeScanner({ initialBoxes, onBoxesFinish, onDetected, onBatc
         if (active) setDevices(rows.filter(row => row.kind === 'videoinput'));
       }).catch(() => { /* Scanning still works when enumeration is unavailable. */ });
     }, undefined, mode, (value, accepted) => {
+      if (!debugRef.current) return;
       if (boxFinishCallback.current) {
         if (!decodedCodes.current.has(value)) { decodedCodes.current.add(value); setDecodeCount(decodedCodes.current.size); }
+        setDiagnostics(previous => previous.some(entry => entry.raw === value) ? previous : [...previous.slice(-5), { raw: value, session: accepted ? 'PENDING' : 'REJECTED', reason: accepted ? undefined : 'camera debounce', kinds: [] }]);
         return;
       }
       if (!batchCallback.current || !itemsAtOpen.current) return;
@@ -207,9 +217,9 @@ export function BarcodeScanner({ initialBoxes, onBoxesFinish, onDetected, onBatc
       <div className="flex max-h-[43dvh] shrink-0 flex-col rounded-t-xl bg-[#f8f7f3] text-[#303b35]" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
         <div className="min-h-0 overflow-y-auto px-4 pt-2">{onBoxesFinish ? <>
           <BoxScanControls snapshot={boxSnapshot} disabled={finishing} onDeleteSerial={(id, serial) => editBox(() => boxSession.deleteSerial(id, serial))} onClear={() => editBox(() => boxSession.clearCurrent())} onComplete={() => editBox(() => boxSession.completeBox())} onDeleteBox={id => editBox(() => boxSession.deleteBox(id))} onReopen={id => editBox(() => boxSession.reopenBox(id))} onConfirmModel={useDetected => editBox(() => boxSession.confirmModel(useDetected))} />
-          <details className="text-xs text-[#68776e]"><summary className="min-h-9 cursor-pointer py-2">掃碼量測</summary>解碼不同碼 {decodeCount} · 目前這箱序號 {boxSnapshot.currentBox.serials.length}</details>
+          {debug && <ScannerDiagnostics entries={diagnostics} decodedCount={decodeCount} />}
           {boxWarning && <p role="alert" className="text-xs text-amber-800">{boxWarning}</p>}
-          </> : <><ScannerCaptureResults codes={codes} expanded={expanded} onToggle={() => setExpanded(value => !value)} /><ScannerDiagnostics entries={diagnostics} /></>}
+          </> : <><ScannerCaptureResults codes={codes} expanded={expanded} onToggle={() => setExpanded(value => !value)} />{debug && <ScannerDiagnostics entries={diagnostics} />}</>}
           {warning && <p role="alert" className="mt-1 text-xs text-amber-800">{warning}</p>}
           {inlineManual && <form className="mt-2 flex items-end gap-2" onSubmit={event => { event.preventDefault(); event.stopPropagation(); if (!raw.trim() || finishing) return; const value = raw; setRaw(''); if (onBoxesFinish) acceptBoxCode(value, true); else camera.current?.accept(value); input.current?.focus(); }}>
             <label className="min-w-0 flex-1 text-xs text-[#68776e]">序號<input ref={input} autoFocus autoComplete="off" autoCapitalize="characters" autoCorrect="off" spellCheck={false} value={raw} onChange={event => setRaw(event.target.value)} className="mt-1 h-11 w-full rounded-lg bg-white px-3 text-base text-[#303b35] outline-none ring-1 ring-[#d6ddd5] focus:ring-emerald-600" /></label>
