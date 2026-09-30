@@ -2,6 +2,7 @@
 import { classifyScannerCode, type ScannerCode } from './receiving-scanner-session';
 import { parseScannedPayload, isStructuralMetadataToken } from './receiving-scanned-payload';
 import { serialsAlias } from './receiving-v5';
+import { classifySerialFormat, deriveShortSerialKey, normalizeSerialInput } from './inventory-serial-normalization';
 
 export interface ScanBox {
   id: number;
@@ -43,7 +44,7 @@ export class BoxScanSession {
     const codes = payload.candidates.map(value => classifyScannerCode(value, this.items));
     let accepted = false;
     // Resolve model disagreement before assigning any serials from this payload.
-    for (const code of codes.filter(c => c.kind === 'MODEL')) {
+    for (const code of codes.filter(c => c.kind === 'MODEL' || c.kind === 'MODEL_CANDIDATE')) {
       if (this.current.model && this.current.model.normalized !== code.normalized) { this.conflict = code; return { accepted: false, conflict: true, classified: codes }; }
       if (!this.current.model) { this.current.model = code; accepted = true; }
     }
@@ -66,6 +67,28 @@ export class BoxScanSession {
     if (useDetected && this.conflict) this.current.model = this.conflict;
     this.conflict = undefined;
   }
+  resolveUnknown(normalized: string, action: 'MODEL' | 'SERIAL' | 'IGNORE') {
+    this.assertOpen();
+    const code = this.current.unknown.find(c => c.normalized === normalized);
+    if (!code) return;
+    if (action === 'SERIAL' && classifySerialFormat(code.normalized) === 'unknown')
+      throw new Error('序號格式無法辨識，請確認完整序號。');
+    if (action === 'MODEL') {
+      const model = classifyScannerCode('PN: ' + code.normalized, this.items);
+      if (model.kind !== 'MODEL' && model.kind !== 'MODEL_CANDIDATE') throw new Error('型號無法確認，請檢查品項。');
+      if (this.current.model && this.current.model.normalized !== model.normalized) {
+        throw new Error('偵測到不同型號，請先確認型號。');
+      }
+      this.current.model = model;
+    }
+    if (action === 'SERIAL') {
+      const canonical = deriveShortSerialKey(code.normalized) || normalizeSerialInput(code.normalized);
+      const owner = [this.current, ...this.completed].find(b => b.serials.some(s => serialsAlias(s.normalized, canonical)));
+      if (owner) throw new Error(`已掃過此序號 ${canonical} · 箱 ${owner.id}`);
+      this.current.serials.push({ raw: code.raw, normalized: canonical, kind: 'SERIAL' });
+    }
+    this.current.unknown = this.current.unknown.filter(c => c !== code);
+  }
   completeBox() {
     this.assertOpen();
     if (!this.current.serials.length) throw new Error('尚未掃到序號，請繼續掃描或清空目前這箱。');
@@ -78,7 +101,8 @@ export class BoxScanSession {
     this.assertOpen();
     const box = [this.current, ...this.completed].find(b => b.id === boxId);
     if (!box) return;
-    box.serials = box.serials.filter(c => c.normalized !== normalized);
+    const canonical = deriveShortSerialKey(normalized) || normalizeSerialInput(normalized);
+    box.serials = box.serials.filter(c => c.normalized !== canonical);
     if (box !== this.current && !box.serials.length) box.status = 'incomplete';
   }
   deleteBox(boxId: number) { this.assertOpen(); this.completed = this.completed.filter(b => b.id !== boxId); }

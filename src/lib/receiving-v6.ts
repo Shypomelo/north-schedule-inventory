@@ -3,6 +3,12 @@ import { normalizeSerialInput } from './inventory-serial-normalization';
 import type { InventorySerialLookupResult } from './db/types';
 import type { ReceivingAllocation } from './db/receiving-routing';
 
+export function matchesReceivingFilter(status: string, filter: string): boolean {
+  return filter === '全部' || (filter === '待處理'
+    ? status === '待收' || status === '部分到貨' || status === '待補資料'
+    : status === filter);
+}
+
 export interface HandoffAllocation extends ReceivingAllocation {
   state: 'ACTIVE' | 'CANCELLED' | 'REVERSED' | 'USED' | 'TERMINAL';
   supersedes_allocation_id: string | null; reversal_receipt_id: string | null;

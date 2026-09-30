@@ -40,6 +40,8 @@ export function createReceivingV6Api(client: SupabaseClient) {
     handoff: (args: { p_request_id: string; p_receipt_id: string; p_route_type: 'SE' | 'SITE'; p_quantity: number; p_serial_ids: string[]; p_project_id: string | null; p_received_at: string; p_material_id: string | null; p_create_new: boolean }) => rpc('route_receiving_inventory', { ...args, p_notes: null }),
     retract: (args: { p_request_id: string; p_allocation_id: string; p_reason: string }) => rpc('retract_receiving_handoff', args),
     changeHandoff: (args: { p_request_id: string; p_allocation_id: string; p_quantity: number; p_serial_id: string | null; p_project_id: string | null; p_expected_updated_at: string }) => rpc('change_receiving_se_handoff', args),
+    deletePending: (args: { p_request_id: string; p_source_type: 'PROJECT_MATERIAL' | 'SE_SUPPLY'; p_source_id: string; p_expected_updated_at: string }) =>
+      rpc<{ outcome: 'DELETED'; id: string; retired_entry_ids: string[]; inventory_effect: 0 }>('delete_receiving_pending_source', args),
   };
 }
 export type ReceivingV6Api = ReturnType<typeof createReceivingV6Api>;

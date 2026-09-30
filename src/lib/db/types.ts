@@ -88,6 +88,7 @@ export interface SESupplyRecord {
   received_at: string | null;
   received_by: string | null;
   receiving_archived_at: string | null;
+  receiving_deleted_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -485,6 +486,7 @@ export interface ProjectMaterial {
   delivery_destination_note: string | null;
   notes: string | null;
   receiving_archived_at: string | null;
+  receiving_deleted_at?: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;

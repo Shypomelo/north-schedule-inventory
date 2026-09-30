@@ -1,15 +1,15 @@
-import { classifySerialFormat, normalizeSerialInput } from './inventory-serial-normalization';
+import { classifySerialFormat, deriveShortSerialKey, normalizeSerialInput } from './inventory-serial-normalization';
 import type { InventoryItem } from './db/types';
 import { isStructuralMetadataToken, parseScannedPayload } from './receiving-scanned-payload';
 
-export type ScannerKind = 'MODEL' | 'SERIAL' | 'UNKNOWN';
-export interface ScannerCode { raw: string; normalized: string; kind: ScannerKind; itemId?: string; modelCandidate?: boolean }
+export type ScannerKind = 'MODEL' | 'MODEL_CANDIDATE' | 'SERIAL' | 'UNKNOWN';
+export interface ScannerCode { raw: string; normalized: string; kind: ScannerKind; itemId?: string }
 export interface ScannerAddResult { accepted: boolean; reason?: 'closed' | 'empty' | 'duplicate'; classified: ScannerCode[] }
 
 export function scannerCounts(codes: ScannerCode[]) {
   return {
     total: codes.length,
-    model: codes.filter(code => code.kind === 'MODEL').length,
+    model: codes.filter(code => code.kind === 'MODEL' || code.kind === 'MODEL_CANDIDATE').length,
     serial: codes.filter(code => code.kind === 'SERIAL').length,
     unknown: codes.filter(code => code.kind === 'UNKNOWN').length,
   };
@@ -25,17 +25,22 @@ export function classifyScannerCode(raw: string, items: InventoryItem[]): Scanne
     || (field && /(?:^|\s)(?:S\/?N|P\/?N)(?:\s*[:=]|\s)/.test(normalized)))
     return { raw, normalized: input, kind: 'UNKNOWN' };
   const models = items.filter(item => normalizeSerialInput(item.code) === normalized);
-  if (field?.[1].replace('/', '') === 'SN') return { raw, normalized, kind: 'SERIAL' };
+  const serialFormat = classifySerialFormat(normalized);
+  if (field?.[1].replace('/', '') === 'SN') return serialFormat === 'unknown'
+    ? { raw, normalized, kind: 'UNKNOWN' }
+    : { raw, normalized: deriveShortSerialKey(normalized) || normalized, kind: 'SERIAL' };
   if (field?.[1].replace('/', '') === 'PN') {
     if (models.length > 1) return { raw, normalized, kind: 'UNKNOWN' };
     return models.length === 1
       ? { raw, normalized, kind: 'MODEL', itemId: models[0].id }
-      : { raw, normalized, kind: 'MODEL', modelCandidate: true };
+      : { raw, normalized, kind: 'MODEL_CANDIDATE' };
   }
-  const serial = classifySerialFormat(normalized) !== 'unknown';
+  const serial = serialFormat !== 'unknown';
   // An overlapping model and serial must be resolved by a human.
   if (models.length === 1 && !serial) return { raw, normalized, kind: 'MODEL', itemId: models[0].id };
-  if (!models.length && serial) return { raw, normalized, kind: 'SERIAL' };
+  if (!models.length && serial) return { raw, normalized: deriveShortSerialKey(normalized) || normalized, kind: 'SERIAL' };
+  if (!models.length && /^(?=.{4,9}(?:-|$))[A-Z]{1,3}[0-9]{3,5}[A-Z0-9]*(?:-[A-Z0-9]{3,}){0,2}$/.test(normalized))
+    return { raw, normalized, kind: 'MODEL_CANDIDATE' };
   return { raw, normalized, kind: 'UNKNOWN' };
 }
 

@@ -2,13 +2,19 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const load = require('./test-load-ts.cjs');
-const {receivingWorkItems,workItemSearch,workItemStock,pendingSerialDraft,finishSerialDraft,groupedSerialArrival,handoffCorrectionRequired} = load(path.resolve(__dirname,'receiving-v6.ts'));
+const {matchesReceivingFilter,receivingWorkItems,workItemSearch,workItemStock,pendingSerialDraft,finishSerialDraft,groupedSerialArrival,handoffCorrectionRequired} = load(path.resolve(__dirname,'receiving-v6.ts'));
 const {pendingRows} = load(path.resolve(__dirname,'receiving-v5.ts'));
 const empty = () => ({projects:[{id:'A',name:'A案'},{id:'B',name:'B案'}],items:[{id:'i',code:'P401',name:'设备',requires_serial:true,is_active:true},{id:'q',code:'CABLE',requires_serial:false,is_active:true}],materials:[],supplies:[],batches:[],arrivals:[],lines:[],observations:[],matches:[],matchObservations:[],receipts:[],fulfilment:{},scopes:{},scopeErrors:{},transactions:[],closings:[]});
 function pending(d,id='p',qty=20,filled=0,item='i',project='A',serials=[]){d.supplies.push({id,receiving_only:true,inventory_item_id:item,project_id:project,quantity:qty,unit:'台'});d.fulfilment['SE_SUPPLY:'+id]={expected:qty,fulfilled:filled,remaining:qty-filled,active:qty>filled,remaining_status:qty>filled?'ACTIVE':'FULFILLED',cancellation:null};serials.forEach((s,i)=>d.observations.push({id:id+i,normalized_serial:s,raw_serial:s,inventory_item_id:item,se_supply_record_id:id,retired_at:null,active_receipt_id:null}));}
 function arrival(d,id='a',qty=8,item='q',serials=[]){d.arrivals.push({id,actual_received_at:'2026-09-26T06:20:00Z',project_id:null});d.lines.push({id,arrival_id:id,inventory_item_id:item,quantity:qty,unit:'m',resolution_state:item?'POSTED':'UNRESOLVED',receipt_id:item?id+'r':null});serials.forEach((s,i)=>d.observations.push({id:id+i,arrival_line_id:id,normalized_serial:s,raw_serial:s,inventory_serial_id:id+'s'+i,active_receipt_id:id+'r'}));}
 function match(d,line,p,qty,indices=[]){const id=line+p;d.matches.push({id,arrival_line_id:line,se_supply_record_id:p,quantity:qty,cancelled_at:null});indices.forEach(i=>d.matchObservations.push({match_id:id,arrival_entry_id:line+i,cancelled_at:null}));}
 const none={result_type:'no_match',candidates:[]};
+test('receiving tabs retain three pending statuses, received only, and all',()=>{
+  const statuses=['待收','部分到貨','待補資料','已收到'];
+  assert.deepEqual(statuses.filter(s=>matchesReceivingFilter(s,'待處理')),statuses.slice(0,3));
+  assert.deepEqual(statuses.filter(s=>matchesReceivingFilter(s,'已收到')),['已收到']);
+  assert.deepEqual(statuses.filter(s=>matchesReceivingFilter(s,'全部')),statuses);
+});
 test('UI-5/6: 20 + 8 + 5 projects into one row, two immutable event identities',()=>{const d=empty();pending(d,'p',20,13,'q');arrival(d,'a',8);arrival(d,'b',5);match(d,'a','p',8);match(d,'b','p',5);const r=receivingWorkItems(d);assert.equal(r.length,1);assert.equal(r[0].received,13);assert.equal(r[0].pending.fulfilment.remaining,7);assert.deepEqual(r[0].slices.map(s=>s.actual.key),['arrival:a','arrival:b']);});
 test('UI-17: standalone disappears after full match',()=>{const d=empty();pending(d,'p',20,0,'q');arrival(d);assert.equal(receivingWorkItems(d).length,2);match(d,'a','p',8);d.fulfilment['SE_SUPPLY:p'].fulfilled=8;assert.equal(receivingWorkItems(d).length,1);});
 test('UI-18: 10 = matched 6 + unmatched 4, no double count',()=>{const d=empty();pending(d,'p',20,6,'q');arrival(d,'a',10);match(d,'a','p',6);const rows=receivingWorkItems(d);assert.equal(rows.length,2);assert.deepEqual(rows.map(r=>r.slices[0].quantity),[6,4]);assert.equal(rows.flatMap(r=>r.slices).reduce((n,s)=>n+s.quantity,0),10);});

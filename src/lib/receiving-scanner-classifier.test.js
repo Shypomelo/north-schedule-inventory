@@ -14,16 +14,37 @@ const classify = (raw, catalog = items) => classifyScannerCode(raw, catalog);
 
 for (const serial of serials) test(`${serial} is SERIAL via the canonical full contract`, () => {
   assert.equal(classifySerialFormat(serial), 'full');
-  assert.deepEqual(classify(serial), { raw: serial, normalized: serial, kind: 'SERIAL' });
+  assert.deepEqual(classify(serial), { raw: serial, normalized: serial.split('-').slice(1).join('-'), kind: 'SERIAL' });
 });
 test('exact catalog model match, without prefix, substring or first-candidate guessing', () => {
   assert.equal(classify(model).itemId, 'model');
   assert.equal(classify(model).kind, 'MODEL');
-  for (const raw of ['SE10000H', 'SE10000H-RWSKBF57-X', 'X-SE10000H-RWSKBF57']) assert.equal(classify(raw).kind, 'UNKNOWN');
-  assert.equal(classify(model, []).kind, 'UNKNOWN');
+  for (const raw of ['SE10000H-RWSKBF57-X', 'X-SE10000H-RWSKBF57']) assert.equal(classify(raw).kind, 'UNKNOWN');
+  assert.equal(classify(model, []).kind, 'MODEL_CANDIDATE');
   assert.equal(classify(model, [...items, { id: 'duplicate', code: model }]).kind, 'UNKNOWN');
 });
 test('unlabeled numeric value is UNKNOWN', () => assert.equal(classify('27382202').kind, 'UNKNOWN'));
+test('real full and short SN values share canonical scanner identity without a catalog lookup', () => {
+  const examples = [
+    ['ST1424-018C44105-22', '018C44105-22'],
+    ['SJ1923A-0306AD20D-79', '0306AD20D-79'],
+    ['ST1826-01911FDF9-20', '01911FDF9-20'],
+    ['SZ3923-018F7321C-5D', '018F7321C-5D'],
+    ['SB4725-07515C69D-ED', '07515C69D-ED'],
+  ];
+  for (const [full, short] of examples) {
+    assert.deepEqual(classify(full, []), { raw: full, normalized: short, kind: 'SERIAL' });
+    assert.deepEqual(classify(short, []), { raw: short, normalized: short, kind: 'SERIAL' });
+  }
+  const session = new ScannerSession([], () => {}, () => {}, 10000);
+  try { assert.equal(session.add(examples[0][0]), true); assert.equal(session.add(examples[0][1]), false); assert.equal(session.codes.length, 1); }
+  finally { session.dispose(); }
+});
+test('real PN structures remain model candidates while metadata stays unknown', () => {
+  for (const value of ['SE10000H-RWSKBF57', 'S440-1GM4MRM-NA02', 'P850-4RMLMRY', 'R800', 'S1200'])
+    assert.equal(classify(value, []).kind, 'MODEL_CANDIDATE', value);
+  assert.equal(classify('27382202', []).kind, 'UNKNOWN');
+});
 test('PN / P/N evidence is MODEL with the exact catalog identity', () => {
   for (const prefix of ['PN:', 'P/N=', 'pn ', 'ＰＮ：']) {
     const result = classify(prefix + model);
@@ -32,16 +53,16 @@ test('PN / P/N evidence is MODEL with the exact catalog identity', () => {
 });
 test('uncatalogued PN stays a model candidate, never a serial or invented item identity', () => {
   const result = classify('P/N: ' + serials[0]);
-  assert.equal(result.kind, 'MODEL'); assert.equal(result.modelCandidate, true); assert.equal(result.itemId, undefined);
+  assert.equal(result.kind, 'MODEL_CANDIDATE'); assert.equal(result.itemId, undefined);
   const html = renderToStaticMarkup(React.createElement(ScannerCaptureResults, { codes: [result] }));
-  assert(html.includes('待確認型號'));
+  assert(html.includes('待確認品項'));
 });
-test('SN / S/N evidence is SERIAL even when the value is a catalog model', () => {
+test('SN / S/N evidence requires a valid serial format', () => {
   for (const prefix of ['SN:', 'S/N=', 'sn ']) {
     const result = classify(prefix + model);
-    assert.equal(result.kind, 'SERIAL'); assert.equal(result.normalized, model); assert.equal(result.itemId, undefined);
+    assert.equal(result.kind, 'UNKNOWN'); assert.equal(result.itemId, undefined);
   }
-  assert.equal(classify('SN: 27382202').kind, 'SERIAL');
+  assert.equal(classify('SN: 27382202').kind, 'UNKNOWN');
 });
 test('serial/model overlap requires confirmation without label; label disambiguates type only', () => {
   const catalog = [{ id: 'overlap', code: serials[0] }];
@@ -54,7 +75,7 @@ test('8+2, 9+2, full and normalization fixtures retain the canonical contract', 
   for (const raw of ['ABC12345-01', 'ABC123456-01', 'SJ1823A-03068530E-F9', ' sb4725－07515c2f0–3c ']) assert.equal(classify(raw).kind, 'SERIAL');
   for (const fixture of INVENTORY_SERIAL_NORMALIZATION_FIXTURES) {
     assert.equal(classify(fixture.input, []).kind, fixture.format === 'unknown' ? 'UNKNOWN' : 'SERIAL');
-    assert.equal(classify(fixture.input, []).normalized, fixture.normalized);
+    assert.equal(classify(fixture.input, []).normalized, fixture.shortKey || fixture.normalized);
   }
 });
 test('empty, conflicting or unproven labels do not fabricate field evidence', () => {
@@ -80,6 +101,6 @@ test('observed five-code batch gives 3 SERIAL / 1 MODEL / 1 UNKNOWN and compact 
     assert(!collapsed.includes('aria-label="已掃序號"'));
     const list = expanded.match(/<ul[^>]*aria-label="已掃序號"[^>]*>(.*?)<\/ul>/)[1];
     assert.equal((list.match(/<li /g) || []).length, 3);
-    for (const serial of serials) assert(list.includes(serial));
+    for (const serial of serials) assert(list.includes(serial.split('-').slice(1).join('-')));
   } finally { session.dispose(); }
 });

@@ -32,7 +32,7 @@ export function ScannerDiagnostics({ entries, decodedCount }: { entries: ScanDia
 export function ScannerCaptureResults({ codes, expanded = false, onToggle }: { codes: ScannerCode[]; expanded?: boolean; onToggle?: () => void }) {
   const counts = scannerCounts(codes);
   const serials = codes.filter(code => code.kind === 'SERIAL');
-  const models = codes.filter(code => code.kind === 'MODEL');
+  const models = codes.filter(code => code.kind === 'MODEL' || code.kind === 'MODEL_CANDIDATE');
   const unknown = codes.filter(code => code.kind === 'UNKNOWN');
   return <div className="space-y-1 text-[#303b35]" aria-live="polite">
     <button type="button" className="flex min-h-11 w-full items-center justify-between text-left" aria-expanded={expanded} onClick={onToggle}>
@@ -42,7 +42,7 @@ export function ScannerCaptureResults({ codes, expanded = false, onToggle }: { c
     <p className="text-xs text-[#68776e]">序號 {counts.serial} · 型號 {counts.model} · 待確認 {counts.unknown}</p>
     {expanded ? <ul className="max-h-32 space-y-1 overflow-y-auto text-sm" aria-label="已掃序號">{serials.map(code => <li key={code.normalized} className="break-all py-0.5 font-medium">{code.normalized}</li>)}</ul>
       : serials.length > 0 && <p className="truncate text-sm font-medium" aria-label="最新序號">{serials[serials.length - 1].normalized}</p>}
-    {models.length > 0 && <p className="truncate text-xs text-[#68776e]"><span className="mr-2">型號</span>{models.map(code => code.normalized + (code.modelCandidate ? '（待確認型號）' : '')).join('、')}</p>}
+    {models.length > 0 && <p className="truncate text-xs text-[#68776e]"><span className="mr-2">型號</span>{models.map(code => code.normalized + (code.kind === 'MODEL_CANDIDATE' ? '（待確認品項）' : '')).join('、')}</p>}
     {unknown.length > 0 && <details className="pt-1 text-xs text-amber-800"><summary className="cursor-pointer py-1">待確認 {counts.unknown} ›</summary><ul className="max-h-20 space-y-1 overflow-y-auto pb-1">{unknown.map(code => <li key={code.normalized} className="break-all whitespace-pre-wrap">{code.raw}</li>)}</ul></details>}
   </div>;
 }
@@ -68,7 +68,7 @@ export function BarcodeScanner({ initialBoxes, onBoxesFinish, onDetected, onBatc
       ? { ...entry, session: result.accepted ? 'ACCEPTED' : 'REJECTED', reason: result.duplicate ? 'duplicate' : result.conflict ? 'model conflict' : undefined, kinds: (result.classified || []).map(code => code.kind) } : entry));
     if (result.duplicate) {
       setBoxWarning('已掃過此序號 ' + result.duplicate.serial + ' · 箱 ' + result.duplicate.boxId);
-      if (manualEntry) setDuplicate(result.duplicate);
+      setRaw(''); setDuplicate(result.duplicate);
     } else setBoxWarning(result.conflict ? '偵測到不同型號，請確認後重新掃描。' : '');
     return result.accepted;
   };
@@ -216,7 +216,7 @@ export function BarcodeScanner({ initialBoxes, onBoxesFinish, onDetected, onBatc
       </div>
       <div className="flex max-h-[43dvh] shrink-0 flex-col rounded-t-xl bg-[#f8f7f3] text-[#303b35]" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
         <div className="min-h-0 overflow-y-auto px-4 pt-2">{onBoxesFinish ? <>
-          <BoxScanControls snapshot={boxSnapshot} disabled={finishing} onDeleteSerial={(id, serial) => editBox(() => boxSession.deleteSerial(id, serial))} onClear={() => editBox(() => boxSession.clearCurrent())} onComplete={() => editBox(() => boxSession.completeBox())} onDeleteBox={id => editBox(() => boxSession.deleteBox(id))} onReopen={id => editBox(() => boxSession.reopenBox(id))} onConfirmModel={useDetected => editBox(() => boxSession.confirmModel(useDetected))} />
+          <BoxScanControls snapshot={boxSnapshot} disabled={finishing} onDeleteSerial={(id, serial) => editBox(() => boxSession.deleteSerial(id, serial))} onClear={() => editBox(() => boxSession.clearCurrent())} onComplete={() => editBox(() => boxSession.completeBox())} onDeleteBox={id => editBox(() => boxSession.deleteBox(id))} onReopen={id => editBox(() => boxSession.reopenBox(id))} onConfirmModel={useDetected => editBox(() => boxSession.confirmModel(useDetected))} onResolveUnknown={(value, action) => editBox(() => boxSession.resolveUnknown(value, action))} />
           {debug && <ScannerDiagnostics entries={diagnostics} decodedCount={decodeCount} />}
           {boxWarning && <p role="alert" className="text-xs text-amber-800">{boxWarning}</p>}
           </> : <><ScannerCaptureResults codes={codes} expanded={expanded} onToggle={() => setExpanded(value => !value)} />{debug && <ScannerDiagnostics entries={diagnostics} />}</>}

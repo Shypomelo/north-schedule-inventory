@@ -25,7 +25,7 @@ test('twenty model frames and repeated serials never inflate quantity', () => {
 });
 test('two boxes of same model keep their own model and reject cross-box serials', () => {
   const s = new BoxScanSession(items); fill(s, 2); s.completeBox(); fill(s, 2, 3);
-  const result = s.add(serial(1)); assert.deepEqual(result.duplicate, { serial: serial(1), boxId: 1 });
+  const result = s.add(serial(1)); assert.deepEqual(result.duplicate, { serial: '000000001-3C', boxId: 1 });
   assert.equal(s.deviceCount, 4); const boxes = s.finish(); assert.equal(boxes.length, 2); assert(boxes.every(b => b.model.normalized === model));
 });
 test('model alone is zero devices and cannot quietly finish a box', () => {
@@ -69,10 +69,22 @@ test('reset clears model, serials, unknown and conflicts without affecting compl
   s.clearCurrent(); assert.deepEqual(s.snapshot().currentBox, { id: 2, model: undefined, serials: [], unknown: [], status: 'open' });
   assert.equal(s.snapshot().conflict, undefined); assert.equal(s.deviceCount, 1); assert.equal(s.add(serial(2)).accepted, true);
 });
-test('canonical short aliases dedupe and deletion releases both representations; distinct full identities stay distinct', () => {
+test('unknown actions classify, validate serial, and ignore without creating false devices', () => {
+  const s = new BoxScanSession(items);
+  s.add('27382202');
+  assert.throws(() => s.resolveUnknown('27382202', 'SERIAL'), /序號格式/);
+  assert.equal(s.deviceCount, 0);
+  s.resolveUnknown('27382202', 'IGNORE');
+  assert.equal(s.snapshot().currentBox.unknown.length, 0);
+  s.add('SN: 27382202');
+  s.resolveUnknown('27382202', 'MODEL');
+  assert.equal(s.snapshot().currentBox.model.kind, 'MODEL_CANDIDATE');
+  assert.equal(s.deviceCount, 0);
+});
+test('canonical short aliases dedupe and deletion releases both representations', () => {
   const s = new BoxScanSession(items); s.add(serial(1)); assert(s.add('000000001-3C').duplicate);
   s.deleteSerial(1, serial(1)); assert.equal(s.add('000000001-3C').accepted, true);
-  s.clearCurrent(); s.add(serial(1)); s.add('TK4725-000000001-3C'); assert.equal(s.deviceCount, 2);
+  s.clearCurrent(); s.add(serial(1)); assert(s.add('TK4725-000000001-3C').duplicate); assert.equal(s.deviceCount, 1);
 });
 test('snapshot survives return to scanner and mutations cannot affect the prior snapshot', () => {
   const s = new BoxScanSession(items); fill(s, 1); s.finish(); const snapshot = s.snapshot(); s.close();
@@ -92,7 +104,7 @@ test('three boxes / 21 serials produces actual arrival quantity 21, preserving p
 test('frontend deletions cause zero DB mutation; only surviving serials enter read-only lookup', async () => {
   let reads = 0; const s = new BoxScanSession(items); fill(s, 3); s.deleteSerial(1, serial(1)); s.completeBox();
   fill(s, 1, 4); s.completeBox(); s.deleteBox(2); fill(s, 1, 5); s.clearCurrent();
-  const drafts = await resolveBoxArrival(s.finish(), data, async values => { reads++; assert.deepEqual(values, [serial(2), serial(3)]); return values.map(noMatch); });
+  const drafts = await resolveBoxArrival(s.finish(), data, async values => { reads++; assert.deepEqual(values, ['000000002-3C', '000000003-3C']); return values.map(noMatch); });
   assert.equal(reads, 1); assert.equal(drafts.length, 2);
 });
 test('lookup conflict and model mismatch remain conflicts instead of being overwritten by box hint', async () => {
