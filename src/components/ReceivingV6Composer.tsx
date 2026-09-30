@@ -3,13 +3,14 @@
 import { useRef, useState } from 'react';
 import type { CreateArrivalResult } from '@/lib/db/receiving-v5';
 import type { ReceivingV6Api } from '@/lib/db/receiving-v6';
-import { finishSerialDraft, groupedSerialArrival, pendingSerialDraft, type SerialAutoDraft } from '@/lib/receiving-v6';
-import { pendingRows, sourceFields, serialsAlias, type PendingRow, type ReceivingSnapshot } from '@/lib/receiving-v5';
+import { groupedSerialArrival, type SerialAutoDraft } from '@/lib/receiving-v6';
+import { pendingRows, sourceFields, type PendingRow, type ReceivingSnapshot } from '@/lib/receiving-v5';
 import { InventoryItemCombobox } from './ReceivingSerialControls';
 import { useReceivingItems } from './useReceivingItems';
 import { ReceiptDateTimeInput } from './ReceiptDateTimeInput';
 import { ActionError, useV5Action, useV5Request, v5Field, v5Primary } from './ReceivingV5Forms';
-import type { ScannerCode } from '@/lib/receiving-scanner-session';
+import type { BoxSnapshot, ScanBox } from '@/lib/receiving-box-session';
+import { resolveBoxArrival } from '@/lib/receiving-box-arrival';
 import { BarcodeScanner } from './BarcodeScanner';
 import type { InventoryItem } from '@/lib/db/types';
 
@@ -37,51 +38,35 @@ export function ReceivingV6Composer({ data: initialData, api, preferred, onClose
   const [at, setAt] = useState<string | null>(new Date().toISOString());
   const [adjustTime, setAdjustTime] = useState(false);
   const [drafts, setDrafts] = useState<SerialAutoDraft[]>([]);
-  const [scanCodes, setScanCodes] = useState<ScannerCode[]>([]);
-  const current = useRef<SerialAutoDraft[]>([]), queue = useRef(Promise.resolve());
+  const [boxSnapshot, setBoxSnapshot] = useState<BoxSnapshot>();
+  const [submitted, setSubmitted] = useState(false);
+  const current = useRef<SerialAutoDraft[]>([]);
   const scannedModels = useRef(new Set<string>());
   const scannedUnknown = useRef(new Set<string>());
   const [resolving, setResolving] = useState(0);
-  const [scanWarning, setScanWarning] = useState('');
   const action = useV5Action(), request = useV5Request();
   const update = (next: SerialAutoDraft[]) => { current.current = next; setDrafts(next); };
-  const acceptScanBatch = (codes: ScannerCode[]): Promise<string> => {
-    const models = codes.filter(code => code.kind === 'MODEL' && code.itemId);
-    models.forEach(code => scannedModels.current.add(code.itemId!));
-    codes.filter(code => code.kind === 'UNKNOWN').forEach(code => scannedUnknown.current.add(code.normalized));
-    const serials = codes.filter(code => code.kind === 'SERIAL' && !current.current.some(d => serialsAlias(d.raw, code.normalized)));
-    if (!serials.length) return Promise.resolve(codes.some(code => code.kind === 'UNKNOWN') ? '有無法確認的條碼，請手動核對。' : '已擷取型號，請繼續掃描序號。');
-    setResolving(n => n + serials.length);
-    const task = queue.current.then(async () => {
-      // One indexed read resolves the quiet-window batch using the canonical
-      // normalization and ambiguity rules, then one UI update commits it.
-      const lookups = await api.lookupBatch(serials.map(code => code.normalized));
-      const added: SerialAutoDraft[] = [];
-      for (let i = 0; i < serials.length; i++) {
-        const raw = serials[i].normalized;
-        if (current.current.some(d => serialsAlias(d.raw, raw)) || added.some(d => serialsAlias(d.raw, raw))) continue;
-        let draft = finishSerialDraft(pendingSerialDraft(raw, data, preferred?.projectId), lookups[i], data, preferred);
-        if (draft.state === 'unknown' && !draft.candidates.length && scannedModels.current.size === 1) {
-          const hinted = data.items.find(item => item.id === Array.from(scannedModels.current)[0] && item.is_active && item.requires_serial);
-          if (hinted) draft = { ...draft, itemId: hinted.id, state: 'known' };
-        }
-        if (preferred && !draft.candidates.length && draft.state === 'known' && draft.itemId === preferred.itemId) draft = { ...draft, pendingKey: preferred.key };
-        added.push(draft);
-      }
-      if (added.length) update([...current.current, ...added]);
-      return `已加入 ${added.length} 筆序號${codes.some(code => code.kind === 'UNKNOWN') ? '；另有條碼待確認' : ''}`;
-    });
-    queue.current = task.then(() => {}, () => {});
-    return task.finally(() => setResolving(n => n - serials.length));
+  const acceptBoxes = async (boxes: ScanBox[], snapshot: BoxSnapshot) => {
+    if (submitted) throw new Error('已完成實際到貨，請使用修改／撤回／更正。');
+    setResolving(1);
+    try {
+      const next = await resolveBoxArrival(boxes, data, serials => api.lookupBatch(serials), preferred);
+      update(next);
+      setBoxSnapshot(snapshot);
+      scannedModels.current = new Set(boxes.flatMap(box => box.model?.itemId ? [box.model.itemId] : []));
+      scannedUnknown.current = new Set(boxes.flatMap(box => box.unknown.map(code => code.normalized)));
+      setPhase('review');
+    } finally { setResolving(0); }
   };
   const item = data.items.find(i => i.id === itemId && !i.requires_serial);
   const suggestions = pending.filter(p => !p.legacy && p.itemId === item?.id && p.fulfilment.active && p.fulfilment.remaining >= Number(quantity));
   const model = scannedModels.current.size === 1 ? data.items.find(i => i.id === Array.from(scannedModels.current)[0]) : undefined;
-  if (phase === 'scan') return <BarcodeScanner mode="continuous" items={data.items} initialCodes={scanCodes} onCodesChange={setScanCodes} warning={scanWarning}
-    onBatch={codes => acceptScanBatch(codes).then(() => { setScanWarning(''); }).catch(error => { setScanWarning('序號確認失敗，請重新掃描。'); throw error; })} onDetected={() => { /* Continuous scans use the session batch callback. */ }}
-    onCancel={onClose} onFinish={() => setPhase('review')} onNoBarcode={() => setPhase('plain')} />;
+  if (phase === 'scan') return <BarcodeScanner mode="continuous" items={data.items} initialBoxes={boxSnapshot}
+    onBoxesFinish={acceptBoxes} onDetected={() => { /* Box session owns capture until final confirmation. */ }}
+    onCancel={onClose} onNoBarcode={() => setPhase('plain')} />;
   return <form aria-label="實際到貨" className="min-w-0 space-y-4" onSubmit={event => {
     event.preventDefault();
+    if (submitted) return;
     if (event.currentTarget.querySelector('[aria-invalid="true"]')) { action.setError('請先確認到貨時間。'); return; }
     void action.run(async () => {
       if (!at) throw new Error('請確認到貨時間。');
@@ -92,11 +77,13 @@ export function ReceivingV6Composer({ data: initialData, api, preferred, onClose
       if (!prepared.lines.length) throw new Error('請加入序號，或選擇品項並填寫數量。');
       if (phase === 'plain' && plainTarget && !prepared.matches.length) throw new Error('預計收貨可對應數量不足，請重新選擇。');
       const result = await api.create(request({ p_actual_received_at: at, p_lines: prepared.lines, p_matches: prepared.matches, p_project_id: preferred?.projectId || null }));
+      setSubmitted(true);
       await onSaved(result);
     });
   }}>
-    <fieldset disabled={action.busy} className="min-w-0 space-y-4">
+    <fieldset disabled={action.busy || submitted} className="min-w-0 space-y-4">
       {phase === 'review' ? <>
+        <p className="text-sm text-secondary">已掃 {boxSnapshot?.completedBoxes.length || 0} 箱・共 {drafts.length} 台</p>
         <SerializedArrivalReview drafts={drafts} model={model} unknownCount={scannedUnknown.current.size} resolving={Boolean(resolving)} />
         {preferred && <p className="text-xs text-secondary">對應預計收貨：{preferred.label}｜{preferred.projectLabel}</p>}
         {drafts.filter(d => d.choiceRequired).map(d => <label key={d.raw} className="block text-sm">{d.raw}：選擇預計收貨<select className={v5Field} value="" disabled={Boolean(resolving)} onChange={e => { const target = pending.find(p => p.key === e.target.value); update(current.current.map(x => x.raw === d.raw ? { ...x, pendingKey: target?.key || null, itemId: target?.itemId || x.itemId, state: target?.itemId || x.itemId ? 'known' : 'unknown', choiceRequired: false } : x)); }}><option value="" disabled>請選擇</option>{d.candidates.map(key => { const p = pending.find(p => p.key === key)!; return <option value={key} key={key}>{p.label}｜{p.projectLabel}｜剩餘 {p.fulfilment.remaining}</option>; })}<option value="standalone">保留未對應</option></select></label>)}
@@ -109,7 +96,7 @@ export function ReceivingV6Composer({ data: initialData, api, preferred, onClose
       <div className="border-t border-theme-border pt-3"><div className="flex items-center justify-between gap-2 text-sm"><span>到貨時間：{adjustTime ? '已調整' : '現在'}</span><button type="button" className="min-h-11 px-2 text-sm text-accent" onClick={() => setAdjustTime(v => !v)}>調整</button></div>{adjustTime && <ReceiptDateTimeInput label="實際到貨" value={at} onChange={setAt} required />}</div>
     </fieldset>
     <ActionError message={action.error} />
-    <button className={v5Primary + ' w-full'} disabled={action.busy || Boolean(resolving) || drafts.some(d => d.choiceRequired) || (phase === 'review' ? !drafts.length : !item)}>{action.busy ? '儲存中…' : '完成實際到貨'}</button>
-    <div className="flex justify-between text-sm"><button type="button" className="min-h-11 px-2 text-accent" disabled={action.busy || Boolean(resolving)} onClick={() => setPhase('scan')}>返回掃描</button><button type="button" className="min-h-11 px-2 text-secondary" disabled={action.busy || Boolean(resolving)} onClick={onClose}>取消</button></div>
+    <button className={v5Primary + ' w-full'} disabled={submitted || action.busy || Boolean(resolving) || drafts.some(d => d.choiceRequired) || (phase === 'review' ? !drafts.length : !item)}>{submitted ? '已完成實際到貨' : action.busy ? '儲存中…' : '完成實際到貨'}</button>
+    <div className="flex justify-between text-sm"><button type="button" className="min-h-11 px-2 text-accent" disabled={submitted || action.busy || Boolean(resolving)} onClick={() => setPhase('scan')}>返回掃描</button><button type="button" className="min-h-11 px-2 text-secondary" disabled={submitted || action.busy || Boolean(resolving)} onClick={onClose}>取消</button></div>
   </form>;
 }

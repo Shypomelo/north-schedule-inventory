@@ -31,7 +31,7 @@ test('actual arrival opens the continuous camera directly', () => {
   assert.match(html, /data-testid="direct-scanner"/);
   assert.equal(scannerProps.mode, 'continuous');
   assert.equal(typeof scannerProps.onNoBarcode, 'function');
-  assert.equal(typeof scannerProps.onBatch, 'function');
+  assert.equal(typeof scannerProps.onBoxesFinish, 'function');
   assert(!html.includes('批次輸入'));
   assert(!html.includes('有序號設備'));
   assert(!html.includes('無序號物料 分頁'));

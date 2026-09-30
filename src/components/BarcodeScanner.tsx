@@ -5,9 +5,11 @@ import { createPortal } from 'react-dom';
 import { CameraOff, ChevronDown, Flashlight, SwitchCamera, X } from 'lucide-react';
 import { BarcodeCamera } from '@/lib/barcode-camera';
 import { ScannerSession, scannerCounts, type ScannerCode, type ScannerKind } from '@/lib/receiving-scanner-session';
+import { BoxScanSession, type BoxSnapshot, type ScanBox } from '@/lib/receiving-box-session';
+import { BoxScanControls } from './BoxScanControls';
 import type { InventoryItem } from '@/lib/db/types';
 
-export interface BarcodeScannerProps { onDetected: (raw: string) => void; onBatch?: (codes: ScannerCode[]) => void | Promise<void>; items?: InventoryItem[]; initialCodes?: ScannerCode[]; onCodesChange?: (codes: ScannerCode[]) => void; warning?: string; onNoBarcode?: () => void; onCancel: () => void; initialMode?: 'camera' | 'manual'; initialValue?: string; mode?: 'single' | 'continuous'; onFinish?: () => void; children?: ReactNode }
+export interface BarcodeScannerProps { initialBoxes?: BoxSnapshot; onBoxesFinish?: (boxes: ScanBox[], snapshot: BoxSnapshot) => Promise<void>; onDetected: (raw: string) => void; onBatch?: (codes: ScannerCode[]) => void | Promise<void>; items?: InventoryItem[]; initialCodes?: ScannerCode[]; onCodesChange?: (codes: ScannerCode[]) => void; warning?: string; onNoBarcode?: () => void; onCancel: () => void; initialMode?: 'camera' | 'manual'; initialValue?: string; mode?: 'single' | 'continuous'; onFinish?: () => void; children?: ReactNode }
 const button = 'min-h-11 rounded-lg border border-white/40 px-4 py-2 disabled:opacity-50';
 type ScanDiagnostic = { raw: string; session: 'PENDING' | 'ACCEPTED' | 'REJECTED'; reason?: string; kinds: ScannerKind[] };
 
@@ -45,7 +47,42 @@ export function ScannerCaptureResults({ codes, expanded = false, onToggle }: { c
   </div>;
 }
 
-export function BarcodeScanner({ onDetected, onBatch, items, initialCodes = [], onCodesChange, warning, onNoBarcode, onCancel, initialMode = 'camera', initialValue = '', mode = 'single', onFinish, children }: BarcodeScannerProps) {
+export function BarcodeScanner({ initialBoxes, onBoxesFinish, onDetected, onBatch, items, initialCodes = [], onCodesChange, warning, onNoBarcode, onCancel, initialMode = 'camera', initialValue = '', mode = 'single', onFinish, children }: BarcodeScannerProps) {
+  const [boxSession] = useState(() => new BoxScanSession(items || [], initialBoxes));
+  const [boxSnapshot, setBoxSnapshot] = useState(() => boxSession.snapshot());
+  const [boxWarning, setBoxWarning] = useState('');
+  const [duplicate, setDuplicate] = useState<{ serial: string; boxId: number }>();
+  const [finishing, setFinishing] = useState(false);
+  const finishingRef = useRef(false);
+  const decodedCodes = useRef(new Set<string>());
+  const [decodeCount, setDecodeCount] = useState(0);
+  const boxFinishCallback = useRef(onBoxesFinish); boxFinishCallback.current = onBoxesFinish;
+  const editBox = (action: () => void) => { try { action(); setBoxSnapshot(boxSession.snapshot()); setBoxWarning(''); } catch (error) { setBoxWarning((error as Error).message); } };
+  const acceptBoxCode = (value: string, manualEntry = false) => {
+    if (finishingRef.current) return false;
+    const result = boxSession.add(manualEntry ? 'SN: ' + value : value);
+    setBoxSnapshot(boxSession.snapshot());
+    if (result.duplicate) {
+      setBoxWarning('已掃過此序號 ' + result.duplicate.serial + ' · 箱 ' + result.duplicate.boxId);
+      if (manualEntry) setDuplicate(result.duplicate);
+    } else setBoxWarning(result.conflict ? '偵測到不同型號，請確認後重新掃描。' : '');
+    return result.accepted;
+  };
+  const finishBoxes = async () => {
+    if (finishingRef.current) return;
+    try {
+      const boxes = boxSession.finish();
+      setBoxSnapshot(boxSession.snapshot());
+      finishingRef.current = true; setFinishing(true); camera.current?.stop();
+      await boxFinishCallback.current?.(boxes, boxSession.snapshot());
+      boxSession.close();
+    } catch (error) {
+      setBoxWarning((error as Error).message);
+      const wasPaused = finishingRef.current;
+      finishingRef.current = false; setFinishing(false);
+      if (wasPaused) void camera.current?.start(device || undefined);
+    }
+  };
   const video = useRef<HTMLVideoElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const dialog = useRef<HTMLElement>(null);
@@ -84,12 +121,12 @@ export function BarcodeScanner({ onDetected, onBatch, items, initialCodes = [], 
     const overflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     dialog.current?.focus();
-    if (batchCallback.current && itemsAtOpen.current) session.current = new ScannerSession(itemsAtOpen.current, batch => batchCallback.current?.(batch), next => { setCodes(next); codesCallback.current?.(next); }, 450, initialCodesAtOpen.current);
+    if (!boxFinishCallback.current && batchCallback.current && itemsAtOpen.current) session.current = new ScannerSession(itemsAtOpen.current, batch => batchCallback.current?.(batch), next => { setCodes(next); codesCallback.current?.(next); }, 450, initialCodesAtOpen.current);
     const cameraSession = new BarcodeCamera(video.current, value => {
       const cameraRaw = pendingCameraRaw.current === value;
       pendingCameraRaw.current = undefined;
       const result = batchCallback.current && itemsAtOpen.current ? session.current?.addDetailed(value) : undefined;
-      const added = result ? result.accepted : (callbacks.current.onDetected(value), true);
+      const added = boxFinishCallback.current ? acceptBoxCode(value) : result ? result.accepted : (callbacks.current.onDetected(value), true);
       if (cameraRaw && result) setDiagnostics(previous => previous.map(entry => entry.raw === value && entry.session === 'PENDING'
         ? { ...entry, session: result.accepted ? 'ACCEPTED' : 'REJECTED', reason: result.reason, kinds: result.classified.map(code => code.kind) }
         : entry));
@@ -114,6 +151,10 @@ export function BarcodeScanner({ onDetected, onBatch, items, initialCodes = [], 
         if (active) setDevices(rows.filter(row => row.kind === 'videoinput'));
       }).catch(() => { /* Scanning still works when enumeration is unavailable. */ });
     }, undefined, mode, (value, accepted) => {
+      if (boxFinishCallback.current) {
+        if (!decodedCodes.current.has(value)) { decodedCodes.current.add(value); setDecodeCount(decodedCodes.current.size); }
+        return;
+      }
       if (!batchCallback.current || !itemsAtOpen.current) return;
       if (accepted) pendingCameraRaw.current = value;
       setDiagnostics(previous => previous.some(entry => entry.raw === value) ? previous : [
@@ -139,7 +180,7 @@ export function BarcodeScanner({ onDetected, onBatch, items, initialCodes = [], 
   }, [mounted, initialMode, mode]);
 
   if (!mounted) return null;
-  if (onBatch) return createPortal(<div className="fixed inset-0 z-[200] bg-black" onKeyDown={event => { event.stopPropagation(); if (event.key === 'Escape') { event.preventDefault(); cancel(); } }}>
+  if (onBatch || onBoxesFinish) return createPortal(<div className="fixed inset-0 z-[200] bg-black" onKeyDown={event => { event.stopPropagation(); if (event.key === 'Escape') { event.preventDefault(); cancel(); } }}>
     <section ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-label="實際到貨掃描" data-scanner-state={cameraState === 'error' ? 'ERROR' : 'READY'}
       className="flex h-[100dvh] min-h-0 w-full flex-col overflow-hidden bg-black outline-none sm:mx-auto sm:max-w-lg sm:shadow-2xl">
       <div className="relative min-h-0 flex-1 overflow-hidden bg-black">
@@ -164,19 +205,23 @@ export function BarcodeScanner({ onDetected, onBatch, items, initialCodes = [], 
         <p role="status" className="sr-only">{message}</p>
       </div>
       <div className="flex max-h-[43dvh] shrink-0 flex-col rounded-t-xl bg-[#f8f7f3] text-[#303b35]" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
-        <div className="min-h-0 overflow-y-auto px-4 pt-2"><ScannerCaptureResults codes={codes} expanded={expanded} onToggle={() => setExpanded(value => !value)} />
-          <ScannerDiagnostics entries={diagnostics} />
+        <div className="min-h-0 overflow-y-auto px-4 pt-2">{onBoxesFinish ? <>
+          <BoxScanControls snapshot={boxSnapshot} disabled={finishing} onDeleteSerial={(id, serial) => editBox(() => boxSession.deleteSerial(id, serial))} onClear={() => editBox(() => boxSession.clearCurrent())} onComplete={() => editBox(() => boxSession.completeBox())} onDeleteBox={id => editBox(() => boxSession.deleteBox(id))} onReopen={id => editBox(() => boxSession.reopenBox(id))} onConfirmModel={useDetected => editBox(() => boxSession.confirmModel(useDetected))} />
+          <details className="text-xs text-[#68776e]"><summary className="min-h-9 cursor-pointer py-2">掃碼量測</summary>解碼不同碼 {decodeCount} · 目前這箱序號 {boxSnapshot.currentBox.serials.length}</details>
+          {boxWarning && <p role="alert" className="text-xs text-amber-800">{boxWarning}</p>}
+          </> : <><ScannerCaptureResults codes={codes} expanded={expanded} onToggle={() => setExpanded(value => !value)} /><ScannerDiagnostics entries={diagnostics} /></>}
           {warning && <p role="alert" className="mt-1 text-xs text-amber-800">{warning}</p>}
-          {inlineManual && <form className="mt-2 flex items-end gap-2" onSubmit={event => { event.preventDefault(); event.stopPropagation(); if (!raw.trim()) return; camera.current?.accept(raw); setRaw(''); setInlineManual(false); }}>
+          {inlineManual && <form className="mt-2 flex items-end gap-2" onSubmit={event => { event.preventDefault(); event.stopPropagation(); if (!raw.trim() || finishing) return; const value = raw; setRaw(''); if (onBoxesFinish) acceptBoxCode(value, true); else camera.current?.accept(value); input.current?.focus(); }}>
             <label className="min-w-0 flex-1 text-xs text-[#68776e]">序號<input ref={input} autoFocus autoComplete="off" autoCapitalize="characters" autoCorrect="off" spellCheck={false} value={raw} onChange={event => setRaw(event.target.value)} className="mt-1 h-11 w-full rounded-lg bg-white px-3 text-base text-[#303b35] outline-none ring-1 ring-[#d6ddd5] focus:ring-emerald-600" /></label>
             <button type="submit" disabled={!raw.trim()} className="h-11 rounded-lg bg-emerald-700 px-4 text-sm font-semibold text-white disabled:opacity-40">加入</button>
           </form>}
           {!inlineManual && <button type="button" className="min-h-11 text-sm font-medium text-emerald-800" onClick={() => setInlineManual(true)}>＋ 手動輸入序號</button>}
         </div>
-        <div className="shrink-0 px-4 pt-1"><button type="button" className="min-h-12 w-full rounded-lg bg-emerald-700 px-4 text-base font-semibold text-white" onClick={() => { camera.current?.dispose(); session.current?.flush(); (onFinish || onCancel)(); }}>完成掃描</button>
-          {onNoBarcode && scannerCounts(codes).serial === 0 && <button type="button" className="mt-1 min-h-11 w-full text-center text-xs text-[#68776e]" onClick={() => { camera.current?.dispose(); session.current?.dispose(); onNoBarcode(); }}>無條碼物料</button>}
+        <div className="shrink-0 px-4 pt-1"><button type="button" disabled={finishing} className="min-h-12 w-full rounded-lg bg-emerald-700 px-4 text-base font-semibold text-white" onClick={() => { if (onBoxesFinish) { void finishBoxes(); return; } camera.current?.dispose(); session.current?.flush(); (onFinish || onCancel)(); }}>{finishing ? '確認序號中…' : '完成掃描'}</button>
+          {onNoBarcode && !finishing && (onBoxesFinish ? boxSession.deviceCount === 0 : scannerCounts(codes).serial === 0) && <button type="button" className="mt-1 min-h-11 w-full text-center text-xs text-[#68776e]" onClick={() => { camera.current?.dispose(); session.current?.dispose(); onNoBarcode(); }}>無條碼物料</button>}
         </div>
       </div>
+      {duplicate && <div role="alertdialog" aria-modal="true" aria-label="重複序號" onKeyDown={event => { event.stopPropagation(); if (event.key === 'Escape') { event.preventDefault(); setDuplicate(undefined); input.current?.focus(); } if (event.key === 'Tab') event.preventDefault(); }} className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 p-6"><div className="w-full max-w-sm rounded-xl bg-white p-4 text-[#303b35]"><p className="font-semibold">已掃過此序號</p><p className="break-all text-sm">{duplicate.serial}</p><p className="text-sm">箱 {duplicate.boxId}</p><button autoFocus type="button" className="mt-3 min-h-11 w-full rounded-lg bg-emerald-700 text-white" onClick={() => { setDuplicate(undefined); input.current?.focus(); }}>關閉</button></div></div>}
     </section>
   </div>, document.body);
   return createPortal(<div className={`fixed inset-0 z-[200] flex justify-center bg-black/80 text-white sm:items-center sm:p-4 ${manual ? 'items-start pt-[max(1rem,env(safe-area-inset-top))]' : 'items-center'}`} onKeyDown={event => {

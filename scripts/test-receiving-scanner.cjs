@@ -10,7 +10,7 @@ function camera(overrides = {}) {
   const video = { srcObject: null, readyState: 2, pause() {}, play: async () => {} };
   const session = new BarcodeCamera(video, raw => values.push(raw), (...state) => states.push(state), () => {}, {
     getUserMedia: async value => { constraints.push(value); return stream; },
-    loadDecoder: async () => ({ decode: () => ({ getText: () => ' Raw Value ' }) }), ...overrides,
+    loadDecoder: async () => ({ decode: () => [' Raw Value '] }), ...overrides,
   });
   return { session, stream, video, values, states, constraints, get stopped() { return stopped; } };
 }
@@ -20,7 +20,7 @@ test('SCANNER-1/2: first decode stops stream; duplicate frames/manual callbacks 
   assert.equal(h.constraints[0].audio, false); assert.equal(h.constraints[0].video.facingMode.ideal, 'environment');
 });
 for (const method of ['stop', 'dispose']) test(`SCANNER-3/4: ${method} stops tracks and clears preview`, async () => {
-  const h = camera({ loadDecoder: async () => ({ decode() { return undefined; } }) });
+  const h = camera({ loadDecoder: async () => ({ decode() { return []; } }) });
   await h.session.start(); assert(h.video.srcObject); h.session[method](); assert.equal(h.stopped, 1); assert.equal(h.video.srcObject, null);
   await new Promise(resolve => setTimeout(resolve, 230)); assert.equal(h.values.length, 0);
 });
@@ -67,7 +67,7 @@ test('SCAN-1/2/3: continuous unique callbacks, same-code debounce and finish cle
  const video={readyState:2,play:async()=>{},pause(){},srcObject:null};
  const c=new BarcodeCamera(video,v=>values.push(v),()=>{},()=>{},{
  getUserMedia:async()=>({getTracks:()=>[{stop(){stopped++;}}]}),
- loadDecoder:async()=>({decode(){decodes++;return {getText:()=>decodes===1?'A':'B'};}})
+ loadDecoder:async()=>({decode(){decodes++;return [decodes===1?'A':'B'];}})
  },'continuous');
  await c.start();assert.equal(stopped,0);assert.deepEqual(values,['A']);
  c.accept('A');assert.equal(values.length,1);
