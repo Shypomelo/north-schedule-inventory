@@ -2,6 +2,10 @@
 import { memo, useRef, useState } from 'react';
 import { boxDeviceCount, completedBoxCount, uniqueBoxSerials, type BoxSnapshot, type ScanBox } from '@/lib/receiving-box-session';
 
+const modelLabel = (box: ScanBox) => box.model
+  ? box.model.itemName && box.model.itemName !== box.model.normalized ? `${box.model.normalized} · ${box.model.itemName}` : box.model.normalized
+  : '待確認型號';
+
 type BoxHandlers = {
   onDeleteSerial: (boxId: number, serial: string) => void;
   onDeleteBox: (boxId: number) => void;
@@ -17,7 +21,7 @@ function serialRows(box: ScanBox, disabled: boolean | undefined, handlers: { cur
 const CompletedBoxHistory = memo(function CompletedBoxHistory({ boxes, disabled, handlers }: { boxes: ScanBox[]; disabled?: boolean; handlers: { current: BoxHandlers } }) {
   return <>
     <div className="border-t border-[#d6ddd5] pt-2 text-xs">已完成 {completedBoxCount(boxes)} 箱・{uniqueBoxSerials(boxes).length} 台</div>
-    {boxes.map(box => <details key={box.id} className="text-xs"><summary className="flex min-h-11 cursor-pointer items-center justify-between gap-2"><span className="min-w-0 truncate">箱 {box.id} · {box.model?.normalized || '待確認型號'} · {box.serials.length} 台{box.status === 'incomplete' ? '（未完成）' : ''}</span><span aria-label={`箱 ${box.id} 操作`}>⋯</span></summary>
+    {boxes.map(box => <details key={box.id} className="text-xs"><summary className="flex min-h-11 cursor-pointer items-center justify-between gap-2"><span className="min-w-0 truncate">箱 {box.id} · {modelLabel(box)} · {box.serials.length} 台{box.status === 'incomplete' ? '（未完成）' : ''}</span><span aria-label={`箱 ${box.id} 操作`}>⋯</span></summary>
       <p className="text-[#68776e]">編輯 / 查看序號</p>{serialRows(box, disabled, handlers)}
       <div className="flex gap-4"><button type="button" className="min-h-11 text-emerald-800" onClick={() => handlers.current.onReopen(box.id)}>繼續掃描這箱</button><button type="button" className="min-h-11 text-red-800" onClick={() => { if (window.confirm(`刪除箱 ${box.id}？其中序號可重新掃入。`)) handlers.current.onDeleteBox(box.id); }}>刪除這箱</button></div>
     </details>)}
@@ -37,7 +41,7 @@ export function BoxScanControls({ snapshot, disabled, onDeleteSerial, onClear, o
   return <fieldset disabled={disabled} className="min-w-0 space-y-1">
     <div className="flex items-center justify-between"><p className="text-sm font-semibold">目前這箱</p><button type="button" className="min-h-11 text-xs text-[#68776e]" onClick={() => { if (window.confirm('清空目前這箱的型號、序號與待確認資料？')) onClear(); }}>清空目前這箱</button></div>
     <p aria-label="目前這箱設備數" className="text-xl font-semibold tabular-nums">{boxDeviceCount(currentBox)} 台</p>
-    <p className="truncate text-xs">型號　{currentBox.model?.normalized || '尚未辨識'}{currentBox.model?.kind === 'MODEL_CANDIDATE' ? '（待確認品項）' : ''}</p>
+    <p className="truncate text-xs">型號　{currentBox.model ? modelLabel(currentBox) : '尚未辨識'}{currentBox.model?.kind === 'MODEL_CANDIDATE' ? '（待確認品項）' : ''}</p>
     {currentBox.model && !currentBox.serials.length && <p className="text-xs text-[#68776e]">已辨識型號・尚未掃到序號</p>}
     <button type="button" aria-expanded={expanded} className="flex min-h-11 w-full items-center justify-between text-sm font-semibold" onClick={() => setExpanded(v => !v)}>已掃序號 {boxDeviceCount(currentBox)}<span aria-hidden="true">{expanded ? '⌃' : '⌄'}</span></button>
     {expanded && serialRows(currentBox, disabled, handlers)}

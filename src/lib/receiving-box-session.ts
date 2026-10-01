@@ -55,7 +55,7 @@ export class BoxScanSession {
     }
     if (this.conflict) return { accepted: false, conflict: true, classified: codes };
     let duplicate: BoxScanResult['duplicate'];
-    for (const code of codes.filter(c => c.kind !== 'MODEL')) {
+    for (const code of codes.filter(c => c.kind !== 'MODEL' && c.kind !== 'MODEL_CANDIDATE')) {
       if (code.kind === 'SERIAL') {
         const ownerId = this.serialOwner.get(code.normalized);
         if (ownerId !== undefined) { duplicate = { serial: code.normalized, boxId: ownerId }; continue; }
@@ -66,6 +66,21 @@ export class BoxScanSession {
       }
     }
     return { accepted, duplicate, classified: codes };
+  }
+  bindModelItem(normalized: string, item: InventoryItem) {
+    this.assertOpen();
+    const key = normalizeSerialInput(normalized);
+    if (normalizeSerialInput(item.canonical_identity_key || '') !== key && normalizeSerialInput(item.code) !== key)
+      throw new Error('型號與品項識別碼不一致。');
+    this.items = [...this.items.filter(old => old.id !== item.id), item];
+    if (this.current.model?.kind === 'MODEL' && this.current.model.normalized === key)
+      this.current.model = { ...this.current.model, itemId: item.id, itemName: item.name };
+    let completedChanged = false;
+    for (const box of this.completed) if (box.model?.kind === 'MODEL' && box.model.normalized === key) {
+      box.model = { ...box.model, itemId: item.id, itemName: item.name };
+      completedChanged = true;
+    }
+    if (completedChanged) this.completedSnapshot = this.completed.map(copyBox);
   }
   confirmModel(useDetected: boolean) {
     this.assertOpen();

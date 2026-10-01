@@ -9,7 +9,7 @@ import { BoxScanSession, type BoxSnapshot, type ScanBox } from '@/lib/receiving-
 import { BoxScanControls } from './BoxScanControls';
 import type { InventoryItem } from '@/lib/db/types';
 
-export interface BarcodeScannerProps { initialBoxes?: BoxSnapshot; onBoxesFinish?: (boxes: ScanBox[], snapshot: BoxSnapshot) => Promise<void>; onDetected: (raw: string) => void; onBatch?: (codes: ScannerCode[]) => void | Promise<void>; items?: InventoryItem[]; initialCodes?: ScannerCode[]; onCodesChange?: (codes: ScannerCode[]) => void; warning?: string; onNoBarcode?: () => void; onCancel: () => void; initialMode?: 'camera' | 'manual'; initialValue?: string; mode?: 'single' | 'continuous'; onFinish?: () => void; children?: ReactNode }
+export interface BarcodeScannerProps { initialBoxes?: BoxSnapshot; onBoxesFinish?: (boxes: ScanBox[], snapshot: BoxSnapshot) => Promise<void>; onResolveModel?: (normalizedPN: string) => Promise<InventoryItem>; onDetected: (raw: string) => void; onBatch?: (codes: ScannerCode[]) => void | Promise<void>; items?: InventoryItem[]; initialCodes?: ScannerCode[]; onCodesChange?: (codes: ScannerCode[]) => void; warning?: string; onNoBarcode?: () => void; onCancel: () => void; initialMode?: 'camera' | 'manual'; initialValue?: string; mode?: 'single' | 'continuous'; onFinish?: () => void; children?: ReactNode }
 const button = 'min-h-11 rounded-lg border border-white/40 px-4 py-2 disabled:opacity-50';
 type ScanDiagnostic = { raw: string; session: 'PENDING' | 'ACCEPTED' | 'REJECTED'; reason?: string; kinds: ScannerKind[] };
 
@@ -55,7 +55,7 @@ export function ScannerCaptureResults({ codes, expanded = false, onToggle }: { c
   </div>;
 }
 
-export function BarcodeScanner({ initialBoxes, onBoxesFinish, onDetected, onBatch, items, initialCodes = [], onCodesChange, warning, onNoBarcode, onCancel, initialMode = 'camera', initialValue = '', mode = 'single', onFinish, children }: BarcodeScannerProps) {
+export function BarcodeScanner({ initialBoxes, onBoxesFinish, onResolveModel, onDetected, onBatch, items, initialCodes = [], onCodesChange, warning, onNoBarcode, onCancel, initialMode = 'camera', initialValue = '', mode = 'single', onFinish, children }: BarcodeScannerProps) {
   const [boxSession] = useState(() => new BoxScanSession(items || [], initialBoxes));
   const [boxSnapshot, setBoxSnapshot] = useState(() => boxSession.snapshot());
   const [boxWarning, setBoxWarning] = useState('');
@@ -68,11 +68,29 @@ export function BarcodeScanner({ initialBoxes, onBoxesFinish, onDetected, onBatc
   const [frameDiagnostic, setFrameDiagnostic] = useState<BarcodeFrameDiagnostic>();
   const debugRef = useRef(false);
   const boxFinishCallback = useRef(onBoxesFinish); boxFinishCallback.current = onBoxesFinish;
+  const modelCallback = useRef(onResolveModel); modelCallback.current = onResolveModel;
+  const pendingModels = useRef(new Map<string, Promise<void>>());
+  const resolveModel = (code: ScannerCode): Promise<void> => {
+    if (code.kind !== 'MODEL' || code.itemId || !modelCallback.current) return Promise.resolve();
+    const pending = pendingModels.current.get(code.normalized);
+    if (pending) return pending;
+    const request = modelCallback.current(code.normalized).then(item => {
+      boxSession.bindModelItem(code.normalized, item);
+      setBoxSnapshot(boxSession.snapshot());
+      setBoxWarning('');
+    }).catch(error => {
+      setBoxWarning((error as Error).message);
+      throw error;
+    }).finally(() => { pendingModels.current.delete(code.normalized); });
+    pendingModels.current.set(code.normalized, request);
+    return request;
+  };
   const editBox = (action: () => void) => { try { action(); setBoxSnapshot(boxSession.snapshot()); setBoxWarning(''); } catch (error) { setBoxWarning((error as Error).message); } };
   const acceptBoxCode = (value: string, manualEntry = false) => {
     if (finishingRef.current) return false;
     const result = boxSession.add(manualEntry ? 'SN: ' + value : value);
     if (result.accepted || result.conflict) setBoxSnapshot(boxSession.snapshot());
+    if (result.accepted && !result.conflict) for (const code of result.classified || []) void resolveModel(code).catch(() => { /* The warning remains available for retry at finish. */ });
     if (debugRef.current && !manualEntry) setDiagnostics(previous => previous.map(entry => entry.raw === value
       ? { ...entry, session: result.accepted ? 'ACCEPTED' : 'REJECTED', reason: result.duplicate ? 'duplicate' : result.conflict ? 'model conflict' : undefined, kinds: (result.classified || []).map(code => code.kind) } : entry));
     if (result.duplicate) {
@@ -84,9 +102,11 @@ export function BarcodeScanner({ initialBoxes, onBoxesFinish, onDetected, onBatc
   const finishBoxes = async () => {
     if (finishingRef.current) return;
     try {
+      const initialBoxes = boxSession.finish();
+      finishingRef.current = true; setFinishing(true); camera.current?.stop();
+      await Promise.all(initialBoxes.flatMap(box => box.model?.kind === 'MODEL' && !box.model.itemId ? [resolveModel(box.model)] : []));
       const boxes = boxSession.finish();
       setBoxSnapshot(boxSession.snapshot());
-      finishingRef.current = true; setFinishing(true); camera.current?.stop();
       await boxFinishCallback.current?.(boxes, boxSession.snapshot());
       boxSession.close();
     } catch (error) {

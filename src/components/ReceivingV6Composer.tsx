@@ -11,6 +11,7 @@ import { ReceiptDateTimeInput } from './ReceiptDateTimeInput';
 import { ActionError, useV5Action, useV5Request, v5Field, v5Primary } from './ReceivingV5Forms';
 import type { BoxSnapshot, ScanBox } from '@/lib/receiving-box-session';
 import { resolveBoxArrival } from '@/lib/receiving-box-arrival';
+import { ScannerModelResolver } from '@/lib/receiving-scanner-model';
 import { BarcodeScanner } from './BarcodeScanner';
 import type { InventoryItem } from '@/lib/db/types';
 
@@ -43,14 +44,25 @@ export function ReceivingV6Composer({ data: initialData, api, preferred, onClose
   const current = useRef<SerialAutoDraft[]>([]);
   const scannedModels = useRef(new Set<string>());
   const scannedUnknown = useRef(new Set<string>());
+  const resolvedItems = useRef(new Map<string, InventoryItem>());
+  const modelResolver = useRef<ScannerModelResolver | null>(null);
+  if (!modelResolver.current) modelResolver.current = new ScannerModelResolver(initialData.items, createItem);
   const [resolving, setResolving] = useState(0);
   const action = useV5Action(), request = useV5Request();
   const update = (next: SerialAutoDraft[]) => { current.current = next; setDrafts(next); };
+  const resolveModel = async (normalizedPN: string) => {
+    const item = await modelResolver.current!.resolve(normalizedPN);
+    resolvedItems.current.set(item.id, item);
+    return item;
+  };
   const acceptBoxes = async (boxes: ScanBox[], snapshot: BoxSnapshot) => {
     if (submitted) throw new Error('已完成實際到貨，請使用修改／撤回／更正。');
     setResolving(1);
     try {
-      const next = await resolveBoxArrival(boxes, data, serials => api.lookupBatch(serials), preferred);
+      const items = Array.from(new Map([...data.items, ...Array.from(resolvedItems.current.values())].map(item => [item.id, item])).values());
+      if (boxes.some(box => box.model?.kind === 'MODEL' && !items.some(item => item.id === box.model?.itemId && item.is_active && item.requires_serial)))
+        throw new Error('型號尚未綁定可用的正式品項，請重試。');
+      const next = await resolveBoxArrival(boxes, { ...data, items }, serials => api.lookupBatch(serials), preferred);
       update(next);
       setBoxSnapshot(snapshot);
       scannedModels.current = new Set(boxes.flatMap(box => box.model?.itemId ? [box.model.itemId] : []));
@@ -60,9 +72,10 @@ export function ReceivingV6Composer({ data: initialData, api, preferred, onClose
   };
   const item = data.items.find(i => i.id === itemId && !i.requires_serial);
   const suggestions = pending.filter(p => !p.legacy && p.itemId === item?.id && p.fulfilment.active && p.fulfilment.remaining >= Number(quantity));
-  const model = scannedModels.current.size === 1 ? data.items.find(i => i.id === Array.from(scannedModels.current)[0]) : undefined;
+  const model = scannedModels.current.size === 1 ? data.items.find(i => i.id === Array.from(scannedModels.current)[0])
+    || resolvedItems.current.get(Array.from(scannedModels.current)[0]) : undefined;
   if (phase === 'scan') return <BarcodeScanner mode="continuous" items={data.items} initialBoxes={boxSnapshot}
-    onBoxesFinish={acceptBoxes} onDetected={() => { /* Box session owns capture until final confirmation. */ }}
+    onBoxesFinish={acceptBoxes} onResolveModel={resolveModel} onDetected={() => { /* Box session owns capture until final confirmation. */ }}
     onCancel={onClose} onNoBarcode={() => setPhase('plain')} />;
   return <form aria-label="實際到貨" className="min-w-0 space-y-4" onSubmit={event => {
     event.preventDefault();

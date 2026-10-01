@@ -20,7 +20,7 @@ test('exact catalog model match, without prefix, substring or first-candidate gu
   assert.equal(classify(model).itemId, 'model');
   assert.equal(classify(model).kind, 'MODEL');
   for (const raw of ['SE10000H-RWSKBF57-X', 'X-SE10000H-RWSKBF57']) assert.equal(classify(raw).kind, 'UNKNOWN');
-  assert.equal(classify(model, []).kind, 'MODEL_CANDIDATE');
+  assert.equal(classify(model, []).kind, 'MODEL');
   assert.equal(classify(model, [...items, { id: 'duplicate', code: model }]).kind, 'UNKNOWN');
 });
 test('unlabeled numeric value is UNKNOWN', () => assert.equal(classify('27382202').kind, 'UNKNOWN'));
@@ -40,9 +40,9 @@ test('real full and short SN values share canonical scanner identity without a c
   try { assert.equal(session.add(examples[0][0]), true); assert.equal(session.add(examples[0][1]), false); assert.equal(session.codes.length, 1); }
   finally { session.dispose(); }
 });
-test('real PN structures remain model candidates while metadata stays unknown', () => {
+test('real PN structures are confirmed models even before catalog creation', () => {
   for (const value of ['SE10000H-RWSKBF57', 'S440-1GM4MRM-NA02', 'P850-4RMLMRY', 'R800', 'S1200'])
-    assert.equal(classify(value, []).kind, 'MODEL_CANDIDATE', value);
+    assert.equal(classify(value, []).kind, 'MODEL', value);
   assert.equal(classify('27382202', []).kind, 'UNKNOWN');
 });
 test('PN / P/N evidence is MODEL with the exact catalog identity', () => {

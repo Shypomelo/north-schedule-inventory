@@ -3,8 +3,9 @@ import type { InventoryItem } from './db/types';
 import { isStructuralMetadataToken, parseScannedPayload } from './receiving-scanned-payload';
 
 export type ScannerKind = 'MODEL' | 'MODEL_CANDIDATE' | 'SERIAL' | 'UNKNOWN';
-export interface ScannerCode { raw: string; normalized: string; kind: ScannerKind; itemId?: string }
+export interface ScannerCode { raw: string; normalized: string; kind: ScannerKind; itemId?: string; itemName?: string }
 export interface ScannerAddResult { accepted: boolean; reason?: 'closed' | 'empty' | 'duplicate'; classified: ScannerCode[] }
+const modelPattern = /^(?=.{4,9}(?:-|$))[A-Z]{1,3}[0-9]{3,5}[A-Z0-9]*(?:-[A-Z0-9]{3,}){0,2}$/;
 
 export function scannerCounts(codes: ScannerCode[]) {
   return {
@@ -32,15 +33,15 @@ export function classifyScannerCode(raw: string, items: InventoryItem[]): Scanne
   if (field?.[1].replace('/', '') === 'PN') {
     if (models.length > 1) return { raw, normalized, kind: 'UNKNOWN' };
     return models.length === 1
-      ? { raw, normalized, kind: 'MODEL', itemId: models[0].id }
-      : { raw, normalized, kind: 'MODEL_CANDIDATE' };
+      ? { raw, normalized, kind: 'MODEL', itemId: models[0].id, itemName: models[0].name }
+      : { raw, normalized, kind: modelPattern.test(normalized) ? 'MODEL' : 'MODEL_CANDIDATE' };
   }
   const serial = serialFormat !== 'unknown';
   // An overlapping model and serial must be resolved by a human.
-  if (models.length === 1 && !serial) return { raw, normalized, kind: 'MODEL', itemId: models[0].id };
+  if (models.length === 1 && !serial) return { raw, normalized, kind: 'MODEL', itemId: models[0].id, itemName: models[0].name };
   if (!models.length && serial) return { raw, normalized: deriveShortSerialKey(normalized) || normalized, kind: 'SERIAL' };
-  if (!models.length && /^(?=.{4,9}(?:-|$))[A-Z]{1,3}[0-9]{3,5}[A-Z0-9]*(?:-[A-Z0-9]{3,}){0,2}$/.test(normalized))
-    return { raw, normalized, kind: 'MODEL_CANDIDATE' };
+  if (!models.length && modelPattern.test(normalized))
+    return { raw, normalized, kind: 'MODEL' };
   return { raw, normalized, kind: 'UNKNOWN' };
 }
 

@@ -32,9 +32,33 @@ test('actual arrival opens the continuous camera directly', () => {
   assert.equal(scannerProps.mode, 'continuous');
   assert.equal(typeof scannerProps.onNoBarcode, 'function');
   assert.equal(typeof scannerProps.onBoxesFinish, 'function');
+  assert.equal(typeof scannerProps.onResolveModel, 'function');
   assert(!html.includes('批次輸入'));
   assert(!html.includes('有序號設備'));
   assert(!html.includes('無序號物料 分頁'));
+});
+
+test('scanner MODEL calls the existing canonical create RPC and keeps the original serial lookup flow', async () => {
+  const calls = [];
+  const full = 'S440-1GM4MRM-NA02';
+  const created = { id: 'full', code: full, name: full, canonical_identity_key: full.toLowerCase(), unit: '台',
+    requires_serial: true, is_active: true, opening_quantity: 0 };
+  renderToStaticMarkup(React.createElement(ReceivingV6Composer, {
+    data: empty(), api: {
+      createItem: async args => { calls.push(['createItem', args]); return { item: created, created: true }; },
+      lookupBatch: async serials => { calls.push(['lookupBatch', serials]); return serials.map(() => ({ result_type: 'no_match', candidate_count: 0, filtered_candidate_count: 0, candidates: [] })); },
+    }, onClose() {}, async onSaved() {},
+  }));
+  const item = await scannerProps.onResolveModel(full);
+  assert.equal(item.id, 'full');
+  const box = { id: 1, model: { raw: full, normalized: full, kind: 'MODEL', itemId: item.id },
+    serials: [{ raw: 'SZ4723-014D50C00-A1', normalized: '014D50C00-A1', kind: 'SERIAL' }], unknown: [], status: 'complete' };
+  await scannerProps.onBoxesFinish([box], { currentBox: { id: 2, serials: [], unknown: [], status: 'open' }, completedBoxes: [box] });
+  assert.deepEqual(calls, [
+    ['createItem', { p_identity_key: full, p_unit: '台', p_requires_serial: true }],
+    ['lookupBatch', ['014D50C00-A1']],
+  ]);
+  assert.equal(created.opening_quantity, 0);
 });
 
 test('actual arrival shows serials immediately and model as secondary information', () => {
