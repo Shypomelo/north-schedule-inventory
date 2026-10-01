@@ -3,7 +3,7 @@
 import { ReactNode, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CameraOff, ChevronDown, Flashlight, SwitchCamera, X } from 'lucide-react';
-import { BarcodeCamera } from '@/lib/barcode-camera';
+import { BarcodeCamera, type BarcodeFrameDiagnostic } from '@/lib/barcode-camera';
 import { ScannerSession, scannerCounts, type ScannerCode, type ScannerKind } from '@/lib/receiving-scanner-session';
 import { BoxScanSession, type BoxSnapshot, type ScanBox } from '@/lib/receiving-box-session';
 import { BoxScanControls } from './BoxScanControls';
@@ -13,13 +13,21 @@ export interface BarcodeScannerProps { initialBoxes?: BoxSnapshot; onBoxesFinish
 const button = 'min-h-11 rounded-lg border border-white/40 px-4 py-2 disabled:opacity-50';
 type ScanDiagnostic = { raw: string; session: 'PENDING' | 'ACCEPTED' | 'REJECTED'; reason?: string; kinds: ScannerKind[] };
 
-export function ScannerDiagnostics({ entries, decodedCount }: { entries: ScanDiagnostic[]; decodedCount?: number }) {
+export function ScannerDiagnostics({ entries, decodedCount, frame }: { entries: ScanDiagnostic[]; decodedCount?: number; frame?: BarcodeFrameDiagnostic }) {
   const rows = entries.length === 0 ? [{ raw: '等待解碼', session: 'PENDING' as const, kinds: [] }]
     : entries.length === 1 ? [...entries, { raw: '等待不同碼', session: 'PENDING' as const, kinds: [] }] : entries;
+  const uniqueCount = decodedCount ?? frame?.accumulatedUniqueCount ?? entries.length;
   return <details open className="mt-2 border-t border-[#d6ddd5] pt-1 text-xs text-[#303b35]">
-    <summary className="min-h-9 cursor-pointer py-2 font-semibold">掃碼診斷 · {decodedCount ?? entries.length} 筆</summary>
-    <div className="max-h-36 space-y-1 overflow-y-auto pb-2 font-mono tabular-nums">
-      <p className="font-semibold">CAMERA DECODE</p>
+    <summary className="min-h-9 cursor-pointer py-2 font-semibold">掃碼診斷 · {uniqueCount} 筆</summary>
+    <div className="max-h-44 space-y-1 overflow-y-auto pb-2 font-mono tabular-nums">
+      <p className="font-semibold">DECODER</p>
+      <p>backend　{frame?.backend ?? 'pending'}</p>
+      <p>frame attempts　{frame?.attempts ?? 0}</p>
+      <p>frame decoded　{frame?.decodedCount ?? 0}</p>
+      <p>decode latency　{frame ? `${frame.latencyMs} ms` : '—'}</p>
+      <p>unique codes　{uniqueCount}</p>
+      <p className="break-all">frame raw　{frame?.rawValues.length ? frame.rawValues.join(' | ') : '—'}</p>
+      <p className="pt-1 font-semibold">CAMERA DECODE</p>
       {rows.map((entry, index) => <p key={`decode-${index}`} className="break-all">{String(index + 1).padStart(2, '0')}　{entry.raw}</p>)}
       <p className="pt-1 font-semibold">SESSION</p>
       {rows.map((entry, index) => <p key={`session-${index}`} className="break-all">{String(index + 1).padStart(2, '0')}　{entry.session}{entry.reason ? ` / ${entry.reason}` : ''}</p>)}
@@ -57,6 +65,7 @@ export function BarcodeScanner({ initialBoxes, onBoxesFinish, onDetected, onBatc
   const decodedCodes = useRef(new Set<string>());
   const [decodeCount, setDecodeCount] = useState(0);
   const [debug, setDebug] = useState(false);
+  const [frameDiagnostic, setFrameDiagnostic] = useState<BarcodeFrameDiagnostic>();
   const debugRef = useRef(false);
   const boxFinishCallback = useRef(onBoxesFinish); boxFinishCallback.current = onBoxesFinish;
   const editBox = (action: () => void) => { try { action(); setBoxSnapshot(boxSession.snapshot()); setBoxWarning(''); } catch (error) { setBoxWarning((error as Error).message); } };
@@ -171,6 +180,8 @@ export function BarcodeScanner({ initialBoxes, onBoxesFinish, onDetected, onBatc
         ...previous.slice(-5), { raw: value, session: accepted ? 'PENDING' : 'REJECTED',
           reason: accepted ? undefined : 'camera debounce', kinds: [] },
       ]);
+    }, frame => {
+      if (debugRef.current) setFrameDiagnostic(frame);
     });
     camera.current = cameraSession;
     if (initialMode === 'camera') void cameraSession.start();
@@ -217,9 +228,9 @@ export function BarcodeScanner({ initialBoxes, onBoxesFinish, onDetected, onBatc
       <div className="flex max-h-[43dvh] shrink-0 flex-col rounded-t-xl bg-[#f8f7f3] text-[#303b35]" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
         <div className="min-h-0 overflow-y-auto px-4 pt-2">{onBoxesFinish ? <>
           <BoxScanControls snapshot={boxSnapshot} disabled={finishing} onDeleteSerial={(id, serial) => editBox(() => boxSession.deleteSerial(id, serial))} onClear={() => editBox(() => boxSession.clearCurrent())} onComplete={() => editBox(() => boxSession.completeBox())} onDeleteBox={id => editBox(() => boxSession.deleteBox(id))} onReopen={id => editBox(() => boxSession.reopenBox(id))} onConfirmModel={useDetected => editBox(() => boxSession.confirmModel(useDetected))} onResolveUnknown={(value, action) => editBox(() => boxSession.resolveUnknown(value, action))} />
-          {debug && <ScannerDiagnostics entries={diagnostics} decodedCount={decodeCount} />}
+          {debug && <ScannerDiagnostics entries={diagnostics} decodedCount={decodeCount} frame={frameDiagnostic} />}
           {boxWarning && <p role="alert" className="text-xs text-amber-800">{boxWarning}</p>}
-          </> : <><ScannerCaptureResults codes={codes} expanded={expanded} onToggle={() => setExpanded(value => !value)} />{debug && <ScannerDiagnostics entries={diagnostics} />}</>}
+          </> : <><ScannerCaptureResults codes={codes} expanded={expanded} onToggle={() => setExpanded(value => !value)} />{debug && <ScannerDiagnostics entries={diagnostics} frame={frameDiagnostic} />}</>}
           {warning && <p role="alert" className="mt-1 text-xs text-amber-800">{warning}</p>}
           {inlineManual && <form className="mt-2 flex items-end gap-2" onSubmit={event => { event.preventDefault(); event.stopPropagation(); if (!raw.trim() || finishing) return; const value = raw; setRaw(''); if (onBoxesFinish) acceptBoxCode(value, true); else camera.current?.accept(value); input.current?.focus(); }}>
             <label className="min-w-0 flex-1 text-xs text-[#68776e]">序號<input ref={input} autoFocus autoComplete="off" autoCapitalize="characters" autoCorrect="off" spellCheck={false} value={raw} onChange={event => setRaw(event.target.value)} className="mt-1 h-11 w-full rounded-lg bg-white px-3 text-base text-[#303b35] outline-none ring-1 ring-[#d6ddd5] focus:ring-emerald-600" /></label>
