@@ -32,10 +32,12 @@ test('model alone is zero devices and cannot quietly finish a box', () => {
   const s = new BoxScanSession(items); s.add(model); assert.equal(s.deviceCount, 0);
   assert.throws(() => s.completeBox(), /尚未掃到序號/); assert.throws(() => s.finish(), /尚未掃到序號/);
 });
-test('different model never overwrites and finishing old box transfers new model to next box', () => {
+test('different model never overwrites and completing clears the pending model conflict', () => {
   const s = new BoxScanSession(items); fill(s, 1); assert.equal(s.add(items[1].code).conflict, true);
   assert.equal(s.snapshot().currentBox.model.normalized, model); assert.throws(() => s.finish(), /不同型號/);
-  s.completeBox(); assert.equal(s.snapshot().currentBox.model.normalized, items[1].code);
+  s.completeBox(); assert.equal(s.snapshot().currentBox.model, undefined);
+  assert.equal(s.snapshot().conflict, undefined);
+  assert.equal(s.add(items[1].code).accepted, true);
 });
 test('explicit model confirmation and conflict payload do not silently assign serials', () => {
   const s = new BoxScanSession(items); fill(s, 1); s.add(`${items[1].code}|${serial(2)}`);

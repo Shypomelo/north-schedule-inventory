@@ -55,10 +55,10 @@ test('bundled ZXing expected exceptions use class identity rather than renamed c
   Object.defineProperty(global,'navigator',{configurable:true,value:{mediaDevices:{getUserMedia:async()=>({getTracks:()=>[{stop(){stops++;}}]})}}});
   const {BarcodeCamera:BundledCamera}=load(path.resolve('src/lib/barcode-camera.ts'),{
     '@zxing/browser':{BrowserMultiFormatReader:class{decode(){calls++;throw new MinifiedMissing();}}},
-    '@zxing/library':{NotFoundException:MinifiedMissing,ChecksumException:MinifiedChecksum,FormatException:MinifiedFormat},
+    '@zxing/library':{BarcodeFormat:{CODE_128:1,CODE_39:2,EAN_13:3,QR_CODE:4,DATA_MATRIX:5},DecodeHintType:{POSSIBLE_FORMATS:1},NotFoundException:MinifiedMissing,ChecksumException:MinifiedChecksum,FormatException:MinifiedFormat},
   });
   const states=[];const session=new BundledCamera({pause(){},play:async()=>{},readyState:4},()=>{throw Error('unexpected result');},state=>states.push(state),()=>{});
-  try{await session.start();assert.equal(calls,1);assert.equal(states.at(-1),'ready');assert.equal(stops,0);}
+  try{await session.start();assert.equal(calls,2);assert.equal(states.at(-1),'ready');assert.equal(stops,0);}
   finally{session.dispose();if(previous)Object.defineProperty(global,'navigator',previous);else delete global.navigator;}
 });
 

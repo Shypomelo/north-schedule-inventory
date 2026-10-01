@@ -21,7 +21,7 @@ export function classifyScannerCode(raw: string, items: InventoryItem[]): Scanne
   // This is field syntax, not a second serial identity contract.
   const field = /^(S\/?N|P\/?N)(?:\s*[:=]\s*|\s+)(.+)$/.exec(input);
   const normalized = field ? normalizeSerialInput(field[2]) : input;
-  if (!normalized || /[|\r\n\t\x1d]/.test(normalized)
+  if (!normalized || /[;|\r\n\t\x1d]/.test(normalized)
     || (field && /(?:^|\s)(?:S\/?N|P\/?N)(?:\s*[:=]|\s)/.test(normalized)))
     return { raw, normalized: input, kind: 'UNKNOWN' };
   const models = items.filter(item => normalizeSerialInput(item.code) === normalized);
@@ -61,10 +61,8 @@ export class ScannerSession {
     if (this.disposed) return { accepted: false, reason: 'closed', classified: [] };
     const payload = parseScannedPayload(raw);
     const classified = payload.candidates.map(candidate => classifyScannerCode(candidate, this.items));
-    const recognized = classified.filter(code => code.kind !== 'UNKNOWN');
-    const unresolved = classified.filter(code => code.kind === 'UNKNOWN' && !isStructuralMetadataToken(code.raw));
     const incoming = payload.composite
-      ? [...recognized, ...(unresolved.length || !recognized.length ? [{ raw: payload.raw, normalized: normalizeSerialInput(payload.raw), kind: 'UNKNOWN' as const }] : [])]
+      ? classified.filter(code => code.kind !== 'UNKNOWN' || !isStructuralMetadataToken(code.raw))
       : classified;
     let added = false;
     for (const code of incoming) {

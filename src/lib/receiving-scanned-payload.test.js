@@ -39,20 +39,20 @@ test('one payload may add a model and two serials, deduplicated across frames', 
   assert.deepEqual(scannerCounts(result.codes), { total: 3, model: 1, serial: 2, unknown: 0 });
 });
 
-test('structural metadata stays quiet, while uncertain fields preserve one raw UNKNOWN', () => {
+test('structural metadata stays quiet, while uncertain tokens remain separate UNKNOWNs', () => {
   assert.deepEqual(scan('01|20260626|D|SE5000H-RW000BEN4|ABC123456-01').codes.map(c => c.kind), ['MODEL', 'SERIAL']);
   const observed = '01|9095343842201|01|538158290600|N|0|01|01||33127\nD|20260626|01|0||||||||';
   const parsed = parseScannedPayload(observed);
   assert.deepEqual(parsed.candidates, ['01', '9095343842201', '538158290600', 'N', '0', '33127', 'D', '20260626']);
   const result = scan(observed);
-  assert.deepEqual(result.codes.map(c => c.kind), ['UNKNOWN']);
-  assert.equal(result.codes[0].raw, observed);
+  assert.deepEqual(result.codes.map(c => c.kind), ['UNKNOWN', 'UNKNOWN', 'UNKNOWN']);
+  assert.deepEqual(result.codes.map(c => c.raw), ['9095343842201', '538158290600', '33127']);
   assert.equal(result.batches.length, 1);
 });
 
-test('unknown fragments in a recognized composite retain only one raw evidence row', () => {
+test('unknown fragments in a recognized composite remain separate tokens', () => {
   const raw = 'SE5000H-RW000BEN4|ABC123456-01|9095343842201|33127';
-  assert.deepEqual(scan(raw).codes.map(c => c.kind), ['MODEL', 'SERIAL', 'UNKNOWN']);
+  assert.deepEqual(scan(raw).codes.map(c => c.kind), ['MODEL', 'SERIAL', 'UNKNOWN', 'UNKNOWN']);
 });
 
 test('a model that looks like a formal serial stays UNKNOWN', () => {

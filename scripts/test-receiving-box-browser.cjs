@@ -8,6 +8,7 @@ const esbuild = require(path.join(tools, 'esbuild'));
 const { chromium } = require(path.join(tools, 'playwright'));
 const model = 'SE10000H-RWSKBF57';
 const serial = n => `SB4725-${String(n).padStart(9, '0')}-3C`;
+const serialKey = n => `${String(n).padStart(9, '0')}-3C`;
 let browser, bundle, css;
 const mocks = {
   'barcode-camera': `import {flushSync} from 'react-dom'; export class BarcodeCamera { constructor(video, detected, state, stream, deps, mode, decoded) { this.detected=detected; window.scan=(value)=>flushSync(()=>{ decoded?.(value,true); detected(value); }); } async start() { window.cameraStarts=(window.cameraStarts||0)+1; } stop() {} dispose() {} accept(raw) { this.detected(raw); } }`,
@@ -34,10 +35,10 @@ async function expandedCurrent(page) { const b=page.getByRole('button',{name:/�
 test('current/reset/completed deletions release identity with zero network mutation', async () => {
   const p=await pageFor(); try {
     await scan(p,[model,serial(1),serial(2)]); await expandedCurrent(p);
-    await button(p,'刪除 '+serial(1)).click(); assert.match(await p.locator('body').innerText(),/已掃序號 1/);
+    await button(p,'刪除 '+serialKey(1)).click(); assert.match(await p.locator('body').innerText(),/已掃序號 1/);
     await scan(p,[serial(1)]); assert.match(await p.locator('body').innerText(),/已掃序號 2/);
     await button(p,'完成這箱').click(); await p.locator('summary').filter({hasText:'箱 1'}).click();
-    await button(p,'刪除 '+serial(2)).click(); assert.match(await p.locator('body').innerText(),/已完成 1 箱・1 台/);
+    await button(p,'刪除 '+serialKey(2)).click(); assert.match(await p.locator('body').innerText(),/已完成 1 箱・1 台/);
     await scan(p,[serial(2)]); assert.match(await p.locator('body').innerText(),/已掃序號 1/);
     await button(p,'清空目前這箱').click(); assert.match(await p.locator('body').innerText(),/已掃序號 0/);
     await button(p,'刪除這箱').click(); assert.match(await p.locator('body').innerText(),/已完成 0 箱・0 台/);
@@ -48,14 +49,14 @@ test('current/reset/completed deletions release identity with zero network mutat
 test('manual duplicate clears input, final review reflects edits, saved arrival disables frontend changes', async () => {
   const p=await pageFor(); try {
     await scan(p,[model,serial(1)]); await button(p,'＋ 手動輸入序號').click(); const input=p.getByRole('textbox',{name:'序號',exact:true});
-    await input.fill(serial(1)); await button(p,'加入').click(); await p.getByRole('alertdialog').waitFor(); assert.equal(await input.inputValue(),''); assert((await p.getByRole('alertdialog').innerText()).includes(serial(1)));
+    await input.fill(serial(1)); await button(p,'加入').click(); await p.getByRole('alertdialog').waitFor(); assert.equal(await input.inputValue(),''); assert((await p.getByRole('alertdialog').innerText()).includes(serialKey(1)));
     await button(p,'關閉').click(); await input.fill(serial(2)); await button(p,'加入').click(); assert.equal(await input.inputValue(),'');
     await button(p,'完成掃描').click(); await p.getByRole('button',{name:'完成實際到貨',exact:true}).waitFor(); assert.match(await p.locator('body').innerText(),/共 2 台/);
-    await button(p,'返回掃描').click(); await p.locator('summary').filter({hasText:'箱 1'}).click(); await button(p,'刪除 '+serial(1)).click();
+    await button(p,'返回掃描').click(); await p.locator('summary').filter({hasText:'箱 1'}).click(); await button(p,'刪除 '+serialKey(1)).click();
     await button(p,'完成掃描').click(); await button(p,'完成實際到貨').waitFor(); assert.match(await p.locator('body').innerText(),/共 1 台/);
     assert.equal((await p.evaluate(()=>window.calls.writes)).length,0);
     await button(p,'完成實際到貨').click(); await button(p,'已完成實際到貨').waitFor();
-    const calls=await p.evaluate(()=>window.calls); assert.equal(calls.writes.length,1); assert.equal(calls.writes[0].p_lines[0].quantity,1); assert.deepEqual(calls.writes[0].p_lines[0].raw_serials,[serial(2)]);
+    const calls=await p.evaluate(()=>window.calls); assert.equal(calls.writes.length,1); assert.equal(calls.writes[0].p_lines[0].quantity,1); assert.deepEqual(calls.writes[0].p_lines[0].raw_serials,[serialKey(2)]);
     assert.equal(await button(p,'返回掃描').isDisabled(),true);
   } finally { await p.close(); }
 });
@@ -74,7 +75,7 @@ test('failed final lookup resumes camera and keeps deletion editable without sta
     await scan(p,[model,serial(1),serial(2)]); await p.evaluate(()=>window.failLookup=true);
     await button(p,'完成掃描').click(); await p.getByRole('alert').filter({hasText:'offline'}).waitFor();
     assert((await p.evaluate(()=>window.cameraStarts))>=2);
-    await p.locator('summary').filter({hasText:'箱 1'}).click(); await button(p,'刪除 '+serial(1)).click();
+    await p.locator('summary').filter({hasText:'箱 1'}).click(); await button(p,'刪除 '+serialKey(1)).click();
     await p.evaluate(()=>window.failLookup=false); await button(p,'完成掃描').click(); await button(p,'完成實際到貨').waitFor();
     assert.match(await p.locator('body').innerText(),/共 1 台/); assert.equal((await p.evaluate(()=>window.calls.writes)).length,0);
   } finally { await p.close(); }

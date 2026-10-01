@@ -26,17 +26,22 @@ export const completedBoxCount = (boxes: ScanBox[]) => boxes.filter(b => b.statu
 export class BoxScanSession {
   private current: ScanBox;
   private completed: ScanBox[];
+  private completedSnapshot: ScanBox[];
+  private serialOwner = new Map<string, number>();
   private conflict?: ScannerCode;
   private nextId: number;
   private closed = false;
   constructor(private items: InventoryItem[], initial?: BoxSnapshot) {
     this.current = initial ? copyBox(initial.currentBox) : emptyBox(1);
     this.completed = initial?.completedBoxes.map(copyBox) || [];
+    this.completedSnapshot = this.completed.map(copyBox);
+    for (const box of [this.current, ...this.completed])
+      for (const code of box.serials) this.serialOwner.set(code.normalized, box.id);
     this.conflict = initial?.conflict;
     this.nextId = Math.max(this.current.id, ...this.completed.map(b => b.id)) + 1;
   }
-  snapshot(): BoxSnapshot { return { currentBox: copyBox(this.current), completedBoxes: this.completed.map(copyBox), conflict: this.conflict && { ...this.conflict } }; }
-  get deviceCount() { return uniqueBoxSerials([this.current, ...this.completed]).length; }
+  snapshot(): BoxSnapshot { return { currentBox: copyBox(this.current), completedBoxes: this.completedSnapshot, conflict: this.conflict && { ...this.conflict } }; }
+  get deviceCount() { return this.serialOwner.size; }
   private assertOpen() { if (this.closed) throw new Error('掃描已結束，正式到貨資料請使用修改／撤回／更正。'); }
   add(raw: string): BoxScanResult {
     this.assertOpen();
@@ -52,10 +57,10 @@ export class BoxScanSession {
     let duplicate: BoxScanResult['duplicate'];
     for (const code of codes.filter(c => c.kind !== 'MODEL')) {
       if (code.kind === 'SERIAL') {
-        // Derive ownership from live boxes, so deleting releases aliases immediately.
-        const owner = [this.current, ...this.completed].find(b => b.serials.some(s => serialsAlias(s.normalized, code.normalized)));
-        if (owner) { duplicate = { serial: code.normalized, boxId: owner.id }; continue; }
+        const ownerId = this.serialOwner.get(code.normalized);
+        if (ownerId !== undefined) { duplicate = { serial: code.normalized, boxId: ownerId }; continue; }
         this.current.serials.push(code); accepted = true;
+        this.serialOwner.set(code.normalized, this.current.id);
       } else if (code.normalized && !(payload.composite && isStructuralMetadataToken(code.raw))) {
         if (!this.current.unknown.some(c => c.normalized === code.normalized)) { this.current.unknown.push(code); accepted = true; }
       }
@@ -83,9 +88,10 @@ export class BoxScanSession {
     }
     if (action === 'SERIAL') {
       const canonical = deriveShortSerialKey(code.normalized) || normalizeSerialInput(code.normalized);
-      const owner = [this.current, ...this.completed].find(b => b.serials.some(s => serialsAlias(s.normalized, canonical)));
-      if (owner) throw new Error(`已掃過此序號 ${canonical} · 箱 ${owner.id}`);
+      const ownerId = this.serialOwner.get(canonical);
+      if (ownerId !== undefined) throw new Error(`已掃過此序號 ${canonical} · 箱 ${ownerId}`);
       this.current.serials.push({ raw: code.raw, normalized: canonical, kind: 'SERIAL' });
+      this.serialOwner.set(canonical, this.current.id);
     }
     this.current.unknown = this.current.unknown.filter(c => c !== code);
   }
@@ -93,8 +99,8 @@ export class BoxScanSession {
     this.assertOpen();
     if (!this.current.serials.length) throw new Error('尚未掃到序號，請繼續掃描或清空目前這箱。');
     this.completed.push({ ...copyBox(this.current), status: 'complete' });
+    this.completedSnapshot = this.completed.map(copyBox);
     this.current = emptyBox(this.nextId++);
-    if (this.conflict) this.current.model = this.conflict;
     this.conflict = undefined;
   }
   deleteSerial(boxId: number, normalized: string) {
@@ -103,16 +109,19 @@ export class BoxScanSession {
     if (!box) return;
     const canonical = deriveShortSerialKey(normalized) || normalizeSerialInput(normalized);
     box.serials = box.serials.filter(c => c.normalized !== canonical);
+    this.serialOwner.delete(canonical);
     if (box !== this.current && !box.serials.length) box.status = 'incomplete';
+    if (box !== this.current) this.completedSnapshot = this.completed.map(copyBox);
   }
-  deleteBox(boxId: number) { this.assertOpen(); this.completed = this.completed.filter(b => b.id !== boxId); }
-  clearCurrent() { this.assertOpen(); this.current = emptyBox(this.current.id); this.conflict = undefined; }
+  deleteBox(boxId: number) { this.assertOpen(); for (const box of this.completed.filter(b => b.id === boxId)) for (const code of box.serials) this.serialOwner.delete(code.normalized); this.completed = this.completed.filter(b => b.id !== boxId); this.completedSnapshot = this.completed.map(copyBox); }
+  clearCurrent() { this.assertOpen(); for (const code of this.current.serials) this.serialOwner.delete(code.normalized); this.current = emptyBox(this.current.id); this.conflict = undefined; }
   reopenBox(boxId: number) {
     this.assertOpen();
     if (this.current.model || this.current.serials.length || this.current.unknown.length || this.conflict) throw new Error('請先完成或清空目前這箱。');
     const box = this.completed.find(b => b.id === boxId);
     if (!box) return;
     this.completed = this.completed.filter(b => b.id !== boxId);
+    this.completedSnapshot = this.completed.map(copyBox);
     this.current = { ...copyBox(box), status: 'open' };
   }
   finish(): ScanBox[] {

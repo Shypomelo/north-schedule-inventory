@@ -72,7 +72,7 @@ export function BarcodeScanner({ initialBoxes, onBoxesFinish, onDetected, onBatc
   const acceptBoxCode = (value: string, manualEntry = false) => {
     if (finishingRef.current) return false;
     const result = boxSession.add(manualEntry ? 'SN: ' + value : value);
-    setBoxSnapshot(boxSession.snapshot());
+    if (result.accepted || result.conflict) setBoxSnapshot(boxSession.snapshot());
     if (debugRef.current && !manualEntry) setDiagnostics(previous => previous.map(entry => entry.raw === value
       ? { ...entry, session: result.accepted ? 'ACCEPTED' : 'REJECTED', reason: result.duplicate ? 'duplicate' : result.conflict ? 'model conflict' : undefined, kinds: (result.classified || []).map(code => code.kind) } : entry));
     if (result.duplicate) {
@@ -227,7 +227,7 @@ export function BarcodeScanner({ initialBoxes, onBoxesFinish, onDetected, onBatc
       </div>
       <div className="flex max-h-[43dvh] shrink-0 flex-col rounded-t-xl bg-[#f8f7f3] text-[#303b35]" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
         <div className="min-h-0 overflow-y-auto px-4 pt-2">{onBoxesFinish ? <>
-          <BoxScanControls snapshot={boxSnapshot} disabled={finishing} onDeleteSerial={(id, serial) => editBox(() => boxSession.deleteSerial(id, serial))} onClear={() => editBox(() => boxSession.clearCurrent())} onComplete={() => editBox(() => boxSession.completeBox())} onDeleteBox={id => editBox(() => boxSession.deleteBox(id))} onReopen={id => editBox(() => boxSession.reopenBox(id))} onConfirmModel={useDetected => editBox(() => boxSession.confirmModel(useDetected))} onResolveUnknown={(value, action) => editBox(() => boxSession.resolveUnknown(value, action))} />
+          <BoxScanControls snapshot={boxSnapshot} disabled={finishing} onDeleteSerial={(id, serial) => editBox(() => boxSession.deleteSerial(id, serial))} onClear={() => editBox(() => { boxSession.clearCurrent(); camera.current?.beginBox?.(); decodedCodes.current.clear(); setDecodeCount(0); })} onComplete={() => editBox(() => { boxSession.completeBox(); camera.current?.beginBox?.(); decodedCodes.current.clear(); setDecodeCount(0); })} onDeleteBox={id => editBox(() => boxSession.deleteBox(id))} onReopen={id => editBox(() => { boxSession.reopenBox(id); camera.current?.beginBox?.(); decodedCodes.current.clear(); setDecodeCount(0); })} onConfirmModel={useDetected => editBox(() => boxSession.confirmModel(useDetected))} onResolveUnknown={(value, action) => editBox(() => boxSession.resolveUnknown(value, action))} />
           {debug && <ScannerDiagnostics entries={diagnostics} decodedCount={decodeCount} frame={frameDiagnostic} />}
           {boxWarning && <p role="alert" className="text-xs text-amber-800">{boxWarning}</p>}
           </> : <><ScannerCaptureResults codes={codes} expanded={expanded} onToggle={() => setExpanded(value => !value)} />{debug && <ScannerDiagnostics entries={diagnostics} frame={frameDiagnostic} />}</>}

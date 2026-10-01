@@ -8,7 +8,7 @@ export interface BarcodeFrameDiagnostic {
   accumulatedUniqueCount: number;
 }
 export type BarcodeDecodeSource = HTMLVideoElement | HTMLCanvasElement;
-export type Decoder = { decode(source: BarcodeDecodeSource): string[] };
+export type Decoder = { decode(source: BarcodeDecodeSource): string[]; decode1D?(source: BarcodeDecodeSource): string[]; decode2D?(source: BarcodeDecodeSource): string[] };
 type NativeDetector = { detect(video: HTMLVideoElement): Promise<{ rawValue: string }[]> };
 type NativeDetectorConstructor = {
   new(options: { formats: string[] }): NativeDetector;
@@ -48,13 +48,20 @@ export function dedupeDecodedValues(values: readonly string[]) {
   });
 }
 
-/** Decode one bounded fallback cycle: full frame plus one round-robin ROI. */
+/** Decode one bounded fallback cycle: one 1D ROI, plus a periodic 2D full frame. */
 export function decodeFallbackFrame(video: HTMLVideoElement, decoder: Decoder,
   canvas: HTMLCanvasElement | undefined, attempt: number) {
   const values: string[] = [];
-  try { values.push(...decoder.decode(video)); } catch { /* A single region must not stop the camera. */ }
+  const legacy = !decoder.decode1D && !decoder.decode2D;
+  const oneDimensional = decoder.decode1D?.bind(decoder) || decoder.decode.bind(decoder);
+  const twoDimensional = decoder.decode2D?.bind(decoder) || decoder.decode.bind(decoder);
+  if (legacy) try { values.push(...decoder.decode(video)); } catch { /* Keep the ROI pass. */ }
   const width = video.videoWidth || 0, height = video.videoHeight || 0;
-  if (!canvas || !width || !height) return dedupeDecodedValues(values);
+  if (!canvas || !width || !height) {
+    if (!legacy) try { values.push(...oneDimensional(video)); } catch { /* Keep the camera running. */ }
+    if (decoder.decode2D && attempt % 3 === 0) try { values.push(...twoDimensional(video)); } catch { /* Keep the 1D result. */ }
+    return dedupeDecodedValues(values);
+  }
   const region = FALLBACK_DECODE_REGIONS[attempt % FALLBACK_DECODE_REGIONS.length];
   const sx = Math.floor(width * region.x), sy = Math.floor(height * region.y);
   const sw = Math.max(1, Math.floor(width * region.width)), sh = Math.max(1, Math.floor(height * region.height));
@@ -64,20 +71,27 @@ export function decodeFallbackFrame(video: HTMLVideoElement, decoder: Decoder,
     if (context) {
       context.clearRect(0, 0, sw, sh);
       context.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
-      values.push(...decoder.decode(canvas));
+      values.push(...oneDimensional(canvas));
     }
-  } catch { /* Continue with the full-frame result and next scheduled ROI. */ }
+  } catch { /* Continue with the next scheduled ROI. */ }
+  if (!legacy && attempt % 3 === 0) try { values.push(...twoDimensional(video)); } catch { /* Keep the ROI result. */ }
   return dedupeDecodedValues(values);
 }
 
 const dependencies: CameraDependencies = {
   getUserMedia: constraints => navigator.mediaDevices.getUserMedia(constraints),
   async loadDecoder() {
-    const [{ BrowserMultiFormatReader }, { NotFoundException, ChecksumException, FormatException }] = await Promise.all([
+    const [{ BrowserMultiFormatReader }, { BarcodeFormat, DecodeHintType, NotFoundException, ChecksumException, FormatException }] = await Promise.all([
       import('@zxing/browser'), import('@zxing/library'),
     ]);
-    const reader = new BrowserMultiFormatReader();
-    return { decode(source) {
+    const hints = (formats: number[]) => new Map([[DecodeHintType.POSSIBLE_FORMATS, formats]]);
+    const oneDimensional = new BrowserMultiFormatReader(hints([
+      BarcodeFormat.CODE_128, BarcodeFormat.CODE_39, BarcodeFormat.EAN_13,
+    ]));
+    const twoDimensional = new BrowserMultiFormatReader(hints([
+      BarcodeFormat.QR_CODE, BarcodeFormat.DATA_MATRIX,
+    ]));
+    const decodeWith = (reader: InstanceType<typeof BrowserMultiFormatReader>, source: BarcodeDecodeSource) => {
       try {
         const isCanvas = typeof HTMLCanvasElement !== 'undefined' && source instanceof HTMLCanvasElement;
         const result = isCanvas
@@ -90,7 +104,10 @@ const dependencies: CameraDependencies = {
         if (cause instanceof NotFoundException || cause instanceof ChecksumException || cause instanceof FormatException) return [];
         throw cause;
       }
-    } };
+    };
+    return { decode: source => decodeWith(oneDimensional, source),
+      decode1D: source => decodeWith(oneDimensional, source),
+      decode2D: source => decodeWith(twoDimensional, source) };
 
   },
 };
@@ -140,6 +157,9 @@ export class BarcodeCamera {
   }
 
   dispose() { this.disposed = true; this.stop(); }
+
+  /** A completed box starts a fresh raw-code scope without touching the stream or decoder. */
+  beginBox() { this.cameraValues.clear(); this.observedValues.clear(); this.lastCode = ''; this.lastDetectedAt = 0; }
 
   accept(raw: string, source: 'manual' | 'camera' = 'manual') {
     if (this.disposed || this.detected || !raw.trim()) return;

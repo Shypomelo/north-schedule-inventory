@@ -8,8 +8,8 @@ export interface ParsedScannedPayload {
 
 // Separators observed in the phone payload or emitted as field separators by
 // barcode decoders. No field positions or implicit token joins are assumed.
-const FIELD_SEPARATOR = /[|\r\n\t\x1d]/;
-const FIELD_SEPARATORS = /[|\r\n\t\x1d]+/;
+const FIELD_SEPARATOR = /[;|\r\n\t\x1d]/;
+const FIELD_SEPARATORS = /[;|\r\n\t\x1d]+/;
 
 export function parseScannedPayload(raw: string): ParsedScannedPayload {
   const composite = FIELD_SEPARATOR.test(raw);
