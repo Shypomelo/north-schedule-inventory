@@ -118,6 +118,7 @@ export function finishSerialDraft(draft: SerialAutoDraft, lookup: InventorySeria
 export function groupedSerialArrival(drafts: SerialAutoDraft[], pending: PendingRow[]) {
   const groups = new Map<string, { line: CreateArrivalLine; pending?: PendingRow }>();
   for (const d of drafts) {
+    if (d.state === 'conflict') throw new Error(`序號 ${d.raw} 已存在或與品項衝突，請返回掃描確認。`);
     if (d.choiceRequired) throw new Error('請先選擇有多種可能的預計收貨，或保留未對應。');
     const target = pending.find(p => p.key === d.pendingKey);
     if (d.pendingKey && (!target || target.itemId !== d.itemId || !target.fulfilment.active)) throw new Error('預計收貨已變更，請重新整理。');

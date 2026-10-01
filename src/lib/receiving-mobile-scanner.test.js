@@ -47,6 +47,7 @@ test('scanner MODEL calls the existing canonical create RPC and keeps the origin
     data: empty(), api: {
       createItem: async args => { calls.push(['createItem', args]); return { item: created, created: true }; },
       lookupBatch: async serials => { calls.push(['lookupBatch', serials]); return serials.map(() => ({ result_type: 'no_match', candidate_count: 0, filtered_candidate_count: 0, candidates: [] })); },
+      activeArrivalSerials: async serials => { calls.push(['activeArrivalSerials', serials]); return []; },
     }, onClose() {}, async onSaved() {},
   }));
   const item = await scannerProps.onResolveModel(full);
@@ -57,8 +58,19 @@ test('scanner MODEL calls the existing canonical create RPC and keeps the origin
   assert.deepEqual(calls, [
     ['createItem', { p_identity_key: full, p_unit: '台', p_requires_serial: true }],
     ['lookupBatch', ['014D50C00-A1']],
+    ['activeArrivalSerials', ['014D50C00-A1']],
   ]);
   assert.equal(created.opening_quantity, 0);
+});
+
+test('bound full PN stays visible when a serial conflicts instead of showing pending item', () => {
+  const html = renderToStaticMarkup(React.createElement(SerializedArrivalReview, {
+    drafts: [{ raw: '014D50C00-A1', state: 'conflict', choiceRequired: false }],
+    model: { code: 'S1200-1GMYMBV' }, unknownCount: 0, resolving: false,
+  }));
+  assert(html.includes('S1200-1GMYMBV'));
+  assert(html.includes('序號已存在'));
+  assert(!html.includes('待確認品項'));
 });
 
 test('actual arrival shows serials immediately and model as secondary information', () => {

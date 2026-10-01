@@ -50,6 +50,19 @@ export function createReceivingV5Api(client: SupabaseClient) {
     if ((data || []).length > 1000) throw new Error('序號候選過多，請縮小掃描批次後重試。');
     return raws.map(raw => resolveInventorySerialLookupFromList(raw, (data || []) as InventorySerial[]));
   }
+  async function activeArrivalSerials(raws: string[]): Promise<string[]> {
+    const keys = Array.from(new Set(raws.map(normalizeSerialInput)));
+    if (!keys.length) return [];
+    const result: string[] = [];
+    for (let start = 0; start < keys.length; start += 100) {
+      const { data, error } = await client.from('receiving_serial_entries').select('normalized_serial')
+        .in('normalized_serial', keys.slice(start, start + 100))
+        .not('arrival_line_id', 'is', null).is('retired_at', null);
+      if (error) throw new Error(error.message);
+      result.push(...(data || []).map(row => row.normalized_serial as string));
+    }
+    return result;
+  }
   async function fulfilments(materials: ProjectMaterial[], supplies: SESupplyRecord[]) {
     const sources = [...materials.map(m => ({ kind: 'PROJECT_MATERIAL' as const, id: m.id })), ...supplies.filter(s => s.receiving_only).map(s => ({ kind: 'SE_SUPPLY' as const, id: s.id }))];
     const result: Record<string, PendingFulfilment> = {};
@@ -115,6 +128,7 @@ export function createReceivingV5Api(client: SupabaseClient) {
     },
     lookup,
     lookupBatch,
+    activeArrivalSerials,
     create: (args: { p_request_id: string; p_actual_received_at: string; p_lines: CreateArrivalLine[]; p_project_id: string | null; p_matches: (MatchInput & { line_index: number; raw_serials?: string[] })[] }) => rpc<CreateArrivalResult>('create_receiving_arrival', { ...args, p_match_all_or_nothing: false }),
     complete: (args: { p_request_id: string; p_line_id: string; p_item_id: string }) => rpc<ArrivalLine>('complete_receiving_arrival_line', args),
     metadata: (args: { p_request_id: string; p_arrival_id: string; p_expected_version: number; p_project_id: string | null; p_notes: string | null }) => rpc<Arrival>('update_receiving_arrival_metadata', args),

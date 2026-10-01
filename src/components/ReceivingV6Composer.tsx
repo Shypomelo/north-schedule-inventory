@@ -22,7 +22,10 @@ export function SerializedArrivalReview({ drafts, model, unknownCount, resolving
     <div><p className="text-xl font-semibold tabular-nums">{drafts.length} 台設備</p>{resolving && <p role="status" className="text-xs text-secondary">正在確認序號…</p>}</div>
     <ul aria-label="到貨序號" className="max-h-48 space-y-1 overflow-y-auto text-sm">{drafts.map(d => <li key={d.raw} className="break-all py-0.5 font-medium">{d.raw}</li>)}</ul>
     {model && <p className="text-sm text-secondary"><span className="mr-2">型號</span><span className="break-all text-primary">{model.code}</span></p>}
-    {(unknownCount > 0 || drafts.some(d => d.state !== 'known' || d.choiceRequired)) && <p className="text-sm text-warning">待確認品項{unknownCount > 0 ? ` · ${unknownCount} 筆條碼需核對` : ''}</p>}
+    {drafts.some(d => d.state === 'conflict') && <p className="text-sm text-warning">序號已存在或與品項衝突，請返回掃描確認。</p>}
+    {drafts.some(d => d.choiceRequired) && <p className="text-sm text-warning">請選擇序號對應的預計收貨。</p>}
+    {!model && drafts.some(d => d.state === 'unknown') && <p className="text-sm text-warning">待確認品項</p>}
+    {unknownCount > 0 && <p className="text-sm text-warning">待確認條碼 · {unknownCount} 筆條碼需核對</p>}
   </>;
 }
 
@@ -46,6 +49,7 @@ export function ReceivingV6Composer({ data: initialData, api, preferred, onClose
   const scannedUnknown = useRef(new Set<string>());
   const resolvedItems = useRef(new Map<string, InventoryItem>());
   const modelResolver = useRef<ScannerModelResolver | null>(null);
+  const attemptedArrivalRequests = useRef(new Set<string>());
   if (!modelResolver.current) modelResolver.current = new ScannerModelResolver(initialData.items, createItem);
   const [resolving, setResolving] = useState(0);
   const action = useV5Action(), request = useV5Request();
@@ -62,7 +66,8 @@ export function ReceivingV6Composer({ data: initialData, api, preferred, onClose
       const items = Array.from(new Map([...data.items, ...Array.from(resolvedItems.current.values())].map(item => [item.id, item])).values());
       if (boxes.some(box => box.model?.kind === 'MODEL' && !items.some(item => item.id === box.model?.itemId && item.is_active && item.requires_serial)))
         throw new Error('型號尚未綁定可用的正式品項，請重試。');
-      const next = await resolveBoxArrival(boxes, { ...data, items }, serials => api.lookupBatch(serials), preferred);
+      const next = await resolveBoxArrival(boxes, { ...data, items }, serials => api.lookupBatch(serials), preferred,
+        serials => api.activeArrivalSerials(serials));
       update(next);
       setBoxSnapshot(snapshot);
       scannedModels.current = new Set(boxes.flatMap(box => box.model?.itemId ? [box.model.itemId] : []));
@@ -89,7 +94,14 @@ export function ReceivingV6Composer({ data: initialData, api, preferred, onClose
       };
       if (!prepared.lines.length) throw new Error('請加入序號，或選擇品項並填寫數量。');
       if (phase === 'plain' && plainTarget && !prepared.matches.length) throw new Error('預計收貨可對應數量不足，請重新選擇。');
-      const result = await api.create(request({ p_actual_received_at: at, p_lines: prepared.lines, p_matches: prepared.matches, p_project_id: preferred?.projectId || null }));
+      const args = request({ p_actual_received_at: at, p_lines: prepared.lines, p_matches: prepared.matches, p_project_id: preferred?.projectId || null });
+      if (phase === 'review' && !attemptedArrivalRequests.current.has(args.p_request_id)) {
+        const active = await api.activeArrivalSerials(drafts.map(d => d.raw));
+        if (active.length) throw new Error(`序號 ${active.join('、')} 已存在到貨紀錄，請返回掃描確認。`);
+      }
+      // A retry with the same request ID must reach the RPC's cached response.
+      attemptedArrivalRequests.current.add(args.p_request_id);
+      const result = await api.create(args);
       setSubmitted(true);
       await onSaved(result);
     });
@@ -109,7 +121,7 @@ export function ReceivingV6Composer({ data: initialData, api, preferred, onClose
       <div className="border-t border-theme-border pt-3"><div className="flex items-center justify-between gap-2 text-sm"><span>到貨時間：{adjustTime ? '已調整' : '現在'}</span><button type="button" className="min-h-11 px-2 text-sm text-accent" onClick={() => setAdjustTime(v => !v)}>調整</button></div>{adjustTime && <ReceiptDateTimeInput label="實際到貨" value={at} onChange={setAt} required />}</div>
     </fieldset>
     <ActionError message={action.error} />
-    <button className={v5Primary + ' w-full'} disabled={submitted || action.busy || Boolean(resolving) || drafts.some(d => d.choiceRequired) || (phase === 'review' ? !drafts.length : !item)}>{submitted ? '已完成實際到貨' : action.busy ? '儲存中…' : '完成實際到貨'}</button>
+    <button className={v5Primary + ' w-full'} disabled={submitted || action.busy || Boolean(resolving) || drafts.some(d => d.choiceRequired || d.state === 'conflict') || (phase === 'review' ? !drafts.length : !item)}>{submitted ? '已完成實際到貨' : action.busy ? '儲存中…' : '完成實際到貨'}</button>
     <div className="flex justify-between text-sm"><button type="button" className="min-h-11 px-2 text-accent" disabled={submitted || action.busy || Boolean(resolving)} onClick={() => setPhase('scan')}>返回掃描</button><button type="button" className="min-h-11 px-2 text-secondary" disabled={submitted || action.busy || Boolean(resolving)} onClick={onClose}>取消</button></div>
   </form>;
 }

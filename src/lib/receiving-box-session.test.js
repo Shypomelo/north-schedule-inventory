@@ -114,6 +114,29 @@ test('lookup conflict and model mismatch remain conflicts instead of being overw
   const result = await resolveBoxArrival(s.finish(), data, async values => values.map(() => ({ ...noMatch(), result_type: 'ambiguous' })));
   assert.equal(result[0].state, 'conflict'); assert.equal(result[0].itemId, null);
 });
+test('fresh active arrival observation blocks a second insert even when the loaded snapshot is stale', async () => {
+  const s = new BoxScanSession(items); fill(s, 1);
+  const drafts = await resolveBoxArrival(s.finish(), data, lookup, undefined, async values => {
+    assert.deepEqual(values, ['000000001-3C']);
+    return ['000000001-3C'];
+  });
+  assert.equal(drafts[0].state, 'conflict');
+  assert.throws(() => groupedSerialArrival(drafts, []), /序號.*已存在/);
+});
+test('composite and individual overlap, repeated frames, and repeated grouping retain one observation', async () => {
+  const s = new BoxScanSession(items);
+  s.add(`${model};${serial(1)};${serial(2)}`);
+  for (let frame = 0; frame < 10; frame++) s.add(serial(1));
+  assert.equal(s.deviceCount, 2);
+  const drafts = await resolveBoxArrival(s.finish(), data, lookup, undefined, async values => {
+    assert.deepEqual(values, ['000000001-3C', '000000002-3C']);
+    return [];
+  });
+  const first = groupedSerialArrival(drafts, []);
+  const retry = groupedSerialArrival(drafts, []);
+  assert.deepEqual(retry, first);
+  assert.deepEqual(first.lines[0].raw_serials, ['000000001-3C', '000000002-3C']);
+});
 test('read-only resolution failures preserve the full editable box session for retry', async () => {
   const s = new BoxScanSession(items); fill(s, 1); const boxes = s.finish();
   await assert.rejects(resolveBoxArrival(boxes, data, async () => { throw Error('offline'); }), /offline/);

@@ -113,3 +113,20 @@ test('one indexed batch read preserves exact, short and ambiguous identities', a
   assert.equal(calls, 1);
   assert.deepEqual(result.map(r => r.result_type), ['ambiguous', 'ambiguous', 'no_match']);
 });
+test('fresh arrival identity read finds active observations without considering retired or planned rows', async () => {
+  const calls = [];
+  const query = {
+    select(columns) { assert.equal(columns, 'normalized_serial'); return this; },
+    in(column, values) { calls.push([column, values]); return this; },
+    not(column, operator, value) { calls.push([column, operator, value]); return this; },
+    is(column, value) { calls.push([column, value]); return Promise.resolve({ data: [{ normalized_serial: '000000001-3C' }], error: null }); },
+  };
+  const api = createReceivingV5Api({ from(table) { assert.equal(table, 'receiving_serial_entries'); return query; } });
+  const active = await api.activeArrivalSerials(['000000001-3C', '000000001-3C']);
+  assert.deepEqual(active, ['000000001-3C']);
+  assert.deepEqual(calls, [
+    ['normalized_serial', ['000000001-3C']],
+    ['arrival_line_id', 'is', null],
+    ['retired_at', null],
+  ]);
+});
