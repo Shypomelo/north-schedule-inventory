@@ -99,7 +99,7 @@ export function createReceivingV5Api(client: SupabaseClient) {
     },
     lookup,
     create: (args: { p_request_id: string; p_actual_received_at: string; p_lines: CreateArrivalLine[]; p_project_id: string | null; p_matches: (MatchInput & { line_index: number; raw_serials?: string[] })[] }) => rpc<CreateArrivalResult>('create_receiving_arrival_legacy_compat', { ...args, p_match_all_or_nothing: false }),
-    complete: (args: { p_request_id: string; p_line_id: string; p_item_id: string }) => rpc<ArrivalLine>('complete_receiving_arrival_line', args),
+    complete: (args: { p_request_id: string; p_line_id: string; p_item_id: string }) => rpc<ArrivalLine>('complete_receiving_arrival_line_legacy_compat', args),
     metadata: (args: { p_request_id: string; p_arrival_id: string; p_expected_version: number; p_project_id: string | null; p_notes: string | null }) => rpc<Arrival>('update_receiving_arrival_metadata', args),
     cancelRemaining: (args: { p_request_id: string; p_source_type: string; p_source_id: string; p_reason: string | null }) => rpc<PendingFulfilment>('cancel_receiving_pending_remaining', args),
     replaceMatches: (args: { p_request_id: string; p_line_id: string; p_expected_version: number; p_matches: MatchInput[] }) => rpc('replace_receiving_arrival_matches', args),

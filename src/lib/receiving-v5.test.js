@@ -74,9 +74,49 @@ test('API commands use metadata/first-post/final-set/cancel contracts and never 
   await api.complete({p_request_id:'r2',p_line_id:'l',p_item_id:'i'});
   await api.replaceMatches({p_request_id:'r3',p_line_id:'l',p_expected_version:3,p_matches:[]});
   await api.cancelRemaining({p_request_id:'r4',p_source_type:'SE_SUPPLY',p_source_id:'p',p_reason:null});
-  assert.deepEqual(calls.map(c=>c.name), ['create_receiving_arrival_legacy_compat','update_receiving_arrival_metadata','complete_receiving_arrival_line','replace_receiving_arrival_matches','cancel_receiving_pending_remaining']);
+  assert.deepEqual(calls.map(c=>c.name), ['create_receiving_arrival_legacy_compat','update_receiving_arrival_metadata','complete_receiving_arrival_line_legacy_compat','replace_receiving_arrival_matches','cancel_receiving_pending_remaining']);
   assert.equal(calls[0].args.p_match_all_or_nothing, false);
   assert.deepEqual(calls[3].args.p_matches, []);
+});
+
+test('bridge create and complete keep the old actual-row projection POSTED or UNRESOLVED', async () => {
+  const data = empty(), calls = []; let inventoryIns = 0, next = 0;
+  const client = { rpc: async (name, args) => {
+    calls.push(name);
+    if (name === 'create_receiving_arrival_legacy_compat') {
+      const arrivalId = `arrival-${++next}`;
+      const arrival = { id: arrivalId, actual_received_at: args.p_actual_received_at, project_id: null };
+      const lines = args.p_lines.map((spec, index) => {
+        const known = Boolean(spec.inventory_item_id);
+        const line = { id: `${arrivalId}-${index}`, arrival_id: arrivalId, quantity: spec.quantity,
+          unit: known ? '台' : null, inventory_item_id: spec.inventory_item_id || null,
+          resolution_state: known ? 'POSTED' : 'UNRESOLVED', receipt_id: known ? `${arrivalId}-receipt` : null };
+        if (known) inventoryIns++;
+        return line;
+      });
+      data.arrivals.push(arrival); data.lines.push(...lines);
+      return { data: { arrival, lines, matches: [] }, error: null };
+    }
+    if (name === 'complete_receiving_arrival_line_legacy_compat') {
+      const line = data.lines.find(row => row.id === args.p_line_id);
+      Object.assign(line, { inventory_item_id: args.p_item_id, unit: '台',
+        resolution_state: 'POSTED', receipt_id: `${line.id}-receipt` });
+      inventoryIns++;
+      return { data: { ...line }, error: null };
+    }
+    throw Error(`unexpected RPC ${name}`);
+  } };
+  const api = createReceivingV5Api(client);
+  const created = await api.create({ p_request_id: 'create', p_actual_received_at: '2026-10-04T00:00:00Z',
+    p_lines: [{ inventory_item_id: 'item', quantity: 1 }, { inventory_item_id: null, quantity: 1 }],
+    p_project_id: null, p_matches: [] });
+  assert.deepEqual(actualRows(data).map(row => row.state), ['POSTED', 'UNRESOLVED']);
+  assert.equal(inventoryIns, 1);
+  const completed = await api.complete({ p_request_id: 'complete', p_line_id: created.lines[1].id, p_item_id: 'item' });
+  assert.equal(completed.resolution_state, 'POSTED');
+  assert.deepEqual(actualRows(data).map(row => row.state), ['POSTED', 'POSTED']);
+  assert.equal(inventoryIns, 2);
+  assert.deepEqual(calls, ['create_receiving_arrival_legacy_compat', 'complete_receiving_arrival_line_legacy_compat']);
 });
 
 function readClient(tables, fulfilments = {}, lookups = {}) {
