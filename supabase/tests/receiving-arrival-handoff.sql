@@ -25,15 +25,24 @@ CREATE FUNCTION pg_temp.reject(q text,pattern text,label text) RETURNS void LANG
 END $$;
 CREATE FUNCTION pg_temp.id(n integer) RETURNS uuid LANGUAGE sql AS $$ SELECT ('86000000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid $$;
 INSERT INTO public.projects(id,project_name) VALUES(pg_temp.id(1),'[TEST V6-A] A'),(pg_temp.id(2),'[TEST V6-A] B');
-INSERT INTO public.inventory_items(id,code,name,unit,category,requires_serial,is_se_maintenance_equipment) VALUES
- (pg_temp.id(3),'[TEST V6-A] serial','[TEST V6-A] serial','台','設備維修',true,true),
- (pg_temp.id(4),'[TEST V6-A] quantity','[TEST V6-A] quantity','m','一般',false,false);
+INSERT INTO public.inventory_items(id,code,name,unit,category,requires_serial,is_se_maintenance_equipment,canonical_identity_key) VALUES
+ (pg_temp.id(3),'[TEST V6-A] serial','[TEST V6-A] serial','台','設備維修',true,true,'test-v6a-serial'),
+ (pg_temp.id(4),'[TEST V6-A] quantity','[TEST V6-A] quantity','m','一般',false,false,'test-v6a-quantity');
 INSERT INTO public.schedule_tasks(id,title,task_date,task_type,status,project_id,work_group_id)
  VALUES(pg_temp.id(5),'[TEST V6-A] maintenance',current_date,'維修','未完成',pg_temp.id(1)::text,(SELECT id FROM public.work_groups LIMIT 1));
-CREATE FUNCTION pg_temp.arrival(qty numeric,names jsonb DEFAULT NULL) RETURNS uuid LANGUAGE sql AS $$
- SELECT (public.create_receiving_arrival(gen_random_uuid(),'2000-01-01',jsonb_build_array(jsonb_build_object(
- 'inventory_item_id',pg_temp.id(CASE WHEN names IS NULL THEN 4 ELSE 3 END),'quantity',qty,'raw_serials',COALESCE(names,'[]'))),NULL,'[TEST V6-A]','2099-03-15')->'lines'->0->>'receipt_id')::uuid
-$$;
+CREATE FUNCTION pg_temp.arrival(qty numeric,names jsonb DEFAULT NULL,posting date DEFAULT '2099-03-15') RETURNS uuid LANGUAGE plpgsql AS $$
+DECLARE created jsonb; posted jsonb; line_id uuid; entry_ids uuid[];
+BEGIN
+ created:=public.create_receiving_arrival(gen_random_uuid(),posting::timestamptz,jsonb_build_array(jsonb_build_object(
+  'inventory_item_id',pg_temp.id(CASE WHEN names IS NULL THEN 4 ELSE 3 END),'quantity',qty,
+  'unit',CASE WHEN names IS NULL THEN 'm' ELSE '台' END,'raw_serials',COALESCE(names,'[]'::jsonb))),
+  NULL,'[TEST V6-A]',NULL);
+ line_id:=(created->'lines'->0->>'id')::uuid;
+ SELECT COALESCE(array_agg(id ORDER BY normalized_serial),'{}') INTO entry_ids
+ FROM public.receiving_serial_entries WHERE arrival_line_id=line_id;
+ posted:=public.post_receiving_arrival_line(gen_random_uuid(),line_id,qty,entry_ids,posting);
+ RETURN (posted->'receipt'->>'id')::uuid;
+END $$;
 CREATE FUNCTION pg_temp.route(receipt uuid,kind text,qty numeric,serials uuid[] DEFAULT '{}',req uuid DEFAULT gen_random_uuid()) RETURNS jsonb LANGUAGE sql AS $$
  SELECT public.route_receiving_inventory(req,receipt,kind,qty,serials,pg_temp.id(1),NULL,true,'2099-03-16','[TEST V6-A]')
 $$;
@@ -54,7 +63,8 @@ CREATE FUNCTION pg_temp.stock() RETURNS text LANGUAGE sql AS $$
 $$;
 CREATE FUNCTION pg_temp.facts(receipt uuid) RETURNS jsonb LANGUAGE sql AS $$
  SELECT jsonb_build_object('arrival',to_jsonb(a),'line',to_jsonb(l),'receipt',to_jsonb(r)) FROM public.material_receipts r
- JOIN public.receiving_arrival_lines l ON l.id=r.arrival_line_id JOIN public.receiving_arrivals a ON a.id=l.arrival_id WHERE r.id=receipt
+ JOIN public.receiving_arrival_lines l ON l.id=COALESCE(r.route_arrival_line_id,r.arrival_line_id)
+ JOIN public.receiving_arrivals a ON a.id=l.arrival_id WHERE r.id=receipt
 $$;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA pg_temp TO authenticated,anon;
 
@@ -65,7 +75,11 @@ BEGIN
  r:=pg_temp.arrival(8,'["V6S00001-AA","V6S00002-AA","V6S00003-AA","V6S00004-AA","V6S00005-AA","V6S00006-AA","V6S00007-AA","V6S00008-AA"]');
  facts:=pg_temp.facts(r);
  PERFORM pg_temp.ok((pg_temp.scope(r)->>'available')::numeric=8,'ARRIVAL-RESOLVE-1 receipt scope');
- PERFORM pg_temp.ok((public.get_receiving_source_details('ARRIVAL',(SELECT arrival_line_id FROM public.material_receipts WHERE id=r))->'scope'->>'receipt_id')::uuid=r,'ARRIVAL-RESOLVE-1 source details');
+ PERFORM pg_temp.ok((SELECT source_type='ARRIVAL_ROUTE' AND route_arrival_line_id IS NOT NULL
+  FROM public.material_receipts WHERE id=r)
+  AND (pg_temp.scope(r)->>'receipt_id')::uuid=r
+  AND (pg_temp.scope(r)->>'arrival_line_id')::uuid=(SELECT route_arrival_line_id FROM public.material_receipts WHERE id=r),
+  'ARRIVAL-RESOLVE-1 routed source details');
  SELECT array_agg(inventory_serial_id ORDER BY raw_serial) INTO ids FROM public.receiving_serial_entries WHERE active_receipt_id=r;
  r2:=pg_temp.arrival(1,'["V6S00009-AA"]');
  SELECT inventory_serial_id INTO foreign_serial FROM public.receiving_serial_entries WHERE active_receipt_id=r2;
@@ -238,8 +252,7 @@ DECLARE r uuid; ids uuid[]; ledger text; facts jsonb; se_count bigint; alloc_cou
  result jsonb; alloc uuid; se public.se_supply_records; req uuid;
 BEGIN
  -- Use May for new Inventory effects because March was deliberately closed above.
- result:=public.create_receiving_arrival(gen_random_uuid(),now(),jsonb_build_array(jsonb_build_object('inventory_item_id',pg_temp.id(3),'quantity',2,'raw_serials',jsonb_build_array('V6S00012-AA','V6S00013-AA'))),NULL,'[TEST V6-A]','2099-05-15');
- r:=(result->'lines'->0->>'receipt_id')::uuid;
+ r:=pg_temp.arrival(2,jsonb_build_array('V6S00012-AA','V6S00013-AA'),'2099-05-15');
  SELECT array_agg(inventory_serial_id ORDER BY raw_serial) INTO ids FROM public.receiving_serial_entries WHERE active_receipt_id=r;
  ledger:=pg_temp.stock();facts:=pg_temp.facts(r);SELECT count(*) INTO se_count FROM public.se_supply_records;SELECT count(*) INTO alloc_count FROM public.receiving_inventory_allocations;SELECT count(*) INTO audit_count FROM public.activity_logs;
  PERFORM set_config('test.v6_fail_audit','on',true);
