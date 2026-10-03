@@ -24,7 +24,7 @@ import { ReceivingPendingBatchForm } from './ReceivingPendingBatchForm';
 
 const api = createReceivingV6Api(supabase);
 type Tab = 'pending' | 'received' | 'history';
-type Dialog = { kind: 'work'; key: string } | { kind: 'received'; key: string; mode: 'inventory' | 'SE' | 'SITE' | 'resolve' | 'cancel' } | { kind: 'return'; key: string } | { kind: 'pending' } | { kind: 'actual' };
+type Dialog = { kind: 'work'; key: string } | { kind: 'received'; key: string; mode: 'inventory' | 'SE' | 'PROJECT_PREP' | 'resolve' | 'cancel' } | { kind: 'return'; key: string } | { kind: 'pending' } | { kind: 'actual' };
 const shortTime = (value: string | null) => value ? new Intl.DateTimeFormat('zh-TW', {
   timeZone: 'Asia/Taipei', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
 }).format(new Date(value)) : '時間未定';
@@ -43,7 +43,7 @@ const receivedMenuTarget = (group: ReceivedGroup, canEdit: boolean): ReceivingAc
     ? [{ id: 'view', label: '查看明細' }] : group.states.includes('UNRESOLVED')
     ? [{ id: 'resolve', label: '補資料' }, { id: 'cancel-arrival', label: '取消實際到貨' }]
     : [{ id: 'post', label: '進北辦庫存' }, { id: 'route-se', label: '加入 SE 供貨追蹤' },
-      { id: 'route-site', label: '送至案場' }, { id: 'cancel-arrival', label: '取消實際到貨' }] });
+      { id: 'route-site', label: '加入案場物料' }, { id: 'cancel-arrival', label: '取消實際到貨' }] });
 const historyMenuTarget = (row: ReceivingHistoryRow, canEdit: boolean): ReceivingActionTarget => ({ type: 'history', key: row.id,
   receiptId: row.receiptId, arrivalLineIds: row.arrivalLineId ? [row.arrivalLineId] : [], state: row.state,
   actions: canEdit && row.returnToReceived ? [{ id: 'return', label: '退回到已收到' }] : [] });
@@ -61,7 +61,7 @@ export function ReceivingV6Center() {
     if (action === 'return' && target.type === 'history') setDialog({ kind: 'return', key: target.key });
     else if (target.type === 'received') {
       const group = received.find(value => value.key === target.key);
-      setDialog({ kind: 'received', key: target.key, mode: action === 'route-se' ? 'SE' : action === 'route-site' ? 'SITE'
+      setDialog({ kind: 'received', key: target.key, mode: action === 'route-se' ? 'SE' : action === 'route-site' ? 'PROJECT_PREP'
         : action === 'cancel-arrival' ? 'cancel' : action === 'resolve' || group?.states.includes('UNRESOLVED') ? 'resolve' : 'inventory' });
     }
     else if (action === 'delete' && target.type === 'pending' && target.pendingSource) {

@@ -22,6 +22,33 @@ test('canonical legacy ARRIVAL receipt leaves no staged quantity for an already 
   assert.equal(receivedItemGroups(d).length,0);
 });
 
+test('returned legacy ARRIVAL serial becomes an exact REENTRY stage',()=>{
+  const d=empty();arrival(d,'a',1,'i',['RSEM0004-AA']);d.lines[0].receipt_id='ar';
+  d.receipts.push({id:'ar',source_type:'ARRIVAL',arrival_line_id:'a',event_type:'RECEIVE',quantity_received:1,
+    inventory_transaction_id:'tx',inventory_linked:true},
+  {id:'rev',source_type:'ARRIVAL',arrival_line_id:'a',event_type:'REVERSAL',reversal_of_id:'ar',
+    quantity_received:1,inventory_transaction_id:'rtx',inventory_linked:true,received_at:'2026-09-26T07:00:00Z'});
+  d.transactions.push({id:'tx',item_id:'i',transaction_type:'IN',is_voided:false,excluded_by_initialization_id:null},
+    {id:'rtx',item_id:'i',transaction_type:'IN_REVERSAL',reverses_transaction_id:'tx',is_voided:false,excluded_by_initialization_id:null});
+  d.receiptSerials.push({receipt_id:'rev',entry_id:'a0',inventory_serial_id:'as0'});
+  d.inventorySerials.push({id:'as0',item_id:'i',status:'待入庫',serial_number:'RSEM0004-AA'});
+  d.transactionSerials.push({transaction_id:'rtx',serial_id:'as0',is_pending:false});
+  d.observations[0].active_receipt_id=null;
+  const groups=receivedItemGroups(d);
+  assert.equal(groups.length,1);
+  assert.equal(groups[0].quantity,1);
+  assert.deepEqual(groups[0].stages.map(stage=>[stage.kind,stage.reversalReceiptId,stage.serials[0].inventorySerialId]),[['REENTRY','rev','as0']]);
+});
+
+test('project preparation is separate from SITE and reduces available receipt scope',()=>{
+  const d=empty();arrival(d,'a',2,'i',['RSEM0005-AA','RSEM0006-AA']);
+  d.scopes.ar={received:2,requires_serial:true,available:0,se:0,site:0,prep:2,
+    available_serial_ids:[],allocations:[{inventory_serial_id:'as0',quantity:1,route_type:'PROJECT_PREP',cancelled_at:null},
+      {inventory_serial_id:'as1',quantity:1,route_type:'PROJECT_PREP',cancelled_at:null}]};
+  const stock=workItemStock(receivingWorkItems(d)[0],d);
+  assert.equal(stock.prep,2);assert.equal(stock.site,0);assert.equal(stock.available,0);
+});
+
 test('legacy receipt relation is exact and cannot double count with routed receipts',()=>{
   const d=empty();arrival(d,'a',1,'i',['SE4000H-1']);
   d.receipts.push({id:'ar',source_type:'ARRIVAL',arrival_line_id:'other-line',event_type:'RECEIVE',quantity_received:1});

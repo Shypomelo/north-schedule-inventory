@@ -55,8 +55,8 @@ BEGIN
    jsonb_build_object('quantity',1,'raw_serials',jsonb_build_array('UXBA0002-AA')),
    jsonb_build_object('quantity',1,'raw_serials',jsonb_build_array('UXBA0003-AA')))),
   jsonb_build_object('kind','BOX','lines',jsonb_build_array(
-   jsonb_build_object('inventory_item_id',serial_id,'quantity',2,
-    'raw_serials',jsonb_build_array('UXBA0004-AA','UXBA0005-AA')),
+   jsonb_build_object('quantity',1,
+    'raw_serials',jsonb_build_array('UXBA0004-AA')),
    jsonb_build_object('inventory_item_id',plain_id,'quantity',2)))));
  first_arrival:=(batches->0->'arrival'->>'id')::uuid;
  second_arrival:=(batches->1->'arrival'->>'id')::uuid;

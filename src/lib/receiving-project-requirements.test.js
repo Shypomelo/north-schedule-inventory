@@ -22,3 +22,8 @@ test('stale explicit selection does not silently create a new requirement', () =
 test('numeric strings from Postgres and exact remaining capacity are accepted', () => {
   assert.deepEqual(select([row('A','20','8')],12,''),{materialId:'A',createNew:false});
 });
+test('project preparation uses demand capacity without increasing actual receipts', () => {
+  const prepared={...row('A',7,2),prepared:3};
+  assert.deepEqual(select([prepared],2,'A'),{materialId:'A',createNew:false});
+  assert.equal(select([prepared],3,'A'),null);
+});

@@ -92,7 +92,7 @@ export function createReceivingV6Api(client: SupabaseClient) {
         ? rpc<PostArrivalLineResult>(command.name, command.args)
         : rpc<InventoryInReversalResult>(command.name, command.args);
     },
-    routeStaged: (args: { stage: ReceivedStage; requestId: string; route: 'SE' | 'SITE'; quantity: number;
+    routeStaged: (args: { stage: ReceivedStage; requestId: string; route: 'SE' | 'PROJECT_PREP'; quantity: number;
       entryIds: string[]; projectId: string | null; materialId: string | null; createNew: boolean; receivedAt: string }) =>
       rpc('route_staged_receiving', { p_request_id: args.requestId, p_stage_kind: args.stage.kind,
         p_line_id: args.stage.lineId, p_reversal_receipt_id: args.stage.reversalReceiptId,
@@ -105,6 +105,13 @@ export function createReceivingV6Api(client: SupabaseClient) {
         p_reversal_receipt_id: args.reversalReceiptId, p_quantity: args.quantity,
         p_entry_ids: args.entryIds, p_match_reductions: args.matchReductions, p_reason: args.reason }),
     handoff: (args: { p_request_id: string; p_receipt_id: string; p_route_type: 'SE' | 'SITE'; p_quantity: number; p_serial_ids: string[]; p_project_id: string | null; p_received_at: string; p_material_id: string | null; p_create_new: boolean }) => rpc('route_receiving_inventory', { ...args, p_notes: null }),
+    prepareReceipt: (args: { p_request_id: string; p_receipt_id: string; p_quantity: number; p_serial_ids: string[];
+      p_project_id: string; p_material_id: string | null; p_create_new: boolean; p_prepared_at: string }) =>
+      rpc('prepare_receiving_project_material', { ...args, p_notes: null }),
+    returnSE: (args: { p_request_id: string; p_record_id: string; p_reason: string }) =>
+      rpc('return_receiving_se_to_received', { ...args, p_reversed_at: null }),
+    returnProjectPrep: (args: { p_request_id: string; p_allocation_id: string; p_reason: string }) =>
+      rpc('return_receiving_project_prep_to_received', { ...args, p_reversed_at: null }),
     reverseIn: (args: { p_request_id: string; p_receipt_id: string; p_quantity: number; p_entry_ids: string[]; p_reversed_at: string; p_reason: string }) =>
       rpc<InventoryInReversalResult>('reverse_receiving_inventory_in', args),
     reenterIn: (args: { p_request_id: string; p_reversal_receipt_id: string; p_quantity: number; p_entry_ids: string[]; p_received_at: string; p_notes: string | null }) =>

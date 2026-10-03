@@ -14,7 +14,7 @@ export interface HandoffAllocation extends ReceivingAllocation {
   supersedes_allocation_id: string | null; reversal_receipt_id: string | null;
 }
 export interface HandoffScope {
-  receipt_id: string; item_id: string; requires_serial: boolean; received: number; se: number; site: number;
+  receipt_id: string; item_id: string; requires_serial: boolean; received: number; se: number; site: number; prep?: number;
   other: number; available: number; available_serial_ids: string[]; allocations: HandoffAllocation[];
 }
 export interface HandoffTransaction { id: string; item_id: string; project_id: string | null; transaction_type: string; quantity: number; transaction_date: string; schedule_task_id: string | null; is_voided: boolean; excluded_by_initialization_id: string | null; source: string | null; handler: string | null; created_at: string; reverses_transaction_id: string | null; reenters_reversal_id: string | null }
@@ -114,12 +114,14 @@ export function receivedItemGroups(data: ReceivingV6Snapshot, arrivalId?: string
         quantity: normal, requiresSerial: Boolean(item?.requires_serial),
         serials: item?.requires_serial ? entries.map(entry => ({ entryId: entry.id, inventorySerialId: null, serialNumber: entry.normalized_serial })) : [], row });
     }
-    if (row.line && itemId) for (const reversal of data.receipts.filter(receipt => receipt.source_type === 'ARRIVAL_ROUTE'
-      && receipt.route_arrival_line_id === row.line!.id && receipt.event_type === 'REVERSAL'
+    if (row.line && itemId) for (const reversal of data.receipts.filter(receipt => (receipt.source_type === 'ARRIVAL_ROUTE' || receipt.source_type === 'ARRIVAL')
+      && (receipt.route_arrival_line_id || receipt.arrival_line_id) === row.line!.id && receipt.event_type === 'REVERSAL'
       && receipt.inventory_linked && receipt.inventory_transaction_id)) {
       const origin = data.receipts.find(receipt => receipt.id === reversal.reversal_of_id);
       const reversalTx = data.transactions.find(tx => tx.id === reversal.inventory_transaction_id);
-      if (!origin || origin.source_type !== 'ARRIVAL_ROUTE' || origin.route_arrival_line_id !== row.line.id
+      if (!origin || origin.source_type !== reversal.source_type
+        || (origin.route_arrival_line_id || origin.arrival_line_id) !== row.line.id
+        || (origin.source_type === 'ARRIVAL' && row.line.receipt_id !== origin.id && !origin.reentry_of_reversal_id)
         || !origin.inventory_transaction_id || !reversalTx || reversalTx.transaction_type !== 'IN_REVERSAL'
         || reversalTx.reverses_transaction_id !== origin.inventory_transaction_id || reversalTx.is_voided
         || reversalTx.excluded_by_initialization_id) throw new Error('入庫撤回關聯不完整，請重新整理。');
@@ -229,7 +231,7 @@ export function receivingHistory(data: ReceivingV6Snapshot): ReceivingHistoryRow
       projectLabel: data.projects.find(value => value.id === projectId)?.name || '未指定案件', transactionId: tx?.id || null,
       receiptId: receipt.id, arrivalLineId: lineId || null, itemId: itemId || null,
       requiresSerial: Boolean(item?.requires_serial), serials, reversibleSerials,
-      reversibleQuantity, returnToReceived: receipt.source_type === 'ARRIVAL_ROUTE' && Boolean(line && arrival && !arrival.voided_at)
+      reversibleQuantity, returnToReceived: (receipt.source_type === 'ARRIVAL_ROUTE' || receipt.source_type === 'ARRIVAL') && Boolean(line && arrival && !arrival.voided_at)
         && Boolean(item?.is_active) && reversibleQuantity > 0 });
   }
   for (const tx of data.transactions) {
@@ -334,18 +336,20 @@ export function workItemSearch(row: ReceivingWorkItem, query: string) {
 
 /** Never attribute a quantity-only handoff to a particular match without provenance. */
 export function workItemStock(row: ReceivingWorkItem, data: ReceivingV6Snapshot) {
-  let available = 0, se = 0, site = 0, shared = false, known = false;
+  let available = 0, se = 0, site = 0, prep = 0, shared = false, known = false;
   for (const slice of row.slices) {
     const scope = slice.receiptId && data.scopes[slice.receiptId]; if (!scope) continue;
     known = true;
     if (!scope.requires_serial && slice.quantity !== scope.received) { shared = true; continue; }
-    if (!scope.requires_serial) { available += scope.available; se += scope.se; site += scope.site; continue; }
+    if (!scope.requires_serial) { available += scope.available; se += scope.se; site += scope.site; prep += scope.prep || 0; continue; }
     available += scope.available_serial_ids.filter(id => slice.serialIds.includes(id)).length;
     for (const a of scope.allocations.filter(a => !a.cancelled_at && a.inventory_serial_id && slice.serialIds.includes(a.inventory_serial_id))) {
-      if (a.route_type === 'SE') se += Number(a.quantity); else site += Number(a.quantity);
+      if (a.route_type === 'SE') se += Number(a.quantity);
+      else if (a.route_type === 'PROJECT_PREP') prep += Number(a.quantity);
+      else site += Number(a.quantity);
     }
   }
-  return { available, se, site, shared, known };
+  return { available, se, site, prep, shared, known };
 }
 
 export interface SerialAutoDraft {
@@ -397,6 +401,12 @@ export function handoffCorrectionRequired(a: HandoffAllocation, scope: HandoffSc
   if (a.route_type === 'SE') {
     const se = data.supplies.find(s => s.id === a.se_supply_record_id);
     return !se || Boolean(se.replace_date || se.cancelled_at) || se.inventory_serial_id !== a.inventory_serial_id || Number(se.quantity) !== Number(a.quantity);
+  }
+  if (a.route_type === 'PROJECT_PREP') {
+    const material = data.materials.find(m => m.id === a.project_material_id);
+    return !material || Boolean(material.receiving_archived_at) || material.inventory_item_id !== a.inventory_item_id
+      || material.delivery_destination !== 'SITE' || (a.inventory_serial_id != null
+        && !data.inventorySerials.some(s => s.id === a.inventory_serial_id && s.status === '在庫'));
   }
   const tx = data.transactions.find(t => t.id === a.inventory_transaction_id);
   const site = data.receipts.find(r => r.id === a.site_receipt_id);

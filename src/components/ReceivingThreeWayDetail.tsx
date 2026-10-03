@@ -13,12 +13,22 @@ import { ReceivingPostDetail } from './ReceivingPostDetail';
 import { CompleteUnknown } from './ReceivingWorkModal';
 import { ReceivingBatchResolve } from './ReceivingBatchResolve';
 
-type Mode = 'inventory' | 'SE' | 'SITE' | 'resolve' | 'cancel';
+type Mode = 'inventory' | 'SE' | 'PROJECT_PREP' | 'resolve' | 'cancel';
 type CancelTarget = { key: string; lineId: string; reversalReceiptId: string | null;
-  quantity: number; serials: { entryId: string; label: string }[]; serialized: boolean };
+  quantity: number; serials: { entryId: string; label: string }[]; serialized: boolean; label: string };
+
+function stageLabel(stage: ReceivedStage): string {
+  const when = stage.kind === 'REENTRY' ? stage.reversalAt : stage.row.at;
+  const date = when ? new Intl.DateTimeFormat('zh-TW', { timeZone: 'Asia/Taipei', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(when)) : '時間未記錄';
+  const arrival = stage.row.arrival;
+  const batch = arrival?.batch_kind === 'BOX' && arrival.batch_position
+    ? `箱 ${String(arrival.batch_position).padStart(2, '0')}`
+    : arrival?.batch_kind === 'LOOSE' ? '散料' : '到貨批次';
+  return `${date}・${batch}${stage.kind === 'REENTRY' ? '・退回後' : ''}`;
+}
 
 function StageRouteForm({ route, group, data, api, onChanged }: {
-  route: 'SE' | 'SITE'; group: ReceivedGroup; data: ReceivingV6Snapshot;
+  route: 'SE' | 'PROJECT_PREP'; group: ReceivedGroup; data: ReceivingV6Snapshot;
   api: ReceivingV6Api; onChanged: () => Promise<boolean>;
 }) {
   const [stageKey, setStageKey] = useState(group.stages[0]?.key || '');
@@ -36,7 +46,7 @@ function StageRouteForm({ route, group, data, api, onChanged }: {
   useEffect(() => { setRequirementId(''); }, [amount]);
   useEffect(() => {
     let alive = true; setRequirements(null); setRequirementError('');
-    if (route === 'SITE' && projectId && group.itemId) void api.projectRequirements(projectId, group.itemId)
+    if (route === 'PROJECT_PREP' && projectId && group.itemId) void api.projectRequirements(projectId, group.itemId)
       .then(rows => { if (alive) setRequirements(rows); })
       .catch(cause => { if (alive) setRequirementError(receivingError(cause)); });
     return () => { alive = false; };
@@ -44,7 +54,7 @@ function StageRouteForm({ route, group, data, api, onChanged }: {
   const candidates = validAmount && requirements ? compatibleProjectRequirements(requirements, amount) : [];
   const materialId = requirementId && requirementId !== 'new' && candidates.some(row => row.id === requirementId) ? requirementId : null;
   const createNew = requirementId === 'new';
-  const siteReady = route !== 'SITE' || Boolean(projectId && requirements && (materialId || createNew));
+  const siteReady = route !== 'PROJECT_PREP' || Boolean(projectId && requirements && (materialId || createNew));
   const submit = () => void action.run(async () => {
     if (!selectedStage || !validAmount || !siteReady) throw new Error('請選擇有效的待處理數量與案場物料。');
     await api.routeStaged({ stage: selectedStage, requestId: request({ stageKey, route, amount, entryIds, projectId,
@@ -53,21 +63,21 @@ function StageRouteForm({ route, group, data, api, onChanged }: {
     if (!await onChanged()) throw new Error('後續處理已送出，但重新讀取失敗；請重新整理確認結果。');
   });
   return <div aria-busy={action.busy} className="space-y-3">
-    <h3 className="font-semibold">{route === 'SE' ? '加入 SE 供貨追蹤' : '送至案場'}</h3>
-    {group.stages.length > 1 && <label className="block text-sm">選擇到貨批次<select className={v5Field} value={stageKey} disabled={action.busy} onChange={e => setStageKey(e.target.value)}>{group.stages.map(value => <option key={value.key} value={value.key}>{value.kind === 'REENTRY' ? '退回後待處理' : '實際到貨'} · {formatReceivingQuantity(value.quantity)} {value.row.unit}</option>)}</select></label>}
+    <h3 className="font-semibold">{route === 'SE' ? '加入 SE 供貨追蹤' : '加入案場物料'}</h3>
+    {group.stages.length > 1 && <label className="block text-sm">選擇到貨批次<select className={v5Field} value={stageKey} disabled={action.busy} onChange={e => setStageKey(e.target.value)}>{group.stages.map(value => <option key={value.key} value={value.key}>{stageLabel(value)}・可處理 {formatReceivingQuantity(value.quantity)} {value.row.unit}</option>)}</select></label>}
     {selectedStage && <fieldset disabled={action.busy} className="space-y-3">
       {selectedStage.requiresSerial ? <div className="max-h-56 overflow-y-auto" aria-label="待處理序號">{selectedStage.serials.map(serial => <label key={serial.entryId} className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={entryIds.includes(serial.entryId)} onChange={e => setEntryIds(ids => e.target.checked ? [...ids, serial.entryId] : ids.filter(id => id !== serial.entryId))} /><span className="break-all">{serial.serialNumber}</span></label>)}</div>
         : <label className="block text-sm">處理數量（最多 {formatReceivingQuantity(selectedStage.quantity)}）<input className={v5Field} type="number" min="0.001" max={selectedStage.quantity} step="any" value={quantity} onChange={e => setQuantity(e.target.value)} /></label>}
-      <ReceivingProjectCombobox projects={selectReceivingProjects(data.projects)} value={projectId} onChange={setProjectId} required={route === 'SITE'} />
-      {route === 'SITE' && projectId && <div className="space-y-2 text-sm">
+      <ReceivingProjectCombobox projects={selectReceivingProjects(data.projects)} value={projectId} onChange={setProjectId} required={route === 'PROJECT_PREP'} />
+      {route === 'PROJECT_PREP' && projectId && <div className="space-y-2 text-sm">
         {!requirements && !requirementError && <p role="status">查詢案場物料需求…</p>}
         <ActionError message={requirementError} />
-        {requirements && <label className="block">案場物料<select className={v5Field} aria-label="案場物料" value={requirementId} onChange={e => setRequirementId(e.target.value)}><option value="">請明確選擇</option>{candidates.map(row => <option key={row.id} value={row.id}>{row.batch_name} · {row.specification || row.item_name} · 剩 {Number(row.quantity) - Number(row.received)}</option>)}<option value="new">建立新的案場物料</option></select></label>}
+        {requirements && <label className="block">案場物料<select className={v5Field} aria-label="案場物料" value={requirementId} onChange={e => setRequirementId(e.target.value)}><option value="">請明確選擇</option>{candidates.map(row => <option key={row.id} value={row.id}>{row.batch_name} · {row.specification || row.item_name} · 剩 {Number(row.quantity) - Number(row.received) - Number(row.prepared || 0)}</option>)}<option value="new">建立新的案場物料</option></select></label>}
       </div>}
-      {route === 'SITE' && <p className="text-sm text-warning">確認後代表物料已實際送達案場。</p>}
+      {route === 'PROJECT_PREP' && <p className="text-sm text-secondary">備料仍在北辦庫存，尚未送達案場。</p>}
     </fieldset>}
     <ActionError message={action.error} />
-    <button type="button" className={v5Primary + ' w-full'} disabled={action.busy || !validAmount || !siteReady} onClick={submit}>{action.busy ? '處理中…' : route === 'SE' ? '確認加入 SE 供貨追蹤' : '確認送至案場'}</button>
+    <button type="button" className={v5Primary + ' w-full'} disabled={action.busy || !validAmount || !siteReady} onClick={submit}>{action.busy ? '處理中…' : route === 'SE' ? '確認加入 SE 供貨追蹤' : '確認加入案場物料'}</button>
   </div>;
 }
 
@@ -75,10 +85,11 @@ function CancelArrivalForm({ group, data, api, onChanged }: {
   group: ReceivedGroup; data: ReceivingV6Snapshot; api: ReceivingV6Api; onChanged: () => Promise<boolean>;
 }) {
   const targets = useMemo<CancelTarget[]>(() => [
-    ...group.stages.map(stage => ({ key: stage.key, lineId: stage.lineId,
+    ...group.stages.map(stage => ({ key: stage.key, lineId: stage.lineId, label: stageLabel(stage),
       reversalReceiptId: stage.reversalReceiptId, quantity: stage.quantity,
       serialized: stage.requiresSerial, serials: stage.serials.map(serial => ({ entryId: serial.entryId, label: serial.serialNumber })) })),
     ...group.rows.filter(row => row.state === 'UNRESOLVED' && row.line).map(row => ({ key: row.key,
+      label: `${row.at ? new Intl.DateTimeFormat('zh-TW', { timeZone: 'Asia/Taipei', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(row.at)) : '時間未記錄'}・${row.arrival?.batch_kind === 'BOX' && row.arrival.batch_position ? `箱 ${String(row.arrival.batch_position).padStart(2, '0')}` : row.arrival?.batch_kind === 'LOOSE' ? '散料' : '待補資料到貨批次'}`,
       lineId: row.line!.id, reversalReceiptId: null,
       quantity: group.remainingByLine[row.line!.id], serialized: row.observations.length > 0,
       serials: row.observations.map(entry => ({ entryId: entry.id, label: entry.normalized_serial })) })),
@@ -115,7 +126,7 @@ function CancelArrivalForm({ group, data, api, onChanged }: {
   return <div aria-busy={action.busy} className="space-y-3">
     <h3 className="font-semibold">確定取消這筆實際到貨？</h3>
     <p className="text-sm text-secondary">只取消目前仍待處理的數量；取消後會恢復對應的待收數量。已正式處理的部分會保留。</p>
-    {targets.length > 1 && <label className="block text-sm">選擇到貨批次<select className={v5Field} disabled={action.busy} value={targetKey} onChange={e => setTargetKey(e.target.value)}>{targets.map(value => <option value={value.key} key={value.key}>{value.key} · 可取消 {formatReceivingQuantity(value.quantity)}</option>)}</select></label>}
+    {targets.length > 1 && <label className="block text-sm">選擇到貨批次<select className={v5Field} disabled={action.busy} value={targetKey} onChange={e => setTargetKey(e.target.value)}>{targets.map(value => <option value={value.key} key={value.key}>{value.label}・可取消 {formatReceivingQuantity(value.quantity)}</option>)}</select></label>}
     {target && <fieldset disabled={action.busy} className="space-y-3">
       {target.serialized ? <div className="max-h-56 overflow-y-auto" aria-label="可取消序號">{target.serials.map(serial => <label key={serial.entryId} className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={entryIds.includes(serial.entryId)} onChange={e => setEntryIds(ids => e.target.checked ? [...ids, serial.entryId] : ids.filter(id => id !== serial.entryId))} /><span className="break-all">{serial.label}</span></label>)}</div>
         : <label className="block text-sm">取消數量（最多 {formatReceivingQuantity(target.quantity)}）<input className={v5Field} type="number" min="0.001" max={target.quantity} step="any" value={quantity} onChange={e => setQuantity(e.target.value)} /></label>}
@@ -136,7 +147,7 @@ export function ReceivingThreeWayDetail({ group, data, api, canEdit, initialMode
   const modes: { key: Mode; label: string }[] = !canEdit || (!unresolved && !group.stages.length) ? [] : unresolved
     ? [{ key: 'resolve', label: '補資料' }, { key: 'cancel', label: '取消實際到貨' }]
     : [{ key: 'inventory', label: '進北辦庫存' }, { key: 'SE', label: '加入 SE 供貨追蹤' },
-      { key: 'SITE', label: '送至案場' }, { key: 'cancel', label: '取消實際到貨' }];
+      { key: 'PROJECT_PREP', label: '加入案場物料' }, { key: 'cancel', label: '取消實際到貨' }];
   return <div className="space-y-4">
     <div><h3 className="font-semibold">{group.pn} · {group.name}</h3><p className="text-sm text-secondary">已收到 {formatReceivingQuantity(group.quantity)} {group.unit}</p></div>
     {group.rows.some(row => row.observations.length > 0) && <details className="rounded-lg border border-theme-border px-3 py-2 text-sm"><summary className="cursor-pointer">查看序號 · {group.rows.reduce((sum, row) => sum + row.observations.length, 0)}</summary>
@@ -146,7 +157,7 @@ export function ReceivingThreeWayDetail({ group, data, api, canEdit, initialMode
       ? <ReceivingBatchResolve group={group} data={data} api={api} onChanged={onChanged} />
       : group.rows[0] && <CompleteUnknown row={group.rows[0]} data={data} api={api} onChanged={async () => { await onChanged(); }} />)}
     {mode === 'inventory' && !unresolved && <ReceivingPostDetail group={group} data={data} api={api} canPost={canEdit && group.stages.length > 0} onPosted={onChanged} />}
-    {(mode === 'SE' || mode === 'SITE') && !unresolved && canEdit && <StageRouteForm route={mode} group={group} data={data} api={api} onChanged={onChanged} />}
+    {(mode === 'SE' || mode === 'PROJECT_PREP') && !unresolved && canEdit && <StageRouteForm route={mode} group={group} data={data} api={api} onChanged={onChanged} />}
     {mode === 'cancel' && canEdit && <CancelArrivalForm group={group} data={data} api={api} onChanged={onChanged} />}
   </div>;
 }

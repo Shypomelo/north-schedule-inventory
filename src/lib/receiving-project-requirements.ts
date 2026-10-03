@@ -1,9 +1,10 @@
 export interface ReceivingProjectRequirement {
   id: string; batch_id: string; batch_name: string; item_name: string; specification: string | null;
-  unit: string; quantity: number; received: number; created_at: string;
+  unit: string; quantity: number; received: number; prepared?: number; created_at: string;
 }
 export function compatibleProjectRequirements(rows: ReceivingProjectRequirement[], quantity: number) {
-  return rows.filter(r => Number(r.quantity) - Number(r.received) >= quantity && Number(r.quantity) > Number(r.received));
+  return rows.filter(r => Number(r.quantity) - Number(r.received) - Number(r.prepared || 0) >= quantity
+    && Number(r.quantity) > Number(r.received) + Number(r.prepared || 0));
 }
 export function selectProjectRequirement(rows: ReceivingProjectRequirement[], quantity: number, explicit: string) {
   const compatible = compatibleProjectRequirements(rows, quantity);
