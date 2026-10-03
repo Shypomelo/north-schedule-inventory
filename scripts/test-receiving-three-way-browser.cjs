@@ -28,7 +28,7 @@ export const createReceivingV6Api = () => ({
  routeStaged: async args => {store.calls.push({name:'routeStaged',args});return {};},
  cancelPhysicalStage: async args => {store.calls.push({name:'cancelPhysicalStage',args});return {};},
  postReceivedToInventory: async args => {store.calls.push({name:'postReceivedToInventory',args});return {};},
- projectRequirements: async () => [],
+ projectRequirements: async () => [{id:'material',batch_id:'batch',batch_name:'既有批次',item_name:'線材',specification:null,unit:'m',quantity:10,received:0,created_at:'2026-10-01T00:00:00Z'}],
  lookup: async () => ({result_type:'no_match',candidates:[]}),
  complete: async args => {store.calls.push({name:'complete',args});return {};}
 });`;
@@ -71,12 +71,29 @@ async function main() {
   await dialog.getByRole('button',{name:'確認加入 SE 供貨追蹤'}).click();
   await page.waitForFunction(()=>window.__review.calls.length===1);
   assert.equal((await page.evaluate(()=>window.__review.calls[0])).args.quantity,2);
+  await dialog.getByRole('button',{name:'送至案場',exact:true}).click();
+  await dialog.getByRole('spinbutton',{name:/處理數量/}).fill('1');
+  await dialog.getByRole('combobox',{name:'案件'}).fill('北港');
+  await dialog.getByRole('combobox',{name:'案件'}).press('Enter');
+  await page.waitForFunction(()=>!!document.querySelector('select[aria-label="案場物料"]'));
+  await page.evaluate(()=>{const select=document.querySelector('select');select.value='material';select.dispatchEvent(new Event('change',{bubbles:true}));});
+  await dialog.getByRole('button',{name:'確認送至案場'}).click();
+  await page.waitForFunction(()=>window.__review.calls.length===2);
+  assert.equal((await page.evaluate(()=>window.__review.calls[1])).args.materialId,'material');
+  await dialog.getByRole('spinbutton',{name:/處理數量/}).fill('1');
+  await dialog.getByRole('combobox',{name:'案件'}).fill('北港');
+  await dialog.getByRole('combobox',{name:'案件'}).press('Enter');
+  await page.waitForFunction(()=>!!document.querySelector('select[aria-label="案場物料"]'));
+  await page.evaluate(()=>{const select=document.querySelector('select[aria-label="案場物料"]');select.value='new';select.dispatchEvent(new Event('change',{bubbles:true}));});
+  await dialog.getByRole('button',{name:'確認送至案場'}).click();
+  await page.waitForFunction(()=>window.__review.calls.length===3);
+  assert.equal((await page.evaluate(()=>window.__review.calls[2])).args.createNew,true);
   await dialog.getByRole('button',{name:'取消實際到貨',exact:true}).click();
   await dialog.getByRole('spinbutton',{name:/取消數量/}).fill('1');
   await dialog.getByRole('textbox',{name:'取消原因'}).fill('fixture');
   await dialog.getByRole('button',{name:'確認取消到貨'}).click();
-  await page.waitForFunction(()=>window.__review.calls.length===2);
-  assert.equal((await page.evaluate(()=>window.__review.calls[1])).name,'cancelPhysicalStage');
+  await page.waitForFunction(()=>window.__review.calls.length===4);
+  assert.equal((await page.evaluate(()=>window.__review.calls[3])).name,'cancelPhysicalStage');
   await page.screenshot({path:path.join(out,'desktop.png')});
   await dialog.getByRole('button',{name:'關閉收貨工作'}).click();
   assert(await legacy.locator('..').getByRole('button',{name:'查看明細',exact:true}).isVisible());
