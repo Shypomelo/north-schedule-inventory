@@ -14,7 +14,7 @@ import { formatReceivingQuantity, formatTaipeiReceivingTime } from '@/lib/materi
 import type { CreateArrivalResult } from '@/lib/db/receiving-v5';
 import { ReceivingWorkBody, ReceivingWorkModal } from './ReceivingWorkModal';
 import { ReceivingV6Composer } from './ReceivingV6Composer';
-import { ReceivingPostDetail } from './ReceivingPostDetail';
+import { ReceivingThreeWayDetail } from './ReceivingThreeWayDetail';
 import { ReceivingReturnDetail } from './ReceivingReturnDetail';
 import { ReceivingPendingDeleteConfirm } from './ReceivingPendingDeleteConfirm';
 import { useReceivingActionMenu, type ReceivingActionTarget } from './ReceivingActionMenu';
@@ -22,7 +22,7 @@ import { ActionError, PendingForm, v5Button, v5Primary } from './ReceivingV5Form
 
 const api = createReceivingV6Api(supabase);
 type Tab = 'pending' | 'received' | 'history';
-type Dialog = { kind: 'work'; key: string } | { kind: 'received'; key: string } | { kind: 'return'; key: string } | { kind: 'pending' } | { kind: 'actual' };
+type Dialog = { kind: 'work'; key: string } | { kind: 'received'; key: string; mode: 'inventory' | 'SE' | 'SITE' | 'resolve' | 'cancel' } | { kind: 'return'; key: string } | { kind: 'pending' } | { kind: 'actual' };
 const shortTime = (value: string | null) => value ? new Intl.DateTimeFormat('zh-TW', {
   timeZone: 'Asia/Taipei', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
 }).format(new Date(value)) : '時間未定';
@@ -37,7 +37,10 @@ const pendingMenuTarget = (row: PendingRow, canEdit: boolean): ReceivingActionTa
 const receivedMenuTarget = (group: ReceivedGroup, canEdit: boolean): ReceivingActionTarget => ({ type: 'received', key: group.key, receiptId: null,
   arrivalLineIds: Array.from(new Set(group.rows.map(row => row.line?.id).filter((id): id is string => Boolean(id)))),
   state: group.stages.map(stage => stage.kind).join(',') || group.states.join(','),
-  actions: canEdit && group.stages.length ? [{ id: 'post', label: '進庫存' }] : [{ id: 'view', label: '查看明細' }] });
+  actions: !canEdit ? [{ id: 'view', label: '查看明細' }] : group.states.includes('UNRESOLVED')
+    ? [{ id: 'resolve', label: '補資料' }, { id: 'cancel-arrival', label: '取消實際到貨' }]
+    : [{ id: 'post', label: '進北辦庫存' }, { id: 'route-se', label: '加入 SE 供貨追蹤' },
+      { id: 'route-site', label: '送至案場' }, { id: 'cancel-arrival', label: '取消實際到貨' }] });
 const historyMenuTarget = (row: ReceivingHistoryRow, canEdit: boolean): ReceivingActionTarget => ({ type: 'history', key: row.id,
   receiptId: row.receiptId, arrivalLineIds: row.arrivalLineId ? [row.arrivalLineId] : [], state: row.state,
   actions: canEdit && row.returnToReceived ? [{ id: 'return', label: '退回到已收到' }] : [] });
@@ -52,7 +55,11 @@ export function ReceivingV6Center() {
   const [deleteTarget, setDeleteTarget] = useState<{ key: string; label: string; source: NonNullable<ReceivingActionTarget['pendingSource']> } | null>(null);
   const actionMenu = useReceivingActionMenu((target, action) => {
     if (action === 'return' && target.type === 'history') setDialog({ kind: 'return', key: target.key });
-    else if ((action === 'post' || action === 'view') && target.type === 'received') setDialog({ kind: 'received', key: target.key });
+    else if (target.type === 'received') {
+      const group = received.find(value => value.key === target.key);
+      setDialog({ kind: 'received', key: target.key, mode: action === 'route-se' ? 'SE' : action === 'route-site' ? 'SITE'
+        : action === 'cancel-arrival' ? 'cancel' : action === 'resolve' || group?.states.includes('UNRESOLVED') ? 'resolve' : 'inventory' });
+    }
     else if (action === 'delete' && target.type === 'pending' && target.pendingSource) {
       const row = pending.find(value => value.key === target.key);
       if (row) setDeleteTarget({ key: target.key, label: row.label, source: target.pendingSource });
@@ -125,7 +132,8 @@ export function ReceivingV6Center() {
       {tab === 'received' && <div role="tabpanel" aria-label="已收到" className="divide-y divide-theme-border">{shownReceived.map(group => {
         const target = receivedMenuTarget(group, editable);
         return <div key={group.key} className="flex min-w-0 items-center gap-1">
-          <button type="button" {...actionMenu.bind(target)} data-received-group={group.key} className="flex min-w-0 flex-1 items-center gap-2 py-3 text-left hover:bg-accent/5" onClick={() => setDialog({ kind: 'received', key: group.key })}><span className="min-w-0 flex-1"><span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1"><strong className="break-all text-sm">{group.pn}</strong><span className="truncate text-xs text-secondary">{group.name}</span>{group.states.map(state => <span key={state} className={'rounded px-1.5 py-0.5 text-xs ' + (state === 'UNRESOLVED' ? 'bg-warning/10 text-warning' : 'bg-page text-secondary')}>{stateLabel(state)}</span>)}{group.temporary && <span className="rounded bg-accent/10 px-1.5 py-0.5 text-xs text-accent">臨時到貨</span>}</span><span className="mt-1 block text-xs text-secondary sm:text-sm"><b className="tabular-nums text-primary">{formatReceivingQuantity(group.quantity)} {group.unit}</b>｜{shortTime(group.at)}{group.projectLabels.length > 0 && `｜${group.projectLabels.join('、')}`}</span></span><ChevronRight size={16} className="shrink-0 text-secondary" /></button>
+          <button type="button" {...actionMenu.bind(target)} data-received-group={group.key} className="flex min-w-0 flex-1 items-center gap-2 py-3 text-left hover:bg-accent/5" onClick={() => setDialog({ kind: 'received', key: group.key, mode: group.states.includes('UNRESOLVED') ? 'resolve' : 'inventory' })}><span className="min-w-0 flex-1"><span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1"><strong className="break-all text-sm">{group.pn}</strong><span className="truncate text-xs text-secondary">{group.name}</span>{group.states.map(state => <span key={state} className={'rounded px-1.5 py-0.5 text-xs ' + (state === 'UNRESOLVED' ? 'bg-warning/10 text-warning' : 'bg-page text-secondary')}>{stateLabel(state)}</span>)}{group.temporary && <span className="rounded bg-accent/10 px-1.5 py-0.5 text-xs text-accent">臨時到貨</span>}</span><span className="mt-1 block text-xs text-secondary sm:text-sm"><b className="tabular-nums text-primary">{formatReceivingQuantity(group.quantity)} {group.unit}</b>｜{shortTime(group.at)}{group.projectLabels.length > 0 && `｜${group.projectLabels.join('、')}`}</span></span><ChevronRight size={16} className="shrink-0 text-secondary" /></button>
+          {editable && <button type="button" className={v5Button + ' shrink-0'} onClick={() => setDialog({ kind: 'received', key: group.key, mode: group.states.includes('UNRESOLVED') ? 'resolve' : 'inventory' })}>{group.states.includes('UNRESOLVED') ? '補資料' : '後續處理'}</button>}
           <button type="button" aria-label={`更多操作：${group.pn}`} aria-haspopup="menu" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-secondary hover:bg-page" onClick={event => actionMenu.openFromButton(target, event.currentTarget)}><MoreHorizontal size={18} /></button>
         </div>;
       })}</div>}
@@ -144,7 +152,7 @@ export function ReceivingV6Center() {
     {dialog && data && <ReceivingWorkModal title={dialog.kind === 'pending' ? '預計收貨' : dialog.kind === 'actual' ? '實際到貨' : dialog.kind === 'received' ? '已收到明細' : dialog.kind === 'return' ? '退回到已收到' : '收貨工作'} onClose={() => setDialog(null)}>
       {dialog.kind === 'pending' ? <PendingForm embedded compact data={data} api={api} onClose={() => setDialog(null)} onSaved={async () => { setDialog(null); setNotice('預計收貨已建立。'); setQuery(''); setTab('pending'); await load(); }} />
         : dialog.kind === 'actual' ? <ReceivingV6Composer data={data} api={api} onClose={() => setDialog(null)} onSaved={arrived} />
-          : dialog.kind === 'received' ? selectedReceived ? <ReceivingPostDetail key={selectedReceived.key} group={selectedReceived} data={data} api={api} canPost={editable} onPosted={closeWhenEmpty => posted(selectedReceived.key, closeWhenEmpty)} /> : <p className="text-sm">此筆已更新，請重新整理。</p>
+          : dialog.kind === 'received' ? selectedReceived ? <ReceivingThreeWayDetail key={selectedReceived.key + ':' + dialog.mode} group={selectedReceived} data={data} api={api} canEdit={editable} initialMode={dialog.mode} onChanged={async () => posted(selectedReceived.key, true)} /> : <p className="text-sm">此筆已更新，請重新整理。</p>
             : dialog.kind === 'return' ? selectedHistory?.returnToReceived ? <ReceivingReturnDetail key={selectedHistory.id} row={selectedHistory} api={api} canReverse={editable} onReversed={reversed} /> : <p className="text-sm">此筆已更新，請重新整理。</p>
             : selectedWork ? <ReceivingWorkBody key={selectedWork.key} row={selectedWork} data={data} api={api} canEdit={editable} onChanged={async () => { await load(); }} onCreated={arrived} /> : <p className="text-sm">此筆已更新，請重新整理。</p>}
       {error && <ActionError message={error} />}

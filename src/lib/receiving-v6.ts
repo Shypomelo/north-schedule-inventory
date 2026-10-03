@@ -1,4 +1,4 @@
-import { actualRows, pendingRows, matchSourceKey, sourceFields, serialsAlias, itemLabel, type ActualRow, type PendingRow, type ReceivingSnapshot, type CreateArrivalLine } from './receiving-v5';
+import { actualRows, pendingRows, matchSourceKey, sourceFields, serialsAlias, itemLabel, projectLabel, type ActualRow, type PendingRow, type ReceivingSnapshot, type CreateArrivalLine } from './receiving-v5';
 import { normalizeSerialInput } from './inventory-serial-normalization';
 import type { InventorySerialLookupResult } from './db/types';
 import type { ReceivingAllocation } from './db/receiving-routing';
@@ -27,6 +27,11 @@ export interface ReceivingV6Snapshot extends ReceivingSnapshot {
   actors: { id: string; name: string }[];
   receiptSerials: ReceiptSerialLink[]; inventorySerials: ReceivingInventorySerial[];
   transactionSerials: ReceivingTransactionSerial[];
+  cancellations: ReceivingStageCancellation[];
+}
+export interface ReceivingStageCancellation {
+  id: string; arrival_line_id: string; reversal_receipt_id: string | null;
+  quantity: number; entry_ids: string[]; reason: string; created_by: string; created_at: string;
 }
 export interface ReceivedSerialIdentity { entryId: string; inventorySerialId: string | null; serialNumber: string }
 export type ReceivedStage = {
@@ -58,7 +63,11 @@ export function receivingPendingList(data: ReceivingSnapshot): PendingRow[] {
 
 /** Legacy lines own one ARRIVAL receipt; routed lines use original ARRIVAL_ROUTE receipts. */
 export function arrivalPostingRemaining(row: ActualRow, data: ReceivingSnapshot): number {
-  if (!row.line || row.state === 'UNRESOLVED') return row.quantity;
+  if (!row.line) return row.quantity;
+  const canceled = (('cancellations' in data ? data.cancellations : []) as ReceivingStageCancellation[])
+    .filter(event => event.arrival_line_id === row.line!.id && !event.reversal_receipt_id)
+    .reduce((sum, event) => sum + Number(event.quantity), 0);
+  if (row.state === 'UNRESOLVED') return row.quantity - canceled;
   const legacyReceipt = data.receipts.find(receipt => receipt.id === row.line!.receipt_id
     && receipt.source_type === 'ARRIVAL' && receipt.arrival_line_id === row.line!.id
     && receipt.event_type === 'RECEIVE' && !receipt.reentry_of_reversal_id);
@@ -67,7 +76,7 @@ export function arrivalPostingRemaining(row: ActualRow, data: ReceivingSnapshot)
     && !receipt.reentry_of_reversal_id).reduce((sum, receipt) => sum + Number(receipt.quantity_received), 0);
   if (legacyReceipt && routePosted) throw new Error('到貨已有兩種正式入庫收貨來源，請重新整理。');
   const posted = legacyReceipt ? Number(legacyReceipt.quantity_received) : routePosted;
-  const remaining = row.quantity - posted;
+  const remaining = row.quantity - posted - canceled;
   if (!Number.isFinite(remaining) || remaining < 0) throw new Error('到貨入庫數量不一致，請重新整理。');
   return remaining;
 }
@@ -115,7 +124,9 @@ export function receivedItemGroups(data: ReceivingV6Snapshot): ReceivedGroup[] {
         || reversalTx.excluded_by_initialization_id) throw new Error('入庫撤回關聯不完整，請重新整理。');
       const reentered = data.transactions.filter(tx => tx.reenters_reversal_id === reversalTx.id && !tx.is_voided
         && !tx.excluded_by_initialization_id).reduce((sum, tx) => sum + Number(tx.quantity), 0);
-      const staged = Number(reversal.quantity_received) - reentered;
+      const canceled = data.cancellations?.filter(event => event.reversal_receipt_id === reversal.id)
+        .reduce((sum, event) => sum + Number(event.quantity), 0) || 0;
+      const staged = Number(reversal.quantity_received) - reentered - canceled;
       if (!Number.isFinite(staged) || staged < 0) throw new Error('重新入庫數量不一致，請重新整理。');
       if (!staged) continue;
       const serials = item?.requires_serial ? receiptSerialIdentities(reversal.id, data).filter(identity => {
@@ -166,6 +177,18 @@ export function receivingHistory(data: ReceivingV6Snapshot): ReceivingHistoryRow
       projectLabel: actual.projectLabel, transactionId: null, receiptId: null,
       arrivalLineId: actual.line?.id || null, itemId: actual.line?.inventory_item_id || null,
       requiresSerial: false, serials: [], reversibleSerials: [], reversibleQuantity: 0, returnToReceived: false });
+  }
+  for (const event of data.cancellations || []) {
+    const line = data.lines.find(value => value.id === event.arrival_line_id);
+    const item = data.items.find(value => value.id === line?.inventory_item_id);
+    rows.push({ id: `cancel:${event.id}`, at: event.created_at,
+      actor: actors.get(event.created_by) || '歷史人員', item: itemLabel(item),
+      quantity: -Number(event.quantity), unit: line?.unit || item?.unit || '',
+      type: '取消實際到貨', state: 'Physical Arrival 取消',
+      projectLabel: projectLabel(data.projects, data.arrivals.find(value => value.id === line?.arrival_id)?.project_id || null),
+      transactionId: null, receiptId: null, arrivalLineId: line?.id || null,
+      itemId: line?.inventory_item_id || null, requiresSerial: Boolean(item?.requires_serial),
+      serials: [], reversibleSerials: [], reversibleQuantity: 0, returnToReceived: false });
   }
   for (const receipt of data.receipts) {
     const tx = receipt.inventory_transaction_id ? transactions.get(receipt.inventory_transaction_id) : undefined;
@@ -273,7 +296,10 @@ export function receivingWorkItems(data: ReceivingSnapshot): ReceivingWorkItem[]
   for (const actual of actualRows(data)) {
     const receiptId = actual.line?.receipt_id || actual.receipt?.id || null;
     const slice = (quantity: number, entries = actual.observations): ArrivalSlice => ({ actual, quantity, receiptId, entryIds: entries.map(e => e.id), serialIds: entries.flatMap(e => e.inventory_serial_id ? [e.inventory_serial_id] : []) });
-    const net = Math.max(0, actual.quantity - actual.reversed);
+    const canceled = (('cancellations' in data ? data.cancellations : []) as ReceivingStageCancellation[])
+      .filter(event => event.arrival_line_id === actual.line?.id)
+      .reduce((sum, event) => sum + Number(event.quantity), 0);
+    const net = Math.max(0, actual.quantity - actual.reversed - canceled);
     if (actual.receipt) {
       const key = matchSourceKey(actual.receipt);
       const owner = result.get(key);
@@ -290,7 +316,7 @@ export function receivingWorkItems(data: ReceivingSnapshot): ReceivingWorkItem[]
       owner.slices.push(slice(Number(match.quantity), entries));
     }
     if (assigned > net) throw new Error('收貨對應數量不一致，請重新整理。');
-    if (net > assigned || actual.state === 'UNRESOLVED') result.set(actual.key, {
+    if (net > assigned || (actual.state === 'UNRESOLVED' && net > 0)) result.set(actual.key, {
       key: actual.key, label: actual.label, projectLabel: actual.projectLabel, status: actual.state === 'UNRESOLVED' ? '待補資料' : '已收到',
       slices: [slice(net - assigned, actual.observations.filter(e => !assignedEntries.has(e.id)))], received: net - assigned, unit: actual.unit, at: actual.at,
     });

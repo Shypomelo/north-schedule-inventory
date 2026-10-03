@@ -31,6 +31,31 @@ test('legacy receipt relation is exact and cannot double count with routed recei
   assert.throws(()=>receivedItemGroups(d),/兩種正式入庫收貨來源/);
 });
 
+test('normal staging cancellation preserves posted three and removes only remaining four',()=>{
+  const d=empty();arrival(d,'a',7,'i',Array.from({length:7},(_,i)=>`S${i+1}-AA`));
+  d.lines[0].resolution_state='STAGED';
+  d.receipts.push({id:'posted',source_type:'ARRIVAL_ROUTE',route_arrival_line_id:'a',event_type:'RECEIVE',quantity_received:3});
+  d.observations.forEach((entry,index)=>{entry.inventory_serial_id=index<3?`serial-${index}`:null;entry.active_receipt_id=index<3?'posted':null;entry.retired_at=index>=3?'2026-10-03T10:00:00Z':null;});
+  d.cancellations=[{id:'cancel',arrival_line_id:'a',reversal_receipt_id:null,quantity:4,entry_ids:d.observations.slice(3).map(entry=>entry.id),created_at:'2026-10-03T10:00:00Z',created_by:'actor'}];
+  assert.equal(receivedItemGroups(d).length,0);
+  assert.equal(receivingWorkItems(d).find(row=>row.key==='arrival:a')?.received,3);
+  assert.equal(receivingHistory(d).find(row=>row.id==='cancel:cancel')?.quantity,-4);
+});
+
+test('re-entry staging cancellation removes only the canceled reversal quantity',()=>{
+  const d=empty();arrival(d,'a',1,'i',['S1-AA']);
+  d.receipts.push({id:'posted',source_type:'ARRIVAL_ROUTE',route_arrival_line_id:'a',event_type:'RECEIVE',quantity_received:1,inventory_transaction_id:'tx',inventory_linked:true},
+    {id:'reversal',source_type:'ARRIVAL_ROUTE',route_arrival_line_id:'a',event_type:'REVERSAL',quantity_received:1,reversal_of_id:'posted',inventory_transaction_id:'rtx',inventory_linked:true});
+  d.transactions.push({id:'tx',item_id:'i',transaction_type:'IN',is_voided:false,excluded_by_initialization_id:null},
+    {id:'rtx',item_id:'i',transaction_type:'IN_REVERSAL',reverses_transaction_id:'tx',is_voided:false,excluded_by_initialization_id:null});
+  d.receiptSerials.push({receipt_id:'reversal',entry_id:'a0',inventory_serial_id:'as0'});
+  d.inventorySerials.push({id:'as0',item_id:'i',status:'作廢',serial_number:'S1-AA'});
+  d.transactionSerials.push({transaction_id:'rtx',serial_id:'as0',is_pending:false});
+  d.observations[0].active_receipt_id=null;d.observations[0].retired_at='2026-10-03T10:00:00Z';
+  d.cancellations=[{id:'cancel',arrival_line_id:'a',reversal_receipt_id:'reversal',quantity:1,entry_ids:['a0'],created_at:'2026-10-03T10:00:00Z',created_by:'actor'}];
+  assert.equal(receivedItemGroups(d).length,0);
+});
+
 test('nonserialized posting shows 10 then 6 then no staged group',()=>{const d=empty();arrival(d,'a',10,'q');d.lines[0].resolution_state='STAGED';assert.equal(receivedItemGroups(d)[0].quantity,10);d.receipts.push({id:'route1',source_type:'ARRIVAL_ROUTE',route_arrival_line_id:'a',event_type:'RECEIVE',quantity_received:4});assert.equal(receivedItemGroups(d)[0].quantity,6);d.receipts.push({id:'route2',source_type:'ARRIVAL_ROUTE',route_arrival_line_id:'a',event_type:'RECEIVE',quantity_received:6});assert.equal(receivedItemGroups(d).length,0);});
 test('receiving tabs retain three pending statuses, received only, and all',()=>{
   const statuses=['待收','部分到貨','待補資料','已收到'];

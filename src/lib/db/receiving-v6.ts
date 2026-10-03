@@ -52,12 +52,13 @@ export function createReceivingV6Api(client: SupabaseClient) {
   return {
     ...base,
     async load(): Promise<ReceivingV6Snapshot> {
-      const [data, transactions, closings, actors, receiptSerials] = await Promise.all([
+      const [data, transactions, closings, actors, receiptSerials, cancellations] = await Promise.all([
         base.load(),
         rows<HandoffTransaction>('inventory_transactions', 'id,item_id,project_id,transaction_type,quantity,transaction_date,schedule_task_id,is_voided,excluded_by_initialization_id,source,handler,created_at,reverses_transaction_id,reenters_reversal_id', 'id'),
         rows<ReceivingV6Snapshot['closings'][number]>('inventory_monthly_closings', 'year,month,status', 'id'),
         rows<ReceivingV6Snapshot['actors'][number]>('team_members', 'id,name', 'id'),
         rows<ReceivingV6Snapshot['receiptSerials'][number]>('material_receipt_serials', 'receipt_id,entry_id,inventory_serial_id,linked_existing', ['receipt_id', 'entry_id']),
+        rows<ReceivingV6Snapshot['cancellations'][number]>('receiving_arrival_stage_cancellations', 'id,arrival_line_id,reversal_receipt_id,quantity,entry_ids,reason,created_by,created_at', 'id'),
       ]);
       const [inventorySerials, transactionSerials] = await Promise.all([
         rowsByIds<ReceivingV6Snapshot['inventorySerials'][number]>('inventory_serials', 'id,item_id,serial_number,status', 'id',
@@ -71,7 +72,7 @@ export function createReceivingV6Api(client: SupabaseClient) {
         try { scopes[r.id] = await rpc<HandoffScope>('get_receiving_handoff_scope', { p_receipt_id: r.id }); }
         catch (error) { scopeErrors[r.id] = receivingError(error); }
       }));
-      return { ...data, scopes, scopeErrors, transactions, closings, actors, receiptSerials, inventorySerials, transactionSerials };
+      return { ...data, scopes, scopeErrors, transactions, closings, actors, receiptSerials, inventorySerials, transactionSerials, cancellations };
     },
     projectRequirements: (projectId: string, itemId: string) => rpc<ReceivingProjectRequirement[]>('get_receiving_project_requirements', { p_project_id: projectId, p_item_id: itemId }),
     postArrivalLine: (args: { p_request_id: string; p_line_id: string; p_quantity: number; p_entry_ids: string[]; p_posting_date: string | null }) =>
@@ -82,6 +83,18 @@ export function createReceivingV6Api(client: SupabaseClient) {
         ? rpc<PostArrivalLineResult>(command.name, command.args)
         : rpc<InventoryInReversalResult>(command.name, command.args);
     },
+    routeStaged: (args: { stage: ReceivedStage; requestId: string; route: 'SE' | 'SITE'; quantity: number;
+      entryIds: string[]; projectId: string | null; materialId: string | null; createNew: boolean; receivedAt: string }) =>
+      rpc('route_staged_receiving', { p_request_id: args.requestId, p_stage_kind: args.stage.kind,
+        p_line_id: args.stage.lineId, p_reversal_receipt_id: args.stage.reversalReceiptId,
+        p_route_type: args.route, p_quantity: args.quantity, p_entry_ids: args.entryIds,
+        p_project_id: args.projectId, p_material_id: args.materialId, p_create_new: args.createNew,
+        p_received_at: args.receivedAt, p_notes: null }),
+    cancelPhysicalStage: (args: { requestId: string; lineId: string; reversalReceiptId: string | null;
+      quantity: number; entryIds: string[]; matchReductions: { match_id: string; quantity: number }[]; reason: string }) =>
+      rpc('cancel_receiving_physical_stage', { p_request_id: args.requestId, p_line_id: args.lineId,
+        p_reversal_receipt_id: args.reversalReceiptId, p_quantity: args.quantity,
+        p_entry_ids: args.entryIds, p_match_reductions: args.matchReductions, p_reason: args.reason }),
     handoff: (args: { p_request_id: string; p_receipt_id: string; p_route_type: 'SE' | 'SITE'; p_quantity: number; p_serial_ids: string[]; p_project_id: string | null; p_received_at: string; p_material_id: string | null; p_create_new: boolean }) => rpc('route_receiving_inventory', { ...args, p_notes: null }),
     reverseIn: (args: { p_request_id: string; p_receipt_id: string; p_quantity: number; p_entry_ids: string[]; p_reversed_at: string; p_reason: string }) =>
       rpc<InventoryInReversalResult>('reverse_receiving_inventory_in', args),

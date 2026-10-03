@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 
-export type ReceivingActionId = 'return' | 'post' | 'view' | 'delete';
+export type ReceivingActionId = 'return' | 'post' | 'route-se' | 'route-site' | 'resolve' | 'cancel-arrival' | 'view' | 'delete';
 export type ReceivingActionTarget = {
   type: 'history' | 'received' | 'pending'; key: string; receiptId: string | null;
   arrivalLineIds: string[]; state: string;
