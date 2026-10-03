@@ -56,12 +56,17 @@ export function receivingPendingList(data: ReceivingSnapshot): PendingRow[] {
   });
 }
 
-/** The posting capacity matches post_receiving_arrival_line's original ARRIVAL_ROUTE receipt sum. */
+/** Legacy lines own one ARRIVAL receipt; routed lines use original ARRIVAL_ROUTE receipts. */
 export function arrivalPostingRemaining(row: ActualRow, data: ReceivingSnapshot): number {
   if (!row.line || row.state === 'UNRESOLVED') return row.quantity;
-  const posted = data.receipts.filter(receipt => receipt.source_type === 'ARRIVAL_ROUTE'
+  const legacyReceipt = data.receipts.find(receipt => receipt.id === row.line!.receipt_id
+    && receipt.source_type === 'ARRIVAL' && receipt.arrival_line_id === row.line!.id
+    && receipt.event_type === 'RECEIVE' && !receipt.reentry_of_reversal_id);
+  const routePosted = data.receipts.filter(receipt => receipt.source_type === 'ARRIVAL_ROUTE'
     && receipt.route_arrival_line_id === row.line!.id && receipt.event_type === 'RECEIVE'
     && !receipt.reentry_of_reversal_id).reduce((sum, receipt) => sum + Number(receipt.quantity_received), 0);
+  if (legacyReceipt && routePosted) throw new Error('到貨已有兩種正式入庫收貨來源，請重新整理。');
+  const posted = legacyReceipt ? Number(legacyReceipt.quantity_received) : routePosted;
   const remaining = row.quantity - posted;
   if (!Number.isFinite(remaining) || remaining < 0) throw new Error('到貨入庫數量不一致，請重新整理。');
   return remaining;

@@ -15,6 +15,22 @@ test('history joins route receipt, reversal, transaction and actor without dupli
 
 test('serialized posting uses exact remaining entries, then removes the completed group',()=>{const d=empty();arrival(d,'a',7,'i',Array.from({length:7},(_,i)=>`SN${i+1}-AA`));d.lines[0].resolution_state='STAGED';for(const entry of d.observations){entry.inventory_serial_id=null;entry.active_receipt_id=null;}assert.equal(receivedItemGroups(d)[0].quantity,7);const chosen=d.observations.slice(0,3);d.receipts.push({id:'route1',source_type:'ARRIVAL_ROUTE',route_arrival_line_id:'a',event_type:'RECEIVE',quantity_received:3});for(const entry of chosen){entry.inventory_serial_id=`serial:${entry.id}`;entry.active_receipt_id='route1';}assert.equal(receivedItemGroups(d)[0].quantity,4);assert.deepEqual(receivedItemGroups(d)[0].rows[0].observations.filter(entry=>!entry.inventory_serial_id).map(entry=>entry.id),d.observations.slice(3).map(entry=>entry.id));d.receipts.push({id:'route2',source_type:'ARRIVAL_ROUTE',route_arrival_line_id:'a',event_type:'RECEIVE',quantity_received:4});for(const entry of d.observations.slice(3)){entry.inventory_serial_id=`serial:${entry.id}`;entry.active_receipt_id='route2';}assert.equal(receivedItemGroups(d).length,0);});
 
+test('canonical legacy ARRIVAL receipt leaves no staged quantity for an already posted serial',()=>{
+  const d=empty();arrival(d,'a',1,'i',['SE4000H-1']);
+  d.receipts.push({id:'ar',source_type:'ARRIVAL',arrival_line_id:'a',route_arrival_line_id:null,event_type:'RECEIVE',quantity_received:1});
+  assert.doesNotThrow(()=>receivedItemGroups(d));
+  assert.equal(receivedItemGroups(d).length,0);
+});
+
+test('legacy receipt relation is exact and cannot double count with routed receipts',()=>{
+  const d=empty();arrival(d,'a',1,'i',['SE4000H-1']);
+  d.receipts.push({id:'ar',source_type:'ARRIVAL',arrival_line_id:'other-line',event_type:'RECEIVE',quantity_received:1});
+  assert.throws(()=>receivedItemGroups(d),/到貨序號與待入庫數量不一致/);
+  d.receipts[0].arrival_line_id='a';
+  d.receipts.push({id:'route',source_type:'ARRIVAL_ROUTE',route_arrival_line_id:'a',event_type:'RECEIVE',quantity_received:1});
+  assert.throws(()=>receivedItemGroups(d),/兩種正式入庫收貨來源/);
+});
+
 test('nonserialized posting shows 10 then 6 then no staged group',()=>{const d=empty();arrival(d,'a',10,'q');d.lines[0].resolution_state='STAGED';assert.equal(receivedItemGroups(d)[0].quantity,10);d.receipts.push({id:'route1',source_type:'ARRIVAL_ROUTE',route_arrival_line_id:'a',event_type:'RECEIVE',quantity_received:4});assert.equal(receivedItemGroups(d)[0].quantity,6);d.receipts.push({id:'route2',source_type:'ARRIVAL_ROUTE',route_arrival_line_id:'a',event_type:'RECEIVE',quantity_received:6});assert.equal(receivedItemGroups(d).length,0);});
 test('receiving tabs retain three pending statuses, received only, and all',()=>{
   const statuses=['待收','部分到貨','待補資料','已收到'];
