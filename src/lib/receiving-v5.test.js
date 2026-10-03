@@ -69,12 +69,14 @@ test('controlled RPC error messages preserve project/match meaning', () => {
 });
 test('API commands use metadata/first-post/final-set/cancel contracts and never mutate inventory directly', async () => {
   const calls = []; const api = createReceivingV5Api({ rpc: async (name,args) => { calls.push({name,args}); return {data:{},error:null}; }, from(){throw new Error('unexpected direct write');} });
+  await api.create({p_request_id:'r0',p_actual_received_at:'2026-10-04T00:00:00Z',p_lines:[{inventory_item_id:'i',quantity:1}],p_project_id:null,p_matches:[]});
   await api.metadata({p_request_id:'r1',p_arrival_id:'a',p_expected_version:4,p_project_id:null,p_notes:'x'});
   await api.complete({p_request_id:'r2',p_line_id:'l',p_item_id:'i'});
   await api.replaceMatches({p_request_id:'r3',p_line_id:'l',p_expected_version:3,p_matches:[]});
   await api.cancelRemaining({p_request_id:'r4',p_source_type:'SE_SUPPLY',p_source_id:'p',p_reason:null});
-  assert.deepEqual(calls.map(c=>c.name), ['update_receiving_arrival_metadata','complete_receiving_arrival_line','replace_receiving_arrival_matches','cancel_receiving_pending_remaining']);
-  assert.deepEqual(calls[2].args.p_matches, []);
+  assert.deepEqual(calls.map(c=>c.name), ['create_receiving_arrival_legacy_compat','update_receiving_arrival_metadata','complete_receiving_arrival_line','replace_receiving_arrival_matches','cancel_receiving_pending_remaining']);
+  assert.equal(calls[0].args.p_match_all_or_nothing, false);
+  assert.deepEqual(calls[3].args.p_matches, []);
 });
 
 function readClient(tables, fulfilments = {}, lookups = {}) {
