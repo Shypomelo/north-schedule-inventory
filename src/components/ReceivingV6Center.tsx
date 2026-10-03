@@ -37,7 +37,8 @@ const pendingMenuTarget = (row: PendingRow, canEdit: boolean): ReceivingActionTa
 const receivedMenuTarget = (group: ReceivedGroup, canEdit: boolean): ReceivingActionTarget => ({ type: 'received', key: group.key, receiptId: null,
   arrivalLineIds: Array.from(new Set(group.rows.map(row => row.line?.id).filter((id): id is string => Boolean(id)))),
   state: group.stages.map(stage => stage.kind).join(',') || group.states.join(','),
-  actions: !canEdit ? [{ id: 'view', label: '查看明細' }] : group.states.includes('UNRESOLVED')
+  actions: !canEdit || (!group.stages.length && !group.states.includes('UNRESOLVED'))
+    ? [{ id: 'view', label: '查看明細' }] : group.states.includes('UNRESOLVED')
     ? [{ id: 'resolve', label: '補資料' }, { id: 'cancel-arrival', label: '取消實際到貨' }]
     : [{ id: 'post', label: '進北辦庫存' }, { id: 'route-se', label: '加入 SE 供貨追蹤' },
       { id: 'route-site', label: '送至案場' }, { id: 'cancel-arrival', label: '取消實際到貨' }] });
@@ -133,7 +134,7 @@ export function ReceivingV6Center() {
         const target = receivedMenuTarget(group, editable);
         return <div key={group.key} className="flex min-w-0 items-center gap-1">
           <button type="button" {...actionMenu.bind(target)} data-received-group={group.key} className="flex min-w-0 flex-1 items-center gap-2 py-3 text-left hover:bg-accent/5" onClick={() => setDialog({ kind: 'received', key: group.key, mode: group.states.includes('UNRESOLVED') ? 'resolve' : 'inventory' })}><span className="min-w-0 flex-1"><span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1"><strong className="break-all text-sm">{group.pn}</strong><span className="truncate text-xs text-secondary">{group.name}</span>{group.states.map(state => <span key={state} className={'rounded px-1.5 py-0.5 text-xs ' + (state === 'UNRESOLVED' ? 'bg-warning/10 text-warning' : 'bg-page text-secondary')}>{stateLabel(state)}</span>)}{group.temporary && <span className="rounded bg-accent/10 px-1.5 py-0.5 text-xs text-accent">臨時到貨</span>}</span><span className="mt-1 block text-xs text-secondary sm:text-sm"><b className="tabular-nums text-primary">{formatReceivingQuantity(group.quantity)} {group.unit}</b>｜{shortTime(group.at)}{group.projectLabels.length > 0 && `｜${group.projectLabels.join('、')}`}</span></span><ChevronRight size={16} className="shrink-0 text-secondary" /></button>
-          {editable && <button type="button" className={v5Button + ' shrink-0'} onClick={() => setDialog({ kind: 'received', key: group.key, mode: group.states.includes('UNRESOLVED') ? 'resolve' : 'inventory' })}>{group.states.includes('UNRESOLVED') ? '補資料' : '後續處理'}</button>}
+          {editable && <button type="button" className={v5Button + ' shrink-0'} onClick={() => setDialog({ kind: 'received', key: group.key, mode: group.states.includes('UNRESOLVED') ? 'resolve' : 'inventory' })}>{group.states.includes('UNRESOLVED') ? '補資料' : group.stages.length ? '後續處理' : '查看明細'}</button>}
           <button type="button" aria-label={`更多操作：${group.pn}`} aria-haspopup="menu" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-secondary hover:bg-page" onClick={event => actionMenu.openFromButton(target, event.currentTarget)}><MoreHorizontal size={18} /></button>
         </div>;
       })}</div>}

@@ -132,7 +132,7 @@ export function ReceivingThreeWayDetail({ group, data, api, canEdit, initialMode
 }) {
   const [mode, setMode] = useState<Mode>(initialMode);
   const unresolved = group.states.includes('UNRESOLVED');
-  const modes: { key: Mode; label: string }[] = unresolved
+  const modes: { key: Mode; label: string }[] = !canEdit || (!unresolved && !group.stages.length) ? [] : unresolved
     ? [{ key: 'resolve', label: '補資料' }, { key: 'cancel', label: '取消實際到貨' }]
     : [{ key: 'inventory', label: '進北辦庫存' }, { key: 'SE', label: '加入 SE 供貨追蹤' },
       { key: 'SITE', label: '送至案場' }, { key: 'cancel', label: '取消實際到貨' }];
@@ -140,7 +140,7 @@ export function ReceivingThreeWayDetail({ group, data, api, canEdit, initialMode
     <div><h3 className="font-semibold">{group.pn} · {group.name}</h3><p className="text-sm text-secondary">已收到 {formatReceivingQuantity(group.quantity)} {group.unit}</p></div>
     {canEdit && <div aria-label="後續處理" className="flex flex-wrap gap-2">{modes.map(value => <button key={value.key} type="button" aria-pressed={mode === value.key} className={mode === value.key ? v5Primary : v5Button} onClick={() => setMode(value.key)}>{value.label}</button>)}</div>}
     {mode === 'resolve' && unresolved && group.rows[0] && <CompleteUnknown row={group.rows[0]} data={data} api={api} onChanged={async () => { await onChanged(); }} />}
-    {mode === 'inventory' && !unresolved && <ReceivingPostDetail group={group} data={data} api={api} canPost={canEdit} onPosted={onChanged} />}
+    {mode === 'inventory' && !unresolved && <ReceivingPostDetail group={group} data={data} api={api} canPost={canEdit && group.stages.length > 0} onPosted={onChanged} />}
     {(mode === 'SE' || mode === 'SITE') && !unresolved && canEdit && <StageRouteForm route={mode} group={group} data={data} api={api} onChanged={onChanged} />}
     {mode === 'cancel' && canEdit && <CancelArrivalForm group={group} data={data} api={api} onChanged={onChanged} />}
   </div>;

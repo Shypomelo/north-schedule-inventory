@@ -13,13 +13,13 @@ export const store = { calls: [], snapshot: {
  projects:[{id:'project',name:'北港',project_name:'北港',status:'ACTIVE'}],
  items:[{id:'plain',code:'CABLE',name:'線材',unit:'m',requires_serial:false,is_active:true},
   {id:'serial',code:'P401',name:'序號設備',unit:'台',requires_serial:true,is_active:true}],
- materials:[],supplies:[],batches:[],
+ materials:[],supplies:[{id:'legacy-source',new_model:'歷史線材',quantity:1,unit:'m',receiving_only:false,inventory_item_id:'plain'}],batches:[],
  arrivals:[{id:'arrival-known',actual_received_at:'2026-10-03T06:00:00Z',project_id:null,version:1},
   {id:'arrival-unknown',actual_received_at:'2026-10-03T07:00:00Z',project_id:null,version:1}],
  lines:[{id:'line-known',arrival_id:'arrival-known',inventory_item_id:'plain',quantity:4,unit:'m',resolution_state:'STAGED',receipt_id:null},
   {id:'line-unknown',arrival_id:'arrival-unknown',inventory_item_id:null,quantity:1,unit:null,resolution_state:'UNRESOLVED',receipt_id:null}],
  observations:[{id:'entry-unknown',arrival_line_id:'line-unknown',raw_serial:'TWAY0001-AA',normalized_serial:'TWAY0001-AA',inventory_serial_id:null,active_receipt_id:null,retired_at:null}],
- matches:[],matchObservations:[],receipts:[],fulfilment:{},scopes:{},scopeErrors:{},transactions:[],closings:[],actors:[],
+ matches:[],matchObservations:[],receipts:[{id:'legacy-receipt',source_type:'SE_SUPPLY',se_supply_record_id:'legacy-source',event_type:'RECEIVE',quantity_received:1,receipt_location:'OFFICE',received_at:'2026-09-01T00:00:00Z'}],fulfilment:{},scopes:{},scopeErrors:{},transactions:[],closings:[],actors:[],
  receiptSerials:[],inventorySerials:[],transactionSerials:[],cancellations:[] } };
 export const supabase = {};
 export const useUser = () => ({currentUser:{id:'actor',name:'Reviewer',role:'ADMIN'}});
@@ -58,9 +58,10 @@ async function main() {
   page.on('pageerror',error=>errors.push(error.message));
   await page.route('**/*',route=>new URL(route.request().url()).hostname==='127.0.0.1'?route.continue():route.abort());
   await page.goto('http://127.0.0.1:'+server.address().port);
-  await page.getByRole('tab',{name:/已收到\s*2/}).click();
+  await page.getByRole('tab',{name:/已收到\s*3/}).click();
   const known=page.locator('[data-received-group="item:plain"]');
   const unknown=page.locator('[data-received-group="arrival:line-unknown"]');
+  const legacy=page.locator('[data-received-group="legacy:legacy-receipt"]');
   await known.locator('..').getByRole('button',{name:'後續處理'}).click();
   let dialog=page.getByRole('dialog',{name:'已收到明細'});
   for(const label of ['進北辦庫存','加入 SE 供貨追蹤','送至案場','取消實際到貨'])
@@ -77,6 +78,13 @@ async function main() {
   await page.waitForFunction(()=>window.__review.calls.length===2);
   assert.equal((await page.evaluate(()=>window.__review.calls[1])).name,'cancelPhysicalStage');
   await page.screenshot({path:path.join(out,'desktop.png')});
+  await dialog.getByRole('button',{name:'關閉收貨工作'}).click();
+  assert(await legacy.locator('..').getByRole('button',{name:'查看明細',exact:true}).isVisible());
+  await legacy.locator('..').getByRole('button',{name:'更多操作：歷史線材'}).click();
+  assert.equal(await page.getByRole('menuitem').count(),1);
+  await page.getByRole('menuitem',{name:'查看明細'}).click();
+  dialog=page.getByRole('dialog',{name:'已收到明細'});
+  assert.equal(await dialog.getByRole('button',{name:'取消實際到貨'}).count(),0);
   await dialog.getByRole('button',{name:'關閉收貨工作'}).click();
   await unknown.locator('..').getByRole('button',{name:'補資料',exact:true}).click();
   dialog=page.getByRole('dialog',{name:'已收到明細'});
@@ -99,7 +107,7 @@ async function main() {
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
   await page.screenshot({path:path.join(out,'mobile.png')});
   assert.deepEqual(errors,[]);
-  console.log('PASS desktop 1200, mobile 390, three-way, unresolved, route/cancel handler, right-click, long-press, menu, no runtime error');
+  console.log('PASS desktop 1200, mobile 390, three-way, unresolved, legacy guard, route/cancel handler, right-click, long-press, menu, no runtime error');
  } finally {await browser.close();await new Promise(resolve=>server.close(resolve));}
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});
