@@ -522,6 +522,7 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
                                                 <span className={`px-2 py-1 rounded-full text-[10px] font-semibold ${
                                                   s.status === '在庫' ? 'bg-success/20 text-success' :
                                                   s.status === '已出庫' ? 'bg-danger/20 text-danger' :
+                                                  s.status === '待入庫' ? 'bg-warning/20 text-warning' :
                                                   s.status === '已退回' ? 'bg-accent/20 text-accent' :
                                                   s.status === '作廢' ? 'bg-theme-border text-secondary/50 line-through' :
                                                   'bg-theme-border/50 text-secondary'
@@ -579,23 +580,25 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
                                   isInactive ? 'bg-theme-border text-secondary/50' :
                                   tx.transaction_type === 'IN' ? 'bg-success/20 text-success' :
                                   tx.transaction_type === 'OUT' ? 'bg-danger/20 text-danger' :
+                                  tx.transaction_type === 'IN_REVERSAL' ? 'bg-warning/20 text-warning' :
                                   tx.transaction_type === 'RETURN' ? 'bg-accent/20 text-accent' :
                                   'bg-warning/20 text-warning'
                                 }`}>
                                   {tx.transaction_type === 'IN' ? '入庫' :
                                    tx.transaction_type === 'OUT' ? '出庫' :
+                                   tx.transaction_type === 'IN_REVERSAL' ? '入庫沖回' :
                                    tx.transaction_type === 'RETURN' ? '退料' : '調整'}
                                   {tx.is_voided ? ' (已作廢)' : (isInactive ? ' (歷史)' : '')}
                                 </span>
                               </td>
                               <td className={`p-3 text-right font-bold ${isInactive ? 'text-secondary/50 line-through' :
                                 tx.transaction_type === 'IN' || tx.transaction_type === 'RETURN' ? 'text-success' :
-                                tx.transaction_type === 'OUT' ? 'text-danger' :
+                                tx.transaction_type === 'OUT' || tx.transaction_type === 'IN_REVERSAL' ? 'text-danger' :
                                 tx.quantity < 0 ? 'text-danger' : 'text-warning'
                               }`}>
-                                {tx.transaction_type === 'IN' || tx.transaction_type === 'RETURN' || (tx.transaction_type === 'ADJUST' && tx.quantity > 0) ? '+' : ''}{tx.quantity}
+                                {tx.transaction_type === 'IN' || tx.transaction_type === 'RETURN' || (tx.transaction_type === 'ADJUST' && tx.quantity > 0) ? '+' : tx.transaction_type === 'IN_REVERSAL' ? '-' : ''}{tx.quantity}
                               </td>
-                              <td className={`p-3 ${isInactive ? 'text-secondary/50 line-through' : 'text-secondary/90'}`}>{tx.transaction_type === 'IN' ? tx.source : tx.project_name || '-'}</td>
+                              <td className={`p-3 ${isInactive ? 'text-secondary/50 line-through' : 'text-secondary/90'}`}>{tx.transaction_type === 'IN' || tx.transaction_type === 'IN_REVERSAL' ? tx.source : tx.project_name || '-'}</td>
                               <td className={`p-3 ${isInactive ? 'text-secondary/50 line-through' : 'text-secondary'}`}>{tx.handler || '-'}</td>
                               <td className={`p-3 max-w-[150px] truncate ${isInactive ? 'text-secondary/50 line-through' : 'text-secondary'}`} title={tx.notes || ''}>{tx.notes || '-'}</td>
                             </tr>

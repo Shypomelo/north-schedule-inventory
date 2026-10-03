@@ -3,12 +3,12 @@ import { classifySerialFormat, deriveShortSerialKey, normalizeSerialInput } from
 
 export type PendingKind = 'PROJECT_MATERIAL' | 'SE_SUPPLY';
 export interface Arrival {
-  id: string; actual_received_at: string; project_id: string | null; notes: string | null;
+  id: string; actual_received_at: string; project_id: string | null; notes: string | null; created_by: string;
   version: number; created_at: string; voided_at: string | null;
 }
 export interface ArrivalLine {
   id: string; arrival_id: string; inventory_item_id: string | null; quantity: number; unit: string | null;
-  resolution_state: 'UNRESOLVED' | 'POSTED'; receipt_id: string | null; version: number;
+  resolution_state: 'UNRESOLVED' | 'STAGED' | 'POSTED'; receipt_id: string | null; version: number;
 }
 export interface ArrivalObservation {
   id: string; project_material_id: string | null; se_supply_record_id: string | null; arrival_line_id: string | null;
@@ -21,7 +21,7 @@ export interface ArrivalMatch {
 }
 export interface MatchObservation { match_id: string; arrival_entry_id: string; pending_entry_id: string | null; cancelled_at: string | null }
 // Keep the V5 receipt boundary explicit; older callers still accept planning-source receipts.
-export type ArrivalReceipt = Omit<MaterialReceipt, 'source_type'> & { source_type: PendingKind | 'ARRIVAL'; arrival_line_id: string | null };
+export type ArrivalReceipt = MaterialReceipt & { arrival_line_id: string | null; route_arrival_line_id: string | null };
 export interface PendingFulfilment {
   expected: number; fulfilled: number; remaining: number; active: boolean;
   remaining_status: 'ACTIVE' | 'FULFILLED' | 'CANCELLED' | 'INACTIVE';
@@ -67,7 +67,7 @@ export function pendingRows(data: ReceivingSnapshot): PendingRow[] {
 }
 export interface ActualRow {
   key: string; label: string; quantity: number; unit: string; at: string | null; projectLabel: string;
-  state: 'POSTED' | 'UNRESOLVED' | 'LEGACY'; arrival?: Arrival; line?: ArrivalLine; receipt?: ArrivalReceipt;
+  state: 'STAGED' | 'POSTED' | 'UNRESOLVED' | 'LEGACY'; arrival?: Arrival; line?: ArrivalLine; receipt?: ArrivalReceipt;
   observations: ArrivalObservation[]; matches: ArrivalMatch[]; reversed: number;
 }
 export function actualRows(data: ReceivingSnapshot): ActualRow[] {
@@ -84,7 +84,7 @@ export function actualRows(data: ReceivingSnapshot): ActualRow[] {
   const seen = new Set<string>();
   for (const receipt of data.receipts) {
     // Neither reversal events nor receipts linked in either direction create another arrival.
-    if (receipt.event_type !== 'RECEIVE' || receipt.arrival_line_id || receipt.source_type === 'ARRIVAL' || linkedReceipts.has(receipt.id) || seen.has(receipt.id)) continue;
+    if (receipt.event_type !== 'RECEIVE' || receipt.arrival_line_id || receipt.route_arrival_line_id || receipt.source_type === 'ARRIVAL' || receipt.source_type === 'ARRIVAL_ROUTE' || linkedReceipts.has(receipt.id) || seen.has(receipt.id)) continue;
     const material = data.materials.find(m => m.id === receipt.project_material_id);
     const supply = data.supplies.find(s => s.id === receipt.se_supply_record_id);
     // Historical null locations are accepted only with an explicit OFFICE planning source.

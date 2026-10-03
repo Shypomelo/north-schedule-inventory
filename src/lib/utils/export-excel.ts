@@ -56,13 +56,14 @@ export function buildMonthlyReportWorkbook(
     ['月結狀態', closingStatus === 'CLOSED' ? '已封存' : '未封存'],
     [],
     ['月結／庫存統計'],
-    ['品項', '分類', '單位', '期初', '入庫', '退料', '出庫', '調整', '期末', '來源', '品項狀態', '備註'],
+    ['品項', '分類', '單位', '期初', '入庫', '入庫沖回', '退料', '出庫', '調整', '期末', '來源', '品項狀態', '備註'],
     ...items.map(item => [
       item.item_name,
       item.stock_category,
       item.unit,
       item.opening_quantity,
       item.monthly_in,
+      item.monthly_in_reversal ?? 0,
       item.monthly_return,
       item.monthly_out,
       item.monthly_adjust,
@@ -73,17 +74,18 @@ export function buildMonthlyReportWorkbook(
     ]),
     [],
     ['當月異動明細'],
-    ['日期', '異動類型', '品項', '數量', '案場', '序號', '備註', '是否作廢'],
+    ['日期', '異動類型', '品項', '數量', '案場', '序號', '備註', '是否作廢', '原入庫交易'],
     ...monthlyTransactions.map(transaction => {
       return [
         toExcelDate(transaction.transaction_date),
-        transaction.transaction_type,
+        transaction.transaction_type === 'IN_REVERSAL' ? '入庫沖回' : transaction.transaction_type,
         itemNameById.get(transaction.item_id) || '未知品項',
         transaction.quantity,
         transaction.project_name || '',
         (serialsByTransaction.get(transaction.id) || []).join('、'),
         transaction.notes || '',
         transaction.is_voided ? '是' : '否',
+        transaction.reverses_transaction_id || '',
       ];
     }),
   ];

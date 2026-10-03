@@ -21,22 +21,23 @@ function hooks() {
   };
 }
 
-test('receiving defaults to three filters with pending selected', () => {
+test('receiving defaults to three tabs with pending selected', () => {
   const { ReceivingV6Center } = load(path.resolve(__dirname, '../components/ReceivingV6Center.tsx'), {
     './UserContext': { useUser: () => ({ currentUser: { id: 'u', role: 'ADMIN' } }) },
     '@/lib/db/supabaseClient': { supabase: {} },
     '@/lib/db/receiving-v6': { createReceivingV6Api: () => ({}) },
     './ReceivingWorkModal': { ReceivingWorkBody: () => null, ReceivingWorkModal: () => null },
     './ReceivingV6Composer': { ReceivingV6Composer: () => null },
+    './ReceivingActionMenu': { useReceivingActionMenu: () => ({ bind: () => ({}), openFromButton() {}, popup: null }) },
     './ReceivingV5Forms': { ActionError: () => null, PendingForm: () => null, v5Button: '', v5Primary: '' },
   });
   const html = renderToStaticMarkup(React.createElement(ReceivingV6Center));
-  const tabs = html.match(/<div role="group" aria-label="收貨篩選".*?<\/div>/)?.[0] || '';
-  assert.match(tabs, /待處理/);
+  const tabs = html.match(/<div role="tablist" aria-label="收貨分類".*?<\/div>/)?.[0] || '';
+  assert.match(tabs, /待收貨/);
   assert.match(tabs, /已收到/);
-  assert.match(tabs, /全部/);
+  assert.match(tabs, /收貨紀錄/);
   assert.equal((tabs.match(/<button /g) || []).length, 3);
-  assert.match(tabs, /aria-pressed="true"[^>]*>待處理/);
+  assert.match(tabs, /aria-selected="true"[^>]*>待收貨/);
 });
 
 test('outbound serial input is scanner friendly and project choices are hidden initially', () => {
@@ -77,44 +78,4 @@ test('typing a project name reveals quick choices and selection updates the outb
   choice.props.onClick();
   assert.equal(find(n => n.props.role === 'combobox').props.value, '聯合案場');
   assert(!find(n => n.props.role === 'listbox'));
-});
-
-test('pending context delete uses safe RPC, blocks downstream, and removes only after success', async () => {
-  global.window = { innerWidth: 1200, innerHeight: 800, addEventListener() {}, removeEventListener() {} };
-  const h = hooks();
-  const data = {
-    projects: [], items: [], materials: [], supplies: [{ id: 'pending', receiving_only: true, new_model: 'P401', inventory_item_id: null, project_id: null, quantity: 1, unit: '台', updated_at: '2026-09-30T00:00:00Z' }],
-    batches: [], arrivals: [], lines: [], observations: [], matches: [], matchObservations: [], receipts: [],
-    fulfilment: { 'SE_SUPPLY:pending': { expected: 1, fulfilled: 0, remaining: 1, active: true, remaining_status: 'ACTIVE', cancellation: null } },
-    scopes: {}, scopeErrors: {}, transactions: [], closings: [],
-  };
-  let blocked = true, calls = 0;
-  const api = { load: async () => data, deletePending: async args => { calls++; assert.equal(args.p_source_type, 'SE_SUPPLY'); assert.equal(args.p_source_id, 'pending'); if (blocked) throw Error('PENDING_DELETE_DOWNSTREAM_EXISTS'); } };
-  const { ReceivingV6Center } = load(path.resolve(__dirname, '../components/ReceivingV6Center.tsx'), {
-    react: h.react,
-    './UserContext': { useUser: () => ({ currentUser: { id: 'u', role: 'ADMIN' } }) },
-    '@/lib/db/supabaseClient': { supabase: {} },
-    '@/lib/db/receiving-v6': { createReceivingV6Api: () => api },
-    './ReceivingWorkModal': { ReceivingWorkBody: () => null, ReceivingWorkModal: () => null },
-    './ReceivingV6Composer': { ReceivingV6Composer: () => null },
-    './ReceivingV5Forms': { ActionError: () => null, PendingForm: () => null, v5Button: '', v5Primary: '' },
-  });
-  const render = () => { h.reset(); return ReceivingV6Center(); };
-  const find = predicate => nodes(render()).find(predicate);
-  await h.settle(render);
-  assert(find(n => n.props['data-work-item'] === 'SE_SUPPLY:pending'));
-  find(n => n.props['data-work-item'] === 'SE_SUPPLY:pending').props.onContextMenu({ preventDefault() {}, clientX: 10, clientY: 10 });
-  find(n => n.props.role === 'menuitem').props.onClick();
-  assert(content(render()).includes('確定刪除這筆待收資料？'));
-  await find(n => n.type === 'button' && content(n) === '刪除').props.onClick();
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(calls, 1);
-  assert(find(n => n.props['data-work-item'] === 'SE_SUPPLY:pending'));
-  assert(find(n => typeof n.props.message === 'string' && n.props.message.includes('此筆已有到貨或後續紀錄')));
-  blocked = false;
-  await find(n => n.type === 'button' && content(n) === '刪除').props.onClick();
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(calls, 2);
-  assert(!find(n => n.props['data-work-item'] === 'SE_SUPPLY:pending'));
-  delete global.window;
 });

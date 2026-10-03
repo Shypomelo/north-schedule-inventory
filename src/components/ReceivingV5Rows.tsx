@@ -147,7 +147,7 @@ export function ActualListRow({ row, data, pending, api, conflict, expanded, can
   canEdit: boolean; onToggle: () => void; onChanged: () => Promise<void>; onHistory: () => void;
 }) {
   const [edit, setEdit] = useState<'metadata' | 'matches' | null>(null);
-  const status = row.state === 'LEGACY' ? '歷史收貨' : row.state === 'POSTED' ? '已入庫' : conflict ? '已收到・序號待確認' : '已收到・待補品項';
+  const status = row.state === 'LEGACY' ? '歷史收貨' : row.state === 'POSTED' ? '已入庫' : row.state === 'STAGED' ? '已收到・待入庫' : conflict ? '已收到・序號待確認' : '已收到・待補品項';
   return <article data-actual-row={row.key} className="min-w-0 rounded-xl border border-theme-border bg-card">
     <button type="button" aria-expanded={expanded} onClick={onToggle} className="flex w-full min-w-0 items-start justify-between gap-3 p-3 text-left">
       <span className="min-w-0 space-y-1"><span className="block break-all font-semibold">{row.label}{row.state !== 'UNRESOLVED' && ` ×${row.quantity} ${row.unit}`}</span><span className="block text-xs text-secondary">{row.at ? formatTaipeiReceivingTime(row.at) : '收貨時間未記錄'}{row.observations.length ? `｜序號 ${row.observations.length}` : ''}</span><span className={`block text-sm ${row.state === 'UNRESOLVED' ? 'text-warning' : 'text-secondary'}`}>{status}</span></span>

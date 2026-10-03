@@ -291,11 +291,13 @@ export default function TransactionsPage() {
                         tx.is_voided ? 'bg-theme-border text-secondary/70' :
                         tx.transaction_type === 'IN' ? 'bg-success/20 text-success' :
                         tx.transaction_type === 'OUT' ? 'bg-danger/20 text-danger' :
+                        tx.transaction_type === 'IN_REVERSAL' ? 'bg-warning/20 text-warning' :
                         tx.transaction_type === 'RETURN' ? 'bg-accent/20 text-accent' :
                         'bg-warning/20 text-warning'
                       }`}>
                         {tx.transaction_type === 'IN' ? '入庫' :
                          tx.transaction_type === 'OUT' ? '出庫' :
+                         tx.transaction_type === 'IN_REVERSAL' ? '入庫沖回' :
                          tx.transaction_type === 'RETURN' ? '退料' : '調整'}
                          {tx.is_voided && ' (已作廢)'}
                       </span>
@@ -310,7 +312,7 @@ export default function TransactionsPage() {
                     <td className={`p-4 max-w-[200px] truncate ${tx.is_voided ? 'text-secondary/50 line-through' : 'text-secondary'}`} title={tx.notes || ''}>{tx.notes || '-'}</td>
                     <td className="p-4 text-secondary/60 text-xs">{format(new Date(tx.created_at), 'yyyy/MM/dd HH:mm')}</td>
                     <td className="p-4 text-center space-x-2">
-                      {!tx.is_voided && (
+                      {!tx.is_voided && tx.transaction_type !== 'IN_REVERSAL' && (
                         <>
                           <button onClick={() => openEditModal(tx)} disabled={currentUser?.role === 'VIEWER'} className="text-accent hover:text-accent-hover text-xs bg-accent/20 px-2 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed">編輯</button>
                           <button
@@ -359,6 +361,9 @@ export default function TransactionsPage() {
       {historyTxId && (
         <TransactionHistoryModal 
           transactionId={historyTxId} 
+          transaction={transactions.find(tx => tx.id === historyTxId)}
+          originalTransaction={transactions.find(tx => tx.id === transactions.find(current => current.id === historyTxId)?.reverses_transaction_id)}
+          serialLinks={txSerialsMapping.filter(link => link.transaction_id === historyTxId)}
           onClose={() => setHistoryTxId(null)} 
         />
       )}

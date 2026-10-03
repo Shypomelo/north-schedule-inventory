@@ -107,8 +107,12 @@ export function MaterialReceiptHistoryDialog({
               <div className="text-right text-xs text-secondary"><p>{formatTaipeiReceivingTime(receipt.received_at)}</p>{receipt.notes ? <p className="mt-1 max-w-64 break-words">{receipt.notes}</p> : null}</div>
             </div>
             {eventType === 'REVERSAL' && receipt.reversal_of_id ? <p className="mt-2 text-[11px] text-secondary">更正原收料：{receipt.reversal_of_id}</p> : null}
+            {receipt.reentry_of_reversal_id ? <p className="mt-2 text-[11px] text-secondary">沖回後再次入庫：{receipt.reentry_of_reversal_id}</p> : null}
             {receipt.receipt_location === 'SITE' && receipt.inventory_transaction_id && <ReceivingSiteReceiptEvidence receiptId={receipt.reversal_of_id || receipt.id} transactionId={receipt.inventory_transaction_id} />}
-            {canEdit && eventType === 'RECEIVE' && reversible > 0 && receipt.receipt_location !== 'SITE' ? <div className="mt-2 flex justify-end"><button type="button" onClick={() => startCorrection(receipt)} className="inline-flex h-8 items-center gap-1 rounded-md border border-warning/40 px-2 text-xs font-bold text-warning hover:bg-warning/10"><RotateCcw size={13} />收料更正</button></div> : null}
+            {canEdit && eventType === 'RECEIVE' && reversible > 0 && receipt.receipt_location !== 'SITE'
+              && !receipt.reentry_of_reversal_id
+              && !receipts.some(other => other.reversal_of_id === receipt.id && other.inventory_transaction_id && other.inventory_transaction_id !== receipt.inventory_transaction_id)
+              ? <div className="mt-2 flex justify-end"><button type="button" onClick={() => startCorrection(receipt)} className="inline-flex h-8 items-center gap-1 rounded-md border border-warning/40 px-2 text-xs font-bold text-warning hover:bg-warning/10"><RotateCcw size={13} />收料更正</button></div> : null}
           </div>;
         })}
       </div>

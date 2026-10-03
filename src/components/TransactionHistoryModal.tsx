@@ -1,16 +1,19 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
-import { ActivityLog } from '@/lib/db/types';
+import { ActivityLog, InventoryTransaction, InventoryTransactionSerial } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { format } from 'date-fns';
 
 interface TransactionHistoryModalProps {
   transactionId: string;
+  transaction?: InventoryTransaction;
+  originalTransaction?: InventoryTransaction;
+  serialLinks?: InventoryTransactionSerial[];
   onClose: () => void;
 }
 
-export function TransactionHistoryModal({ transactionId, onClose }: TransactionHistoryModalProps) {
+export function TransactionHistoryModal({ transactionId, transaction, originalTransaction, serialLinks = [], onClose }: TransactionHistoryModalProps) {
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -41,6 +44,19 @@ export function TransactionHistoryModal({ transactionId, onClose }: TransactionH
         </div>
         
         <div className="flex-1 overflow-auto bg-page/50 p-3 sm:p-6">
+          {transaction?.transaction_type === 'IN_REVERSAL' && (
+            <div className="mb-5 rounded-lg border border-warning/30 bg-warning/10 p-4 text-sm text-primary">
+              <div className="font-semibold">入庫沖回</div>
+              <div>原入庫：{originalTransaction?.id || transaction.reverses_transaction_id}</div>
+              <div>沖回交易：{transaction.id}</div>
+              <div>數量：{transaction.quantity} {transaction.unit || ''}</div>
+              <div>序號：{serialLinks.filter(link => !link.is_pending).map(link => link.serial_no).filter(Boolean).join('、') || '無'}</div>
+              <div>經手人：{transaction.handler || '—'}</div>
+              <div>時間：{format(new Date(transaction.created_at), 'yyyy/MM/dd HH:mm:ss')}</div>
+              <div>來源：{transaction.source || '—'}</div>
+              <div>原因：{transaction.notes || '—'}</div>
+            </div>
+          )}
           {isLoading ? (
             <div className="text-secondary text-center py-8">載入中...</div>
           ) : logs.length === 0 ? (
