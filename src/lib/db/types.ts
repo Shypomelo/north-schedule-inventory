@@ -118,6 +118,7 @@ export interface WorkGroup {
 
 export interface Project {
   id: string;
+  deleted_at?: string | null;
   name: string;
   short_name: string | null;
   address: string | null;

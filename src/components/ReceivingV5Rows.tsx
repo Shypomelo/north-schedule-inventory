@@ -7,7 +7,7 @@ import { formatTaipeiReceivingTime } from '@/lib/material-receiving';
 import { InventoryItemCombobox } from './ReceivingSerialControls';
 import { ReceivingProjectCombobox } from './ReceivingProjectCombobox';
 import { ActionError, PendingForm, PendingSerialEditor, useV5Action, useV5Request, v5Button, v5Field, v5Primary } from './ReceivingV5Forms';
-import { selectActiveProjects } from '@/lib/project-selectors';
+import { selectReceivingProjects } from '@/lib/project-selectors';
 
 export function PendingListRow({ row, data, api, expanded, canEdit, onToggle, onChanged, onArrival, onHistory }: {
   row: PendingRow; data: ReceivingSnapshot; api: ReceivingV5Api; expanded: boolean; canEdit: boolean;
@@ -58,7 +58,7 @@ export function ArrivalMetadata({ row, data, api, onChanged, onClose }: {
     await api.metadata(request({ p_arrival_id: row.arrival!.id, p_expected_version: version, p_project_id: projectId || null, p_notes: notes.trim() || null }));
     onClose(); await onChanged();
   }); }}>
-    <fieldset disabled={action.busy} className="min-w-0 space-y-3"><ReceivingProjectCombobox projects={selectActiveProjects(data.projects)} value={projectId} onChange={setProjectId} /><label className="block text-sm">備註（選填）<textarea className={v5Field} rows={2} value={notes} onChange={e => setNotes(e.target.value)} /></label></fieldset>
+    <fieldset disabled={action.busy} className="min-w-0 space-y-3"><ReceivingProjectCombobox projects={selectReceivingProjects(data.projects)} value={projectId} onChange={setProjectId} /><label className="block text-sm">備註（選填）<textarea className={v5Field} rows={2} value={notes} onChange={e => setNotes(e.target.value)} /></label></fieldset>
     <ActionError message={action.error} /><div className="flex flex-wrap gap-2"><button type="button" className={v5Button} disabled={action.busy} onClick={onClose}>取消編輯</button><button className={v5Primary} disabled={action.busy}>儲存到貨資料</button></div>
   </form>;
 }

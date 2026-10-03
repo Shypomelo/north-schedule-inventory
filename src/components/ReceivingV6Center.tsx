@@ -10,6 +10,7 @@ import {
   type ReceivedGroup, type ReceivingHistoryRow, type ReceivingV6Snapshot,
 } from '@/lib/receiving-v6';
 import { receivingError, searchPending, type PendingRow } from '@/lib/receiving-v5';
+import { receivingBatchMatches, receivingBatchViews, receivingTaipeiDay } from '@/lib/receiving-batch-view';
 import { formatReceivingQuantity, formatTaipeiReceivingTime } from '@/lib/material-receiving';
 import type { CreateArrivalResult } from '@/lib/db/receiving-v5';
 import { ReceivingWorkBody, ReceivingWorkModal } from './ReceivingWorkModal';
@@ -18,7 +19,8 @@ import { ReceivingThreeWayDetail } from './ReceivingThreeWayDetail';
 import { ReceivingReturnDetail } from './ReceivingReturnDetail';
 import { ReceivingPendingDeleteConfirm } from './ReceivingPendingDeleteConfirm';
 import { useReceivingActionMenu, type ReceivingActionTarget } from './ReceivingActionMenu';
-import { ActionError, PendingForm, v5Button, v5Primary } from './ReceivingV5Forms';
+import { ActionError, v5Button, v5Primary } from './ReceivingV5Forms';
+import { ReceivingPendingBatchForm } from './ReceivingPendingBatchForm';
 
 const api = createReceivingV6Api(supabase);
 type Tab = 'pending' | 'received' | 'history';
@@ -52,6 +54,7 @@ export function ReceivingV6Center() {
   const [data, setData] = useState<ReceivingV6Snapshot | null>(null);
   const [loading, setLoading] = useState(true), [error, setError] = useState(''), [notice, setNotice] = useState('');
   const [query, setQuery] = useState(''), [tab, setTab] = useState<Tab>('pending');
+  const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ key: string; label: string; source: NonNullable<ReceivingActionTarget['pendingSource']> } | null>(null);
   const actionMenu = useReceivingActionMenu((target, action) => {
@@ -81,27 +84,33 @@ export function ReceivingV6Center() {
   useEffect(() => { const requestGeneration = generation; void load(); return () => { requestGeneration.current++; }; }, [load]);
 
   const pending = useMemo(() => data ? receivingPendingList(data) : [], [data]);
-  const received = useMemo(() => data ? receivedItemGroups(data) : [], [data]);
   const history = useMemo(() => data ? receivingHistory(data) : [], [data]);
+  const batches = useMemo(() => data ? receivingBatchViews(data, history) : [], [data, history]);
+  const today = receivingTaipeiDay(new Date().toISOString());
+  const recentBatches = batches.filter(batch => !batch.arrival.voided_at && (batch.day === today || batch.workCount > 0));
+  const received = recentBatches.flatMap(batch => batch.groups);
   const workRows = useMemo(() => data ? receivingWorkItems(data) : [], [data]);
   const needle = query.trim().toLocaleLowerCase();
   const shownPending = pending.filter(row => searchPending(row, needle));
-  const shownReceived = received.filter(group => [group.pn, group.name, ...group.projectLabels,
-    ...group.rows.flatMap(row => row.observations.map(entry => entry.normalized_serial))].join(' ').toLocaleLowerCase().includes(needle));
-  const shownHistory = history.filter(row => [row.item, row.actor, row.type, row.state, row.projectLabel].join(' ').toLocaleLowerCase().includes(needle));
+  const shownReceived = recentBatches.filter(batch => receivingBatchMatches(batch, needle));
+  const shownHistory = batches.filter(batch => receivingBatchMatches(batch, needle));
+  const standaloneHistory = history.filter(row => !row.arrivalLineId && [row.item, row.actor, row.type, row.state, row.projectLabel, row.at]
+    .join(' ').toLocaleLowerCase().includes(needle));
+  const days = Array.from(new Set(shownReceived.map(batch => batch.day)));
   const selectedWork = dialog?.kind === 'work' ? workRows.find(row => row.key === dialog.key) : undefined;
   const selectedReceived = dialog?.kind === 'received' ? received.find(group => group.key === dialog.key) : undefined;
   const selectedHistory = dialog?.kind === 'return' ? history.find(row => row.id === dialog.key) : undefined;
   const editable = canEdit && !loading && !error;
-  const arrived = async (result: CreateArrivalResult) => {
-    const conflicts = result.matches.filter(match => match.status === 'CONFLICT');
+  const arrived = async (results: CreateArrivalResult[]) => {
+    const conflicts = results.flatMap(result => result.matches).filter(match => match.status === 'CONFLICT');
     setNotice(conflicts.length ? '實際到貨已保存；部分待收對應尚未完成。' : '實際到貨已保存。');
     setQuery(''); setTab('received'); setDialog(null);
     await load();
   };
   const posted = async (groupKey: string, closeWhenEmpty: boolean) => {
     const next = await load();
-    if (closeWhenEmpty && next && !receivedItemGroups(next).some(group => group.key === groupKey)) setDialog(null);
+    if (closeWhenEmpty && next && !receivingBatchViews(next, receivingHistory(next))
+      .flatMap(batch => batch.groups).some(group => group.key === groupKey)) setDialog(null);
     return Boolean(next);
   };
   const reversed = async () => {
@@ -111,8 +120,8 @@ export function ReceivingV6Center() {
   };
   const tabs: { key: Tab; label: string; count: number }[] = [
     { key: 'pending', label: '待收貨', count: pending.length },
-    { key: 'received', label: '已收到', count: received.length },
-    { key: 'history', label: '收貨紀錄', count: history.length },
+    { key: 'received', label: '已收到', count: recentBatches.length },
+    { key: 'history', label: '收貨紀錄', count: batches.length + standaloneHistory.length },
   ];
   const createButtons = <><button type="button" className={v5Button} disabled={!editable || !data} onClick={() => setDialog({ kind: 'pending' })}>＋預計收貨</button><button type="button" className={v5Primary} disabled={!editable || !data} onClick={() => setDialog({ kind: 'actual' })}>＋實際到貨</button></>;
 
@@ -130,19 +139,42 @@ export function ReceivingV6Center() {
           <button type="button" aria-label={`更多操作：${row.label}`} aria-haspopup="menu" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-secondary hover:bg-page" onClick={event => actionMenu.openFromButton(target, event.currentTarget)}><MoreHorizontal size={18} /></button>
         </div>;
       })}</div>}
-      {tab === 'received' && <div role="tabpanel" aria-label="已收到" className="divide-y divide-theme-border">{shownReceived.map(group => {
-        const target = receivedMenuTarget(group, editable);
-        return <div key={group.key} className="flex min-w-0 items-center gap-1">
-          <button type="button" {...actionMenu.bind(target)} data-received-group={group.key} className="flex min-w-0 flex-1 items-center gap-2 py-3 text-left hover:bg-accent/5" onClick={() => setDialog({ kind: 'received', key: group.key, mode: group.states.includes('UNRESOLVED') ? 'resolve' : 'inventory' })}><span className="min-w-0 flex-1"><span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1"><strong className="break-all text-sm">{group.pn}</strong><span className="truncate text-xs text-secondary">{group.name}</span>{group.states.map(state => <span key={state} className={'rounded px-1.5 py-0.5 text-xs ' + (state === 'UNRESOLVED' ? 'bg-warning/10 text-warning' : 'bg-page text-secondary')}>{stateLabel(state)}</span>)}{group.temporary && <span className="rounded bg-accent/10 px-1.5 py-0.5 text-xs text-accent">臨時到貨</span>}</span><span className="mt-1 block text-xs text-secondary sm:text-sm"><b className="tabular-nums text-primary">{formatReceivingQuantity(group.quantity)} {group.unit}</b>｜{shortTime(group.at)}{group.projectLabels.length > 0 && `｜${group.projectLabels.join('、')}`}</span></span><ChevronRight size={16} className="shrink-0 text-secondary" /></button>
-          {editable && <button type="button" className={v5Button + ' shrink-0'} onClick={() => setDialog({ kind: 'received', key: group.key, mode: group.states.includes('UNRESOLVED') ? 'resolve' : 'inventory' })}>{group.states.includes('UNRESOLVED') ? '補資料' : group.stages.length ? '後續處理' : '查看明細'}</button>}
-          <button type="button" aria-label={`更多操作：${group.pn}`} aria-haspopup="menu" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-secondary hover:bg-page" onClick={event => actionMenu.openFromButton(target, event.currentTarget)}><MoreHorizontal size={18} /></button>
-        </div>;
+      {tab === 'received' && <div role="tabpanel" aria-label="已收到" className="space-y-1">{days.map(day => {
+        const dayBatches = shownReceived.filter(batch => batch.day === day);
+        return <details key={day} open={expandedDays[day] ?? (day === today || dayBatches.some(batch => batch.workCount > 0))}
+          onToggle={event => { const open = event.currentTarget.open; setExpandedDays(current => current[day] === open ? current : { ...current, [day]: open }); }}
+          className="border-b border-theme-border py-2">
+          <summary className="cursor-pointer text-sm font-semibold">{day === today ? '今天 ' : ''}{day.slice(5).replace('-', '/')} · {dayBatches.length} 批{dayBatches.some(batch => batch.workCount > 0) ? ' · 待處理' : ''}</summary>
+          <div className="space-y-2 pt-2">{dayBatches.map(batch => <details key={batch.id} data-received-batch={batch.id} className="rounded-lg border border-theme-border bg-page/40 px-3 py-2">
+            <summary className="cursor-pointer text-sm"><strong>{batch.label}</strong><span className="ml-2 text-xs text-secondary">{shortTime(batch.at)} · {formatReceivingQuantity(batch.total)} 件 · {batch.itemCount} 種品項 · {batch.workCount ? `待處理 ${formatReceivingQuantity(batch.workCount)}` : '已完成'}</span></summary>
+            <div className="divide-y divide-theme-border pt-1">{batch.groups.map(group => {
+              const target = receivedMenuTarget(group, editable);
+              const serials = group.rows.flatMap(row => row.observations.map(entry => entry.normalized_serial));
+              return <div key={group.key} className="py-1"><div className="flex min-w-0 items-center gap-1">
+                <button type="button" {...actionMenu.bind(target)} data-received-group={group.key} className="min-w-0 flex-1 py-2 text-left" onClick={() => setDialog({ kind: 'received', key: group.key, mode: group.states.includes('UNRESOLVED') ? 'resolve' : 'inventory' })}>
+                  <strong className="text-sm">{group.states.includes('UNRESOLVED') ? '待補資料' : group.pn}</strong><span className="ml-2 text-xs text-secondary">{formatReceivingQuantity(group.quantity)} {group.unit || '台'} · {group.states.map(stateLabel).join('、')}</span>
+                </button>{editable && <button type="button" className="min-h-9 shrink-0 px-2 text-xs text-accent" onClick={() => setDialog({ kind: 'received', key: group.key, mode: group.states.includes('UNRESOLVED') ? 'resolve' : 'inventory' })}>{group.states.includes('UNRESOLVED') ? '補資料' : '分類'}</button>}
+                <button type="button" aria-label={`更多操作：${group.pn}`} className="min-h-9 shrink-0 px-2" onClick={event => actionMenu.openFromButton(target, event.currentTarget)}><MoreHorizontal size={17} /></button>
+              </div>{serials.length > 0 && <details className="text-xs text-secondary"><summary className="cursor-pointer py-1">查看序號 · {serials.length}</summary><ul className="max-h-36 overflow-y-auto">{serials.map(serial => <li key={serial} className="break-all py-0.5">{serial}</li>)}</ul></details>}</div>;
+            })}{batch.lines.filter(line => !batch.groups.some(group => group.rows.some(row => row.line?.id === line.id))).map(line => {
+              const item = data?.items.find(value => value.id === line.inventory_item_id);
+              return <div key={line.id} className="py-2 text-xs text-secondary">{item?.code || '待補資料'} · {formatReceivingQuantity(Number(line.quantity))} {line.unit || '台'} · 已完成</div>;
+            })}</div>
+          </details>)}</div>
+        </details>;
       })}</div>}
-      {tab === 'history' && <div role="tabpanel" aria-label="收貨紀錄" className="divide-y divide-theme-border">{shownHistory.map(row => {
-        const target = historyMenuTarget(row, editable);
-        return <article key={row.id} {...actionMenu.bind(target)} data-history-row={row.id} className="min-w-0 py-3 text-sm"><div className="flex flex-wrap items-baseline gap-x-2 gap-y-1"><time className="shrink-0 tabular-nums text-secondary">{formatTaipeiReceivingTime(row.at)}</time><strong>{row.type}</strong><span className="min-w-0 break-words">{row.item}</span><span className="ml-auto shrink-0 tabular-nums font-semibold">{row.quantity > 0 ? '+' : ''}{formatReceivingQuantity(row.quantity)} {row.unit}</span></div><div className="mt-1 flex flex-wrap items-center justify-between gap-1"><p className="break-words text-xs text-secondary">{row.actor}｜{row.state}{row.projectLabel !== '未指定案件' && `｜${row.projectLabel}`}</p>{target.actions.length > 0 && <button type="button" aria-label={`更多操作：${row.item}`} aria-haspopup="menu" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-secondary hover:bg-page" onClick={event => actionMenu.openFromButton(target, event.currentTarget)}><MoreHorizontal size={18} /></button>}</div></article>;
-      })}</div>}
-      {!loading && !(tab === 'pending' ? shownPending.length : tab === 'received' ? shownReceived.length : shownHistory.length) && <p className="py-10 text-center text-sm text-secondary">{query ? '沒有符合的資料' : tab === 'pending' ? '目前沒有待收貨' : tab === 'received' ? '目前沒有已收到的貨品' : '目前沒有收貨紀錄'}</p>}
+      {tab === 'history' && <div role="tabpanel" aria-label="收貨紀錄" className="divide-y divide-theme-border">{shownHistory.map(batch => <details key={batch.id} data-history-batch={batch.id} className="py-2">
+        <summary className="cursor-pointer text-sm"><strong>{batch.label}</strong><span className="ml-2 text-xs text-secondary">{formatTaipeiReceivingTime(batch.at)} · {formatReceivingQuantity(batch.total)} 件 · {batch.itemCount} 種品項 · {batch.workCount ? '待處理' : '已完成'}</span></summary>
+        <div className="space-y-2 pl-3 pt-2">{batch.lines.map(line => {
+          const item = data?.items.find(value => value.id === line.inventory_item_id);
+          const serials = data?.observations.filter(entry => entry.arrival_line_id === line.id).map(entry => entry.normalized_serial) || [];
+          return <div key={line.id} className="border-l-2 border-theme-border pl-2 text-xs"><p>{item?.code || '待確認'} × {formatReceivingQuantity(Number(line.quantity))}</p>{serials.length > 0 && <details><summary className="cursor-pointer text-secondary">查看序號 · {serials.length}</summary><ul>{serials.map(serial => <li key={serial} className="break-all">{serial}</li>)}</ul></details>}</div>;
+        })}{batch.history.filter(row => row.type !== '實際到貨').map(row => {
+          const target = historyMenuTarget(row, editable);
+          return <article key={row.id} data-history-row={row.id} {...actionMenu.bind(target)} className="flex min-w-0 items-center gap-2 text-xs"><span className="min-w-0 flex-1 break-words">{row.type} · {row.item} · {formatReceivingQuantity(row.quantity)} {row.unit} · {row.state}</span>{target.actions.length > 0 && <button type="button" className="min-h-9 px-2" onClick={event => actionMenu.openFromButton(target, event.currentTarget)}><MoreHorizontal size={17} /></button>}</article>;
+        })}</div>
+      </details>)}{standaloneHistory.map(row => <article key={row.id} className="py-2 text-sm">{formatTaipeiReceivingTime(row.at)} · {row.type} · {row.item}</article>)}</div>}
+      {!loading && !(tab === 'pending' ? shownPending.length : tab === 'received' ? shownReceived.length : shownHistory.length + standaloneHistory.length) && <p className="py-10 text-center text-sm text-secondary">{query ? '沒有符合的資料' : tab === 'pending' ? '目前沒有待收貨' : tab === 'received' ? '目前沒有已收到的貨品' : '目前沒有收貨紀錄'}</p>}
     </div>
     {actionMenu.popup}
     {deleteTarget && <ReceivingPendingDeleteConfirm key={deleteTarget.key + ':' + deleteTarget.source.updatedAt}
@@ -151,7 +183,7 @@ export function ReceivingV6Center() {
         setDeleteTarget(null); setNotice('待收貨已刪除。');
       }} />}
     {dialog && data && <ReceivingWorkModal title={dialog.kind === 'pending' ? '預計收貨' : dialog.kind === 'actual' ? '實際到貨' : dialog.kind === 'received' ? '已收到明細' : dialog.kind === 'return' ? '退回到已收到' : '收貨工作'} onClose={() => setDialog(null)}>
-      {dialog.kind === 'pending' ? <PendingForm embedded compact data={data} api={api} onClose={() => setDialog(null)} onSaved={async () => { setDialog(null); setNotice('預計收貨已建立。'); setQuery(''); setTab('pending'); await load(); }} />
+      {dialog.kind === 'pending' ? <ReceivingPendingBatchForm data={data} api={api} onClose={() => setDialog(null)} onSaved={async () => { setDialog(null); setNotice('預計收貨已建立。'); setQuery(''); setTab('pending'); await load(); }} />
         : dialog.kind === 'actual' ? <ReceivingV6Composer data={data} api={api} onClose={() => setDialog(null)} onSaved={arrived} />
           : dialog.kind === 'received' ? selectedReceived ? <ReceivingThreeWayDetail key={selectedReceived.key + ':' + dialog.mode} group={selectedReceived} data={data} api={api} canEdit={editable} initialMode={dialog.mode} onChanged={async () => posted(selectedReceived.key, true)} /> : <p className="text-sm">此筆已更新，請重新整理。</p>
             : dialog.kind === 'return' ? selectedHistory?.returnToReceived ? <ReceivingReturnDetail key={selectedHistory.id} row={selectedHistory} api={api} canReverse={editable} onReversed={reversed} /> : <p className="text-sm">此筆已更新，請重新整理。</p>

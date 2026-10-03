@@ -5,12 +5,13 @@ import type { ReceivingV6Api } from '@/lib/db/receiving-v6';
 import type { ReceivedGroup, ReceivedStage, ReceivingV6Snapshot } from '@/lib/receiving-v6';
 import { compatibleProjectRequirements, type ReceivingProjectRequirement } from '@/lib/receiving-project-requirements';
 import { receivingError } from '@/lib/receiving-v5';
-import { selectActiveProjects } from '@/lib/project-selectors';
+import { selectReceivingProjects } from '@/lib/project-selectors';
 import { formatReceivingQuantity } from '@/lib/material-receiving';
 import { ActionError, useV5Action, useV5Request, v5Button, v5Field, v5Primary } from './ReceivingV5Forms';
 import { ReceivingProjectCombobox } from './ReceivingProjectCombobox';
 import { ReceivingPostDetail } from './ReceivingPostDetail';
 import { CompleteUnknown } from './ReceivingWorkModal';
+import { ReceivingBatchResolve } from './ReceivingBatchResolve';
 
 type Mode = 'inventory' | 'SE' | 'SITE' | 'resolve' | 'cancel';
 type CancelTarget = { key: string; lineId: string; reversalReceiptId: string | null;
@@ -57,7 +58,7 @@ function StageRouteForm({ route, group, data, api, onChanged }: {
     {selectedStage && <fieldset disabled={action.busy} className="space-y-3">
       {selectedStage.requiresSerial ? <div className="max-h-56 overflow-y-auto" aria-label="待處理序號">{selectedStage.serials.map(serial => <label key={serial.entryId} className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={entryIds.includes(serial.entryId)} onChange={e => setEntryIds(ids => e.target.checked ? [...ids, serial.entryId] : ids.filter(id => id !== serial.entryId))} /><span className="break-all">{serial.serialNumber}</span></label>)}</div>
         : <label className="block text-sm">處理數量（最多 {formatReceivingQuantity(selectedStage.quantity)}）<input className={v5Field} type="number" min="0.001" max={selectedStage.quantity} step="any" value={quantity} onChange={e => setQuantity(e.target.value)} /></label>}
-      <ReceivingProjectCombobox projects={selectActiveProjects(data.projects)} value={projectId} onChange={setProjectId} required={route === 'SITE'} />
+      <ReceivingProjectCombobox projects={selectReceivingProjects(data.projects)} value={projectId} onChange={setProjectId} required={route === 'SITE'} />
       {route === 'SITE' && projectId && <div className="space-y-2 text-sm">
         {!requirements && !requirementError && <p role="status">查詢案場物料需求…</p>}
         <ActionError message={requirementError} />
@@ -138,8 +139,12 @@ export function ReceivingThreeWayDetail({ group, data, api, canEdit, initialMode
       { key: 'SITE', label: '送至案場' }, { key: 'cancel', label: '取消實際到貨' }];
   return <div className="space-y-4">
     <div><h3 className="font-semibold">{group.pn} · {group.name}</h3><p className="text-sm text-secondary">已收到 {formatReceivingQuantity(group.quantity)} {group.unit}</p></div>
+    {group.rows.some(row => row.observations.length > 0) && <details className="rounded-lg border border-theme-border px-3 py-2 text-sm"><summary className="cursor-pointer">查看序號 · {group.rows.reduce((sum, row) => sum + row.observations.length, 0)}</summary>
+      <ul className="max-h-48 overflow-y-auto pt-2">{group.rows.flatMap(row => row.observations.map(entry => <li key={entry.id} className="break-all py-0.5">{entry.normalized_serial}</li>))}</ul></details>}
     {canEdit && <div aria-label="後續處理" className="flex flex-wrap gap-2">{modes.map(value => <button key={value.key} type="button" aria-pressed={mode === value.key} className={mode === value.key ? v5Primary : v5Button} onClick={() => setMode(value.key)}>{value.label}</button>)}</div>}
-    {mode === 'resolve' && unresolved && group.rows[0] && <CompleteUnknown row={group.rows[0]} data={data} api={api} onChanged={async () => { await onChanged(); }} />}
+    {mode === 'resolve' && unresolved && (group.rows.some(row => row.observations.length > 0)
+      ? <ReceivingBatchResolve group={group} data={data} api={api} onChanged={onChanged} />
+      : group.rows[0] && <CompleteUnknown row={group.rows[0]} data={data} api={api} onChanged={async () => { await onChanged(); }} />)}
     {mode === 'inventory' && !unresolved && <ReceivingPostDetail group={group} data={data} api={api} canPost={canEdit && group.stages.length > 0} onPosted={onChanged} />}
     {(mode === 'SE' || mode === 'SITE') && !unresolved && canEdit && <StageRouteForm route={mode} group={group} data={data} api={api} onChanged={onChanged} />}
     {mode === 'cancel' && canEdit && <CancelArrivalForm group={group} data={data} api={api} onChanged={onChanged} />}

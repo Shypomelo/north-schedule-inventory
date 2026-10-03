@@ -5,6 +5,7 @@ export type PendingKind = 'PROJECT_MATERIAL' | 'SE_SUPPLY';
 export interface Arrival {
   id: string; actual_received_at: string; project_id: string | null; notes: string | null; created_by: string;
   version: number; created_at: string; voided_at: string | null;
+  batch_kind?: 'BOX' | 'LOOSE' | null; batch_session_id?: string | null; batch_position?: number | null;
 }
 export interface ArrivalLine {
   id: string; arrival_id: string; inventory_item_id: string | null; quantity: number; unit: string | null;

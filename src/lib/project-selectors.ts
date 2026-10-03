@@ -11,3 +11,8 @@ export function isActiveProject(project: Pick<Project, 'status' | 'is_active'>):
 export function selectActiveProjects<T extends Pick<Project, 'status' | 'is_active'>>(projects: T[]): T[] {
   return projects.filter(isActiveProject);
 }
+
+/** Receiving accepts completed and closed projects; only deletion removes a choice. */
+export function selectReceivingProjects<T extends Pick<Project, 'deleted_at'>>(projects: T[]): T[] {
+  return projects.filter(project => !project.deleted_at);
+}

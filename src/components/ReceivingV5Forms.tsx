@@ -14,7 +14,7 @@ import {
 } from '@/lib/receiving-v5';
 import { parseSerialBatch } from '@/lib/receiving-serial-draft';
 import type { ScannerCode } from '@/lib/receiving-scanner-session';
-import { selectActiveProjects } from '@/lib/project-selectors';
+import { selectReceivingProjects } from '@/lib/project-selectors';
 import { formatTaipeiReceivingTime } from '@/lib/material-receiving';
 
 export const v5Field = 'mt-1 min-h-11 min-w-0 w-full rounded-lg border border-theme-border bg-page px-3 py-2 text-sm text-primary';
@@ -134,7 +134,7 @@ export function PendingForm({ data: initialData, api, row, onClose, onSaved, emb
     <fieldset disabled={action.busy || Boolean(draft.resolving)} className="min-w-0 space-y-3">
       <InventoryItemCombobox items={data.items.filter(i => i.is_active || i.id === row?.itemId)} value={itemId} onCreate={createItem} disabled={Boolean(row && (row.kind === 'SE_SUPPLY' || row.fulfilment.fulfilled || row.observations.length))} onChange={id => { setItemId(id); draft.reset(); }} />
       {compact ? <div className={pendingCompactStyles.detailsGrid}>{quantityField}<label className="min-w-0 text-sm">單位<input aria-label="單位" readOnly className={v5Field + ' text-secondary'} value={item?.unit || '—'} /></label>{expectedField}</div> : <><div className="grid grid-cols-2 gap-3">{quantityField}<div className="text-sm">單位<p className="py-3">{item?.unit || '—'}</p></div></div>{expectedField}</>}
-      <ReceivingProjectCombobox projects={selectActiveProjects(data.projects)} value={projectId} onChange={setProjectId} disabled={Boolean(row && (row.kind === 'PROJECT_MATERIAL' || row.fulfilment.fulfilled))} />
+      <ReceivingProjectCombobox projects={selectReceivingProjects(data.projects)} value={projectId} onChange={setProjectId} disabled={Boolean(row && (row.kind === 'PROJECT_MATERIAL' || row.fulfilment.fulfilled))} />
       <label className="block text-sm">備註（選填）<textarea rows={2} className={v5Field + (compact ? ' ' + pendingCompactStyles.notes : '')} value={notes} onChange={e => setNotes(e.target.value)} /></label>
       {item?.requires_serial && !row && <><p className="text-sm">預登序號 {draft.drafts.length} / {quantity}（選填）</p><SerialInput draft={draft} data={data} planning compact={embedded} disabled={action.busy} /></>}
     </fieldset>

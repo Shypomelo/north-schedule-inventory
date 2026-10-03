@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { createReceivingV5Api } from './receiving-v5';
+import { createReceivingV5Api, type CreateArrivalResult } from './receiving-v5';
 import { receivingError } from '../receiving-v5';
 import type { ArrivalLine } from '../receiving-v5';
 import { receivedPostCommand, type HandoffScope, type HandoffTransaction, type ReceivedStage, type ReceivingV6Snapshot } from '../receiving-v6';
@@ -51,6 +51,15 @@ export function createReceivingV6Api(client: SupabaseClient) {
   }
   return {
     ...base,
+    createPendingBatch: (args: { p_request_id: string; p_project_id: string | null; p_notes: string | null;
+      p_items: { item_id: string; quantity: number; expected_at: string; serials: string[] }[] }) =>
+      rpc<{ id: string }[]>('create_receiving_pending_batch', args),
+    createBatches: (args: { p_request_id: string; p_actual_received_at: string; p_project_id: string | null;
+      p_batches: { kind: 'BOX' | 'LOOSE'; lines: { inventory_item_id: string | null; quantity: number; raw_serials?: string[] }[];
+        matches: { line_index: number; quantity: number; project_material_id?: string; se_supply_record_id?: string; raw_serials?: string[] }[] }[] }) =>
+      rpc<CreateArrivalResult[]>('create_receiving_batches', args),
+    completeBatch: (args: { p_request_id: string; p_line_ids: string[]; p_item_id: string }) =>
+      rpc<ArrivalLine[]>('complete_receiving_arrival_lines', args),
     async load(): Promise<ReceivingV6Snapshot> {
       const [data, transactions, closings, actors, receiptSerials, cancellations] = await Promise.all([
         base.load(),

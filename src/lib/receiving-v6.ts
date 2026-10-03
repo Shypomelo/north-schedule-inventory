@@ -99,9 +99,10 @@ function transactionOwnsSerial(data: ReceivingV6Snapshot, transactionId: string,
 }
 
 /** Group unposted physical arrivals by canonical item; unresolved lines keep their own identity. */
-export function receivedItemGroups(data: ReceivingV6Snapshot): ReceivedGroup[] {
+export function receivedItemGroups(data: ReceivingV6Snapshot, arrivalId?: string, sourceRows?: ActualRow[]): ReceivedGroup[] {
   const groups = new Map<string, ReceivedGroup>();
-  for (const row of actualRows(data)) {
+  for (const row of sourceRows || actualRows(data)) {
+    if (arrivalId && row.arrival?.id !== arrivalId) continue;
     const itemId = row.line?.inventory_item_id || null;
     const item = data.items.find(value => value.id === itemId);
     const stages: ReceivedStage[] = [];
@@ -144,7 +145,8 @@ export function receivedItemGroups(data: ReceivingV6Snapshot): ReceivedGroup[] {
       + (row.state === 'LEGACY' || row.state === 'UNRESOLVED' ? normal : 0);
     if (!remaining) continue;
     if (itemId && !item) throw new Error('到貨品項資料不完整，請重新整理。');
-    const key = row.state === 'LEGACY' ? row.key : itemId ? `item:${itemId}` : row.key;
+    const key = arrivalId ? itemId ? `arrival:${arrivalId}:item:${itemId}` : `arrival:${arrivalId}:unresolved`
+      : row.state === 'LEGACY' ? row.key : itemId ? `item:${itemId}` : row.key;
     const group = groups.get(key) || {
       key, itemId, pn: item?.code || (row.state === 'UNRESOLVED' ? '待補品項' : row.label),
       name: item?.name || (row.state === 'UNRESOLVED' ? '尚未確認品項' : row.label),

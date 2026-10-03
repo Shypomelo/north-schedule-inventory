@@ -15,7 +15,7 @@ CREATE TEMP TABLE safe_delete_fixture(kind text,id uuid,request_id uuid,expected
 DO $$
 DECLARE actor uuid; project_id uuid; item_id uuid; serial_item_id uuid; batch_id uuid;
  source_id uuid; before_inventory bigint; response jsonb; retry jsonb; req uuid; expected timestamptz;
- arrival_id uuid; line_id uuid; match_id uuid;
+ arrival_id uuid; line_id uuid; match_id uuid; site_material_id uuid; arrival_response jsonb; routed jsonb;
 BEGIN
  SELECT id INTO actor FROM public.team_members WHERE email=(current_setting('request.jwt.claims')::jsonb->>'email');
  IF actor IS NULL THEN RAISE EXCEPTION 'ACTIVE_ADMIN_REQUIRED'; END IF;
@@ -82,10 +82,16 @@ BEGIN
 
  -- Even a cancelled match remains business history and blocks deletion.
  INSERT INTO public.receiving_arrivals(actual_received_at,created_by) VALUES(now(),actor) RETURNING id INTO arrival_id;
- INSERT INTO public.receiving_arrival_lines(arrival_id,inventory_item_id,quantity)
- VALUES(arrival_id,item_id,1) RETURNING id INTO line_id;
+ INSERT INTO public.receiving_arrival_lines(arrival_id,inventory_item_id,quantity,unit,resolution_state)
+ VALUES(arrival_id,item_id,1,'pcs','STAGED') RETURNING id INTO line_id;
  INSERT INTO public.receiving_arrival_matches(arrival_line_id,project_material_id,quantity,created_by)
  VALUES(line_id,source_id,1,actor) RETURNING id INTO match_id;
+ BEGIN
+  PERFORM public.delete_receiving_pending_source(gen_random_uuid(),'PROJECT_MATERIAL',source_id,expected);
+  RAISE EXCEPTION 'ACTIVE_ARRIVAL_MATCH_NOT_REJECTED';
+ EXCEPTION WHEN SQLSTATE 'PT409' THEN
+  IF SQLERRM<>'PENDING_DELETE_DOWNSTREAM_EXISTS' THEN RAISE; END IF;
+ END;
  UPDATE public.receiving_arrival_matches SET cancelled_at=now() WHERE id=match_id;
  BEGIN
   PERFORM public.delete_receiving_pending_source(gen_random_uuid(),'PROJECT_MATERIAL',source_id,expected);
@@ -102,6 +108,51 @@ BEGIN
  BEGIN
   PERFORM public.delete_receiving_pending_source(gen_random_uuid(),'PROJECT_MATERIAL',source_id,expected);
   RAISE EXCEPTION 'RECEIPT_HISTORY_NOT_REJECTED';
+ EXCEPTION WHEN SQLSTATE 'PT409' THEN
+  IF SQLERRM<>'PENDING_DELETE_DOWNSTREAM_EXISTS' THEN RAISE; END IF;
+ END;
+
+ -- Canonical SE and SITE routes create Inventory effects and allocations.
+ source_id:=(public.create_office_equipment_arrival(gen_random_uuid(),item_id,1,now(),project_id,
+  '[SAFE DELETE TEST] SE route','[]'::jsonb)->>'id')::uuid;
+ arrival_response:=public.create_receiving_arrival(gen_random_uuid(),now(),
+  jsonb_build_array(jsonb_build_object('inventory_item_id',item_id,'quantity',1)),project_id,'[SAFE DELETE TEST] SE route');
+ line_id:=(arrival_response->'lines'->0->>'id')::uuid;
+ PERFORM public.match_receiving_arrival_line(gen_random_uuid(),line_id,1,NULL,source_id);
+ routed:=public.route_staged_receiving(gen_random_uuid(),'NORMAL',line_id,NULL,'SE',1,'{}',project_id,NULL,false,now(),NULL);
+ IF NOT EXISTS(SELECT 1 FROM public.receiving_inventory_allocations
+  WHERE office_receipt_id=(routed->'receipt'->>'id')::uuid AND route_type='SE')
+  OR NOT EXISTS(SELECT 1 FROM public.inventory_transactions
+   WHERE id=(routed->'receipt'->>'inventory_transaction_id')::uuid)
+ THEN RAISE EXCEPTION 'SE_ROUTE_FIXTURE_INCOMPLETE'; END IF;
+ SELECT updated_at INTO expected FROM public.se_supply_records WHERE id=source_id;
+ BEGIN
+  PERFORM public.delete_receiving_pending_source(gen_random_uuid(),'SE_SUPPLY',source_id,expected);
+  RAISE EXCEPTION 'SE_DOWNSTREAM_NOT_REJECTED';
+ EXCEPTION WHEN SQLSTATE 'PT409' THEN
+  IF SQLERRM<>'PENDING_DELETE_DOWNSTREAM_EXISTS' THEN RAISE; END IF;
+ END;
+
+ INSERT INTO public.project_materials(project_id,batch_id,item_name,quantity,unit,created_by,inventory_item_id,delivery_destination)
+ VALUES(project_id,batch_id,'Office pending for site route',1,'pcs',actor,item_id,'OFFICE') RETURNING id INTO source_id;
+ INSERT INTO public.project_materials(project_id,batch_id,item_name,quantity,unit,created_by,inventory_item_id,delivery_destination)
+ VALUES(project_id,batch_id,'Site route',1,'pcs',actor,item_id,'SITE') RETURNING id INTO site_material_id;
+ arrival_response:=public.create_receiving_arrival(gen_random_uuid(),now(),
+  jsonb_build_array(jsonb_build_object('inventory_item_id',item_id,'quantity',1)),project_id,'[SAFE DELETE TEST] SITE route');
+ line_id:=(arrival_response->'lines'->0->>'id')::uuid;
+ PERFORM public.match_receiving_arrival_line(gen_random_uuid(),line_id,1,source_id,NULL);
+ routed:=public.route_staged_receiving(gen_random_uuid(),'NORMAL',line_id,NULL,'SITE',1,'{}',project_id,site_material_id,false,now(),NULL);
+ IF NOT EXISTS(SELECT 1 FROM public.receiving_inventory_allocations
+  WHERE office_receipt_id=(routed->'receipt'->>'id')::uuid AND route_type='SITE' AND project_material_id=site_material_id)
+  OR NOT EXISTS(SELECT 1 FROM public.material_receipts
+   WHERE source_type='PROJECT_MATERIAL' AND receipt_location='SITE' AND project_material_id=site_material_id)
+  OR NOT EXISTS(SELECT 1 FROM public.inventory_transactions
+   WHERE id=(routed->'receipt'->>'inventory_transaction_id')::uuid)
+ THEN RAISE EXCEPTION 'SITE_ROUTE_FIXTURE_INCOMPLETE'; END IF;
+ SELECT updated_at INTO expected FROM public.project_materials WHERE id=source_id;
+ BEGIN
+  PERFORM public.delete_receiving_pending_source(gen_random_uuid(),'PROJECT_MATERIAL',source_id,expected);
+  RAISE EXCEPTION 'SITE_DOWNSTREAM_NOT_REJECTED';
  EXCEPTION WHEN SQLSTATE 'PT409' THEN
   IF SQLERRM<>'PENDING_DELETE_DOWNSTREAM_EXISTS' THEN RAISE; END IF;
  END;

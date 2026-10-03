@@ -30,12 +30,15 @@ export function SerializedArrivalReview({ drafts, model, unknownCount, resolving
 }
 
 export function ReceivingV6Composer({ data: initialData, api, preferred, onClose, onSaved }: {
-  data: ReceivingSnapshot; api: ReceivingV6Api; preferred?: PendingRow; onClose: () => void; onSaved: (result: CreateArrivalResult) => Promise<void>;
+  data: ReceivingSnapshot; api: ReceivingV6Api; preferred?: PendingRow; onClose: () => void; onSaved: (results: CreateArrivalResult[]) => Promise<void>;
 }) {
   const { data, createItem } = useReceivingItems(initialData, api);
   const pending = pendingRows(data);
   const initialItem = data.items.find(i => i.id === preferred?.itemId);
-  const [phase, setPhase] = useState<'scan' | 'review' | 'plain'>('scan');
+  const [phase, setPhase] = useState<'choose' | 'scan' | 'review' | 'plain'>('choose');
+  const [batchKind, setBatchKind] = useState<'BOX' | 'LOOSE'>('BOX');
+  const [scannedBoxes, setScannedBoxes] = useState<ScanBox[]>([]);
+  const [extraLines, setExtraLines] = useState<Record<number, { key: string; itemId: string; quantity: string }[]>>({});
   const [itemId, setItemId] = useState(initialItem?.id || '');
   const [quantity, setQuantity] = useState('1');
   const [plainTarget, setPlainTarget] = useState(preferred?.key || '');
@@ -61,6 +64,7 @@ export function ReceivingV6Composer({ data: initialData, api, preferred, onClose
   };
   const acceptBoxes = async (boxes: ScanBox[], snapshot: BoxSnapshot) => {
     if (submitted) throw new Error('已完成實際到貨，請使用修改／撤回／更正。');
+    if (batchKind === 'LOOSE' && boxes.length !== 1) throw new Error('散料請使用一個收貨批次；多箱請選擇開始一箱。');
     setResolving(1);
     try {
       const items = Array.from(new Map([...data.items, ...Array.from(resolvedItems.current.values())].map(item => [item.id, item])).values());
@@ -69,6 +73,7 @@ export function ReceivingV6Composer({ data: initialData, api, preferred, onClose
       const next = await resolveBoxArrival(boxes, { ...data, items }, serials => api.lookupBatch(serials), preferred,
         serials => api.activeArrivalSerials(serials));
       update(next);
+      setScannedBoxes(boxes);
       setBoxSnapshot(snapshot);
       scannedModels.current = new Set(boxes.flatMap(box => box.model?.itemId ? [box.model.itemId] : []));
       scannedUnknown.current = new Set(boxes.flatMap(box => box.unknown.map(code => code.normalized)));
@@ -79,6 +84,9 @@ export function ReceivingV6Composer({ data: initialData, api, preferred, onClose
   const suggestions = pending.filter(p => !p.legacy && p.itemId === item?.id && p.fulfilment.active && p.fulfilment.remaining >= Number(quantity));
   const model = scannedModels.current.size === 1 ? data.items.find(i => i.id === Array.from(scannedModels.current)[0])
     || resolvedItems.current.get(Array.from(scannedModels.current)[0]) : undefined;
+  if (phase === 'choose') return <div className="space-y-3"><h3 className="text-sm font-semibold">實際到貨</h3><p className="text-xs text-secondary">先收貨，再依品項或序號決定去向。</p>
+    <button type="button" className={v5Primary + ' w-full'} onClick={() => { setBatchKind('BOX'); setPhase('scan'); }}>開始一箱</button>
+    <button type="button" className={v5Primary + ' w-full'} onClick={() => { setBatchKind('LOOSE'); setPhase('plain'); }}>散料</button></div>;
   if (phase === 'scan') return <BarcodeScanner mode="continuous" items={data.items} initialBoxes={boxSnapshot}
     onBoxesFinish={acceptBoxes} onResolveModel={resolveModel} onDetected={() => { /* Box session owns capture until final confirmation. */ }}
     onCancel={onClose} onNoBarcode={() => setPhase('plain')} />;
@@ -94,26 +102,49 @@ export function ReceivingV6Composer({ data: initialData, api, preferred, onClose
       };
       if (!prepared.lines.length) throw new Error('請加入序號，或選擇品項並填寫數量。');
       if (phase === 'plain' && plainTarget && !prepared.matches.length) throw new Error('預計收貨可對應數量不足，請重新選擇。');
-      const args = request({ p_actual_received_at: at, p_lines: prepared.lines, p_matches: prepared.matches, p_project_id: preferred?.projectId || null });
+      const batches = phase === 'review' ? scannedBoxes.map((box, index) => {
+        const start = scannedBoxes.slice(0, index).reduce((sum, value) => sum + value.serials.length, 0);
+        const grouped = groupedSerialArrival(current.current.slice(start, start + box.serials.length), pending);
+        const manualLines = (extraLines[box.id] || []).map(value => {
+          const selected = data.items.find(candidate => candidate.id === value.itemId && candidate.is_active && !candidate.requires_serial);
+          const amount = Number(value.quantity);
+          if (!selected || !Number.isFinite(amount) || amount <= 0) throw new Error('請確認箱內新增品項與數量。');
+          return { inventory_item_id: selected.id, quantity: amount };
+        });
+        return { kind: batchKind, lines: [...grouped.lines, ...manualLines], matches: grouped.matches };
+      }) : [{ kind: batchKind, lines: prepared.lines, matches: prepared.matches }];
+      if (batches.some(batch => !batch.lines.length)) throw new Error('每箱都需要至少一筆品項或序號。');
+      const args = request({ p_actual_received_at: at, p_batches: batches, p_project_id: preferred?.projectId || null });
       if (phase === 'review' && !attemptedArrivalRequests.current.has(args.p_request_id)) {
         const active = await api.activeArrivalSerials(drafts.map(d => d.raw));
         if (active.length) throw new Error(`序號 ${active.join('、')} 已存在到貨紀錄，請返回掃描確認。`);
       }
       // A retry with the same request ID must reach the RPC's cached response.
       attemptedArrivalRequests.current.add(args.p_request_id);
-      const result = await api.create(args);
+      const result = await api.createBatches(args);
       setSubmitted(true);
       await onSaved(result);
     });
   }}>
     <fieldset disabled={action.busy || submitted} className="min-w-0 space-y-4">
       {phase === 'review' ? <>
-        <p className="text-sm text-secondary">已掃 {boxSnapshot?.completedBoxes.length || 0} 箱・共 {drafts.length} 台</p>
+        <p className="text-sm text-secondary">已完成 {boxSnapshot?.completedBoxes.length || 0} {batchKind === 'BOX' ? '箱' : '批散料'}・共 {drafts.length} 台</p>
         <SerializedArrivalReview drafts={drafts} model={model} unknownCount={scannedUnknown.current.size} resolving={Boolean(resolving)} />
+        {scannedBoxes.map(box => <section key={box.id} className="space-y-2 rounded-lg border border-theme-border p-2 text-sm"><p className="font-semibold">{batchKind === 'BOX' ? `箱 ${box.id}` : '散料'} · {box.serials.length} 個序號</p>
+          {(extraLines[box.id] || []).map(line => <div key={line.key} className="grid grid-cols-[1fr_5rem_auto] items-end gap-1">
+            <InventoryItemCombobox items={data.items.filter(value => value.is_active && !value.requires_serial)} value={line.itemId} onCreate={createItem} serialRequirement={false}
+              onChange={itemId => setExtraLines(current => ({ ...current, [box.id]: current[box.id].map(value => value.key === line.key ? { ...value, itemId } : value) }))} />
+            <label>數量<input type="number" min="0.001" step="any" className={v5Field} value={line.quantity}
+              onChange={event => setExtraLines(current => ({ ...current, [box.id]: current[box.id].map(value => value.key === line.key ? { ...value, quantity: event.target.value } : value) }))} /></label>
+            <button type="button" className="min-h-11 text-danger" onClick={() => setExtraLines(current => ({ ...current, [box.id]: current[box.id].filter(value => value.key !== line.key) }))}>移除</button>
+          </div>)}
+          <button type="button" className="min-h-9 text-accent" onClick={() => setExtraLines(current => ({ ...current, [box.id]: [...(current[box.id] || []), { key: crypto.randomUUID(), itemId: '', quantity: '1' }] }))}>＋新增箱內品項</button>
+        </section>)}
         {preferred && <p className="text-xs text-secondary">對應預計收貨：{preferred.label}｜{preferred.projectLabel}</p>}
         {drafts.filter(d => d.choiceRequired).map(d => <label key={d.raw} className="block text-sm">{d.raw}：選擇預計收貨<select className={v5Field} value="" disabled={Boolean(resolving)} onChange={e => { const target = pending.find(p => p.key === e.target.value); update(current.current.map(x => x.raw === d.raw ? { ...x, pendingKey: target?.key || null, itemId: target?.itemId || x.itemId, state: target?.itemId || x.itemId ? 'known' : 'unknown', choiceRequired: false } : x)); }}><option value="" disabled>請選擇</option>{d.candidates.map(key => { const p = pending.find(p => p.key === key)!; return <option value={key} key={key}>{p.label}｜{p.projectLabel}｜剩餘 {p.fulfilment.remaining}</option>; })}<option value="standalone">保留未對應</option></select></label>)}
       </> : <>
-        <p className="text-lg font-semibold">無條碼物料</p>
+        <p className="text-lg font-semibold">{batchKind === 'BOX' ? '箱內無條碼物料' : '散料'}</p>
+        <button type="button" className="min-h-9 text-sm text-accent" onClick={() => setPhase('scan')}>掃描序號</button>
         <InventoryItemCombobox items={data.items.filter(i => i.is_active)} value={itemId} onCreate={createItem} serialRequirement={false} onChange={id => { setItemId(id); setPlainTarget(''); }} />
         <label className="block text-sm">數量（{item?.unit || '—'}）<input aria-label="實收數量" className={v5Field} type="number" min="0.001" step="any" required value={quantity} onChange={e => { setQuantity(e.target.value); }} /></label>
         {preferred?.projectId && <p className="text-xs text-secondary">案件：{preferred.projectLabel}</p>}
@@ -122,6 +153,6 @@ export function ReceivingV6Composer({ data: initialData, api, preferred, onClose
     </fieldset>
     <ActionError message={action.error} />
     <button className={v5Primary + ' w-full'} disabled={submitted || action.busy || Boolean(resolving) || drafts.some(d => d.choiceRequired || d.state === 'conflict') || (phase === 'review' ? !drafts.length : !item)}>{submitted ? '已完成實際到貨' : action.busy ? '儲存中…' : '完成實際到貨'}</button>
-    <div className="flex justify-between text-sm"><button type="button" className="min-h-11 px-2 text-accent" disabled={submitted || action.busy || Boolean(resolving)} onClick={() => setPhase('scan')}>返回掃描</button><button type="button" className="min-h-11 px-2 text-secondary" disabled={submitted || action.busy || Boolean(resolving)} onClick={onClose}>取消</button></div>
+    <div className="flex justify-between text-sm"><button type="button" className="min-h-11 px-2 text-accent" disabled={submitted || action.busy || Boolean(resolving)} onClick={() => setPhase(phase === 'plain' ? 'choose' : 'scan')}>{phase === 'plain' ? '返回' : '返回掃描'}</button><button type="button" className="min-h-11 px-2 text-secondary" disabled={submitted || action.busy || Boolean(resolving)} onClick={onClose}>取消</button></div>
   </form>;
 }
