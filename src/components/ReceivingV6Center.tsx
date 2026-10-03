@@ -165,10 +165,8 @@ export function ReceivingV6Center() {
       })}</div>}
       {tab === 'history' && <div role="tabpanel" aria-label="收貨紀錄" className="divide-y divide-theme-border">{shownHistory.map(batch => <details key={batch.id} data-history-batch={batch.id} className="py-2">
         <summary className="cursor-pointer text-sm"><strong>{batch.label}</strong><span className="ml-2 text-xs text-secondary">{formatTaipeiReceivingTime(batch.at)} · {formatReceivingQuantity(batch.total)} 件 · {batch.itemCount} 種品項 · {batch.workCount ? '待處理' : '已完成'}</span></summary>
-        <div className="space-y-2 pl-3 pt-2">{batch.lines.map(line => {
-          const item = data?.items.find(value => value.id === line.inventory_item_id);
-          const serials = data?.observations.filter(entry => entry.arrival_line_id === line.id).map(entry => entry.normalized_serial) || [];
-          return <div key={line.id} className="border-l-2 border-theme-border pl-2 text-xs"><p>{item?.code || '待確認'} × {formatReceivingQuantity(Number(line.quantity))}</p>{serials.length > 0 && <details><summary className="cursor-pointer text-secondary">查看序號 · {serials.length}</summary><ul>{serials.map(serial => <li key={serial} className="break-all">{serial}</li>)}</ul></details>}</div>;
+        <div className="space-y-2 pl-3 pt-2">{batch.lineGroups.map(group => {
+          return <div key={group.key} className="border-l-2 border-theme-border pl-2 text-xs"><p>{group.label} × {formatReceivingQuantity(group.quantity)} {group.unit}</p>{group.serials.length > 0 && <details><summary className="cursor-pointer text-secondary">查看序號 · {group.serials.length}</summary><ul>{group.serials.map(serial => <li key={serial} className="break-all">{serial}</li>)}</ul></details>}</div>;
         })}{batch.history.filter(row => row.type !== '實際到貨').map(row => {
           const target = historyMenuTarget(row, editable);
           return <article key={row.id} data-history-row={row.id} {...actionMenu.bind(target)} className="flex min-w-0 items-center gap-2 text-xs"><span className="min-w-0 flex-1 break-words">{row.type} · {row.item} · {formatReceivingQuantity(row.quantity)} {row.unit} · {row.state}</span>{target.actions.length > 0 && <button type="button" className="min-h-9 px-2" onClick={event => actionMenu.openFromButton(target, event.currentTarget)}><MoreHorizontal size={17} /></button>}</article>;

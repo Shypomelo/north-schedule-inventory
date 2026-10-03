@@ -70,6 +70,11 @@ async function main() {
     assert.equal(await page.locator('[data-history-batch]').count(), 2);
     await search.fill('10/03');
     await search.fill('');
+    const historyBox = page.locator('[data-history-batch="box1"]');
+    await historyBox.locator('summary').first().click();
+    assert.match(await historyBox.innerText(), /待確認 × 4/);
+    assert.match(await historyBox.innerText(), /SE4000H × 4/);
+    assert.equal(await historyBox.getByText('查看序號 · 4').count(), 2);
 
     await page.getByRole('button', { name: '＋預計收貨' }).click();
     const pending = page.getByRole('dialog', { name: '預計收貨' });

@@ -42,6 +42,7 @@ test('one box keeps eight unknown serial lines as one visible work group, separa
   assert.equal(first.groups[0].quantity, 8);
   assert.equal(first.groups[0].rows.length, 8);
   assert.equal(first.groups[0].rows.flatMap(row => row.observations.map(entry => entry.normalized_serial)).length, 8);
+  assert.deepEqual(first.lineGroups.map(group => [group.label, group.quantity, group.serials.length]), [['待確認', 8, 8]]);
   assert.equal(second.groups[0].pn, 'SE4000H');
   assert.equal(receivingBatchMatches(first, 'SN008-AA'), true);
   assert.equal(receivingBatchMatches(second, 'SN008-AA'), false);
