@@ -29,7 +29,8 @@ export function buildMonthlyReportWorkbook(
   const workbook = XLSX.utils.book_new();
   const yearMonth = `${year}-${month}`;
   const monthlyTransactions = transactions
-    .filter(transaction => transaction.transaction_date.substring(0, 7) === yearMonth)
+    .filter(transaction => !transaction.is_voided
+      && transaction.transaction_date.substring(0, 7) === yearMonth)
     .sort((a, b) => (
       a.transaction_date.localeCompare(b.transaction_date)
       || a.created_at.localeCompare(b.created_at)
@@ -56,7 +57,7 @@ export function buildMonthlyReportWorkbook(
     ['月結狀態', closingStatus === 'CLOSED' ? '已封存' : '未封存'],
     [],
     ['月結／庫存統計'],
-    ['品項', '分類', '單位', '期初', '入庫', '入庫沖回', '退料', '出庫', '調整', '期末', '來源', '品項狀態', '備註'],
+    ['品項', '分類', '單位', '期初', '入庫', '入庫沖回', '退料', '出庫', '調整', '期末', '來源', '品項狀態'],
     ...items.map(item => [
       item.item_name,
       item.stock_category,
@@ -70,11 +71,10 @@ export function buildMonthlyReportWorkbook(
       item.closing_quantity,
       item.source,
       item.status,
-      item.notes || '',
     ]),
     [],
     ['當月異動明細'],
-    ['日期', '異動類型', '品項', '數量', '案場', '序號', '備註', '是否作廢', '原入庫交易'],
+    ['日期', '異動類型', '品項', '數量', '案場', '序號', '備註'],
     ...monthlyTransactions.map(transaction => {
       return [
         toExcelDate(transaction.transaction_date),
@@ -84,8 +84,6 @@ export function buildMonthlyReportWorkbook(
         transaction.project_name || '',
         (serialsByTransaction.get(transaction.id) || []).join('、'),
         transaction.notes || '',
-        transaction.is_voided ? '是' : '否',
-        transaction.reverses_transaction_id || '',
       ];
     }),
   ];
@@ -96,6 +94,7 @@ export function buildMonthlyReportWorkbook(
     { wch: 14 },
     { wch: 24 },
     { wch: 12 },
+    { wch: 12 },
     { wch: 24 },
     { wch: 34 },
     { wch: 36 },
@@ -103,7 +102,6 @@ export function buildMonthlyReportWorkbook(
     { wch: 12 },
     { wch: 14 },
     { wch: 12 },
-    { wch: 28 },
   ];
 
   const transactionHeaderRow = 5 + items.length + 3;
@@ -114,7 +112,7 @@ export function buildMonthlyReportWorkbook(
 
   if (monthlyTransactions.length > 0) {
     worksheet['!autofilter'] = {
-      ref: `A${transactionHeaderRow}:H${transactionHeaderRow + monthlyTransactions.length}`,
+      ref: `A${transactionHeaderRow}:G${transactionHeaderRow + monthlyTransactions.length}`,
     };
   }
 

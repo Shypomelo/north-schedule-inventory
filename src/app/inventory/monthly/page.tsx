@@ -19,7 +19,9 @@ import { getInventoryTransactionQuantityDelta } from '@/lib/db/inventory-stock';
 import {
   calculateInventoryMonthlyReport,
   getPreviousInventoryYearMonth,
+  type InventoryMonthlyInitializationBaseline,
 } from '@/lib/db/inventory-monthly-report';
+import { getInventoryMonthlyInitializationBaselines } from '@/lib/db/inventory-initialization';
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
 
 export default function MonthlyReportPage() {
@@ -35,6 +37,7 @@ export default function MonthlyReportPage() {
   const [closings, setClosings] = useState<InventoryMonthlyClosing[]>([]);
   const [closingItems, setClosingItems] = useState<InventoryMonthlyClosingItem[]>([]);
   const [previousClosingItems, setPreviousClosingItems] = useState<InventoryMonthlyClosingItem[]>([]);
+  const [initializationBaselines, setInitializationBaselines] = useState<InventoryMonthlyInitializationBaseline[]>([]);
   const [isMonthlyItemsLoading, setIsMonthlyItemsLoading] = useState(false);
   const [monthlyItemsError, setMonthlyItemsError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -99,19 +102,17 @@ export default function MonthlyReportPage() {
 
     setClosingItems([]);
     setPreviousClosingItems([]);
+    setInitializationBaselines([]);
     setMonthlyItemsError(null);
 
-    if (!snapshotClosingId) {
-      setIsMonthlyItemsLoading(false);
-      return () => {
-        cancelled = true;
-      };
-    }
-
     setIsMonthlyItemsLoading(true);
-    dbAdapter.getMonthlyClosingItems(snapshotClosingId)
-      .then(snapshotItems => {
+    Promise.all([
+      snapshotClosingId ? dbAdapter.getMonthlyClosingItems(snapshotClosingId) : Promise.resolve([]),
+      currentClosingId ? Promise.resolve([]) : getInventoryMonthlyInitializationBaselines(),
+    ])
+      .then(([snapshotItems, baselines]) => {
         if (cancelled) return;
+        setInitializationBaselines(baselines);
         if (currentClosingId) {
           setClosingItems(snapshotItems);
         } else {
@@ -121,7 +122,7 @@ export default function MonthlyReportPage() {
       .catch(error => {
         if (cancelled) return;
         console.error('Error loading inventory monthly snapshot:', error);
-        setMonthlyItemsError('月結 snapshot 載入失敗，請稍後重試');
+        setMonthlyItemsError('月結資料載入失敗，請稍後重試');
       })
       .finally(() => {
         if (!cancelled) setIsMonthlyItemsLoading(false);
@@ -130,7 +131,7 @@ export default function MonthlyReportPage() {
     return () => {
       cancelled = true;
     };
-  }, [currentClosingId, previousClosingId]);
+  }, [currentClosingId, previousClosingId, selectedYear, selectedMonth]);
 
   // Dynamically calculate for unclosed month
   const dynamicReportData = useMemo(() => {
@@ -142,6 +143,8 @@ export default function MonthlyReportPage() {
       items,
       transactions,
       previousClosingItems: previousClosing ? previousClosingItems : null,
+      previousClosing,
+      initializationBaselines,
     });
   }, [
     currentClosing,
@@ -151,13 +154,14 @@ export default function MonthlyReportPage() {
     transactions,
     previousClosing,
     previousClosingItems,
+    initializationBaselines,
   ]);
 
   const displayData = currentClosing ? closingItems : dynamicReportData;
   const isMonthlyDataLoading = isLoading || isMonthlyItemsLoading;
 
   const handleCloseMonth = async () => {
-    if (currentClosing || currentUser?.role === 'VIEWER' || isMonthlyItemsLoading || monthlyItemsError) return;
+    if (currentClosing || currentUser?.role === 'VIEWER' || isMonthlyDataLoading || monthlyItemsError) return;
 
     setIsLoading(true);
     try {
@@ -204,6 +208,7 @@ export default function MonthlyReportPage() {
   };
 
   const handleExport = () => {
+    if (isMonthlyDataLoading || monthlyItemsError) return;
     const targetMonth = `${selectedYear}-${selectedMonth}`;
     const txsInMonth = transactions.filter(tx => tx.transaction_date.substring(0, 7) === targetMonth);
     exportMonthlyReport(
@@ -344,7 +349,7 @@ export default function MonthlyReportPage() {
                {!currentClosing && (
                  <span className="text-xs text-secondary">
                    {previousClosing
-                     ? `期初承接 ${previousYearMonth.year}-${previousYearMonth.month} 封存期末`
+                     ? `期初承接 ${previousYearMonth.year}-${previousYearMonth.month} 封存期末；已初始化品項依適用基準計算`
                      : '期初依原始庫存與歷史異動計算'}
                  </span>
                )}

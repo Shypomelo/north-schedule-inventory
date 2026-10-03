@@ -1,5 +1,34 @@
 import { supabase } from './supabaseClient';
 import { InventoryItem } from './types';
+import type { InventoryMonthlyInitializationBaseline } from './inventory-monthly-report';
+
+export const getInventoryMonthlyInitializationBaselines = async (): Promise<InventoryMonthlyInitializationBaseline[]> => {
+  const baselines: InventoryMonthlyInitializationBaseline[] = [];
+  const pageSize = 500;
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase
+      .from('inventory_initialization_items')
+      .select('id, inventory_item_id, inventory_initializations!inner(baseline_date, initialized_at)')
+      .order('id')
+      .range(offset, offset + pageSize - 1);
+    if (error) throw error;
+    for (const row of data || []) {
+      // Supabase clients without generated schema types infer embeds as arrays.
+      const initialization = Array.isArray(row.inventory_initializations)
+        ? row.inventory_initializations[0]
+        : row.inventory_initializations;
+      if (!initialization?.baseline_date || !initialization.initialized_at) {
+        throw new Error('庫存初始化基準資料不完整');
+      }
+      baselines.push({
+        inventory_item_id: row.inventory_item_id,
+        baseline_date: initialization.baseline_date,
+        initialized_at: initialization.initialized_at,
+      });
+    }
+    if ((data || []).length < pageSize) return baselines;
+  }
+};
 
 export interface InitializationItemInput {
   id: string;
