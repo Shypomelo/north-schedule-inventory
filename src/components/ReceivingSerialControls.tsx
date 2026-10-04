@@ -8,6 +8,12 @@ import { previewSerialBatch, resolveReceivingSerial, SerialContext, SerialDraft,
 const field = 'mt-1 min-h-11 w-full rounded-lg border border-theme-border bg-page px-3 py-2 text-sm text-primary';
 const button = 'min-h-11 rounded-lg border border-theme-border px-3 py-2 text-sm font-semibold disabled:opacity-40';
 
+export function searchInventoryItems(items: InventoryItem[], query: string) {
+  const key = query.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+  return items.filter(item => !key || [item.code, item.name, item.canonical_identity_key || '']
+    .some(value => value.replace(/\s+/g, ' ').toLocaleLowerCase().includes(key)));
+}
+
 export function InventoryItemCombobox({ items, value, disabled, onChange, onCreate, serialRequirement }: {
   items: InventoryItem[]; value: string; disabled?: boolean; onChange: (id: string) => void;
   onCreate?: (key: string, unit: string, requiresSerial: boolean) => Promise<InventoryItem>; serialRequirement?: boolean;
@@ -20,8 +26,7 @@ export function InventoryItemCombobox({ items, value, disabled, onChange, onCrea
   const [requiresSerial, setRequiresSerial] = useState(serialRequirement ?? true);
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const selected = items.find(i => i.id === value);
-  const normalizedQuery = query.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
-  const filtered = items.filter(i => !normalizedQuery || [i.code, i.name, i.canonical_identity_key || ''].some(s => s.replace(/\s+/g, ' ').toLocaleLowerCase().includes(normalizedQuery)));
+  const filtered = searchInventoryItems(items, query);
   const incompatible = (item: InventoryItem) => serialRequirement !== undefined && item.requires_serial !== serialRequirement;
   const choose = (item: InventoryItem) => { if (incompatible(item)) return; onChange(item.id); setQuery(''); setOpen(false); };
   const create = async () => {
@@ -47,7 +52,7 @@ export function InventoryItemCombobox({ items, value, disabled, onChange, onCrea
       {filtered.map((item, n) => <li id={id + '-' + n} key={item.id} role="option" aria-selected={item.id === value} className={n === active ? 'bg-accent/10' : ''}>
         <button type="button" disabled={incompatible(item)} className="min-h-11 w-full px-3 py-2 text-left text-sm disabled:opacity-50" onMouseDown={e => e.preventDefault()} onClick={() => choose(item)}><span className="block break-words">{item.code} · {item.name}</span><span className="block text-xs text-secondary">{item.unit} · {item.requires_serial ? '需要序號' : '無序號'} · {item.item_category || item.category}{incompatible(item) ? ' · 與本次序號條件不同' : ''}</span></button>
       </li>)}
-      {!filtered.length && <li className="p-3 text-sm text-secondary">{onCreate && normalizedQuery ? <button type="button" className="min-h-11 text-accent" onMouseDown={e => e.preventDefault()} onClick={() => { setNewKey(query.trim()); setUnit(serialRequirement === false ? 'pcs' : '台'); setRequiresSerial(serialRequirement ?? true); setError(''); setOpen(false); }}>＋新增新型號「{query.trim()}」</button> : '找不到符合的庫存品項'}</li>}
+      {!filtered.length && <li className="p-3 text-sm text-secondary">{onCreate && query.trim() ? <button type="button" className="min-h-11 text-accent" onMouseDown={e => e.preventDefault()} onClick={() => { setNewKey(query.trim()); setUnit(serialRequirement === false ? 'pcs' : '台'); setRequiresSerial(serialRequirement ?? true); setError(''); setOpen(false); }}>＋新增新型號「{query.trim()}」</button> : '找不到符合的庫存品項'}</li>}
     </ul>}
     {newKey && <section aria-label="新增新型號" className="mt-2 space-y-3 rounded-lg border border-theme-border p-3" onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); } }}>
       <p className="break-words text-sm">型號／規格：{newKey}</p>

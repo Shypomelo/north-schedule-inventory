@@ -21,6 +21,27 @@ export function createReceivingApi(client: SupabaseClient) {
     return data as T;
   }
   return {
+    async receivingSEOrigins(recordIds: string[]): Promise<Set<string>> {
+      const origins = new Set<string>();
+      for (let start = 0; start < recordIds.length; start += 100) {
+        const { data, error } = await client.from('receiving_inventory_allocations')
+          .select('se_supply_record_id').eq('route_type', 'SE').is('cancelled_at', null)
+          .in('se_supply_record_id', recordIds.slice(start, start + 100));
+        if (error) throw new Error(error.message);
+        data?.forEach(row => { if (row.se_supply_record_id) origins.add(row.se_supply_record_id); });
+      }
+      return origins;
+    },
+    async receivingSELineage(recordId: string): Promise<{ active: boolean } | null> {
+      const { data, error } = await client.from('receiving_inventory_allocations')
+        .select('cancelled_at').eq('route_type', 'SE').eq('se_supply_record_id', recordId)
+        .order('created_at', { ascending: false }).limit(1);
+      if (error) throw new Error(error.message);
+      return data?.length ? { active: !data[0].cancelled_at } : null;
+    },
+    returnReceivingSE: (recordId: string, reason: string) => rpc<unknown>('return_receiving_se_to_received', {
+      p_request_id: crypto.randomUUID(), p_record_id: recordId, p_reason: reason, p_reversed_at: null,
+    }),
     sourceDetails: (type: string, id: string) => rpc<ReceivingSourceDetails>('get_receiving_source_details', { p_source_type: type, p_source_id: id }),
     routeReceipt: (args: Record<string, unknown>) => rpc<unknown>('route_receiving_inventory', args),
     cancelArrival: (args: Record<string, unknown>) => rpc<unknown>('cancel_receiving_arrival', args),
@@ -53,7 +74,7 @@ export function createReceivingApi(client: SupabaseClient) {
 }
 
 export interface ReceivingAllocation {
- id: string; office_receipt_id: string; inventory_item_id: string; inventory_serial_id: string | null; quantity: number; route_type: 'SE' | 'SITE';
+ id: string; office_receipt_id: string; inventory_item_id: string; inventory_serial_id: string | null; quantity: number; route_type: 'SE' | 'SITE' | 'PROJECT_PREP';
  se_supply_record_id: string | null; project_material_id: string | null; inventory_transaction_id: string | null; site_receipt_id: string | null; cancelled_at: string | null; created_at: string;
 }
 export interface ReceivingSourceDetails {

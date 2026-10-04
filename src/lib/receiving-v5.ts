@@ -3,12 +3,13 @@ import { classifySerialFormat, deriveShortSerialKey, normalizeSerialInput } from
 
 export type PendingKind = 'PROJECT_MATERIAL' | 'SE_SUPPLY';
 export interface Arrival {
-  id: string; actual_received_at: string; project_id: string | null; notes: string | null;
+  id: string; actual_received_at: string; project_id: string | null; notes: string | null; created_by: string;
   version: number; created_at: string; voided_at: string | null;
+  batch_kind?: 'BOX' | 'LOOSE' | null; batch_session_id?: string | null; batch_position?: number | null;
 }
 export interface ArrivalLine {
   id: string; arrival_id: string; inventory_item_id: string | null; quantity: number; unit: string | null;
-  resolution_state: 'UNRESOLVED' | 'POSTED'; receipt_id: string | null; version: number;
+  resolution_state: 'UNRESOLVED' | 'STAGED' | 'POSTED'; receipt_id: string | null; version: number;
 }
 export interface ArrivalObservation {
   id: string; project_material_id: string | null; se_supply_record_id: string | null; arrival_line_id: string | null;
@@ -21,7 +22,7 @@ export interface ArrivalMatch {
 }
 export interface MatchObservation { match_id: string; arrival_entry_id: string; pending_entry_id: string | null; cancelled_at: string | null }
 // Keep the V5 receipt boundary explicit; older callers still accept planning-source receipts.
-export type ArrivalReceipt = Omit<MaterialReceipt, 'source_type'> & { source_type: PendingKind | 'ARRIVAL'; arrival_line_id: string | null };
+export type ArrivalReceipt = MaterialReceipt & { arrival_line_id: string | null; route_arrival_line_id: string | null };
 export interface PendingFulfilment {
   expected: number; fulfilled: number; remaining: number; active: boolean;
   remaining_status: 'ACTIVE' | 'FULFILLED' | 'CANCELLED' | 'INACTIVE';
@@ -67,7 +68,7 @@ export function pendingRows(data: ReceivingSnapshot): PendingRow[] {
 }
 export interface ActualRow {
   key: string; label: string; quantity: number; unit: string; at: string | null; projectLabel: string;
-  state: 'POSTED' | 'UNRESOLVED' | 'LEGACY'; arrival?: Arrival; line?: ArrivalLine; receipt?: ArrivalReceipt;
+  state: 'STAGED' | 'POSTED' | 'UNRESOLVED' | 'LEGACY'; arrival?: Arrival; line?: ArrivalLine; receipt?: ArrivalReceipt;
   observations: ArrivalObservation[]; matches: ArrivalMatch[]; reversed: number;
 }
 export function actualRows(data: ReceivingSnapshot): ActualRow[] {
@@ -84,7 +85,7 @@ export function actualRows(data: ReceivingSnapshot): ActualRow[] {
   const seen = new Set<string>();
   for (const receipt of data.receipts) {
     // Neither reversal events nor receipts linked in either direction create another arrival.
-    if (receipt.event_type !== 'RECEIVE' || receipt.arrival_line_id || receipt.source_type === 'ARRIVAL' || linkedReceipts.has(receipt.id) || seen.has(receipt.id)) continue;
+    if (receipt.event_type !== 'RECEIVE' || receipt.arrival_line_id || receipt.route_arrival_line_id || receipt.source_type === 'ARRIVAL' || receipt.source_type === 'ARRIVAL_ROUTE' || linkedReceipts.has(receipt.id) || seen.has(receipt.id)) continue;
     const material = data.materials.find(m => m.id === receipt.project_material_id);
     const supply = data.supplies.find(s => s.id === receipt.se_supply_record_id);
     // Historical null locations are accepted only with an explicit OFFICE planning source.
@@ -138,6 +139,10 @@ export function receivingError(error: unknown): string {
     ['INVENTORY_ITEM_DEFINITION_CONFLICT', '此型號已存在，但單位、序號設定或啟用狀態不同，請確認既有品項。'],
     ['AMBIGUOUS_EXISTING_ITEMS', '有多筆同名品項，請選擇既有品項，或提供更明確的新型號／規格。'],
     ['PROJECT_REQUIREMENT_CHANGED', '案場物料需求已變更，請重新選擇。'],
+    ['PENDING_DELETE_DOWNSTREAM_EXISTS', '此筆已有到貨或後續紀錄，無法直接刪除，請使用取消／撤回／更正。'],
+    ['PENDING_DELETE_VERSION_CONFLICT', '此筆待收已變更，請重新整理後再確認。'],
+    ['PENDING_DELETE_INACTIVE', '此筆待收已結束，請重新整理清單。'],
+    ['PENDING_DELETE_REQUEST_CONFLICT', '刪除請求與前次內容不符，請重新整理後重試。'],
     ['DOWNSTREAM_CORRECTION_REQUIRED', '此筆已有後續使用或已關帳，需走更正流程。'],
     ['HANDOFF_CAPACITY_CONFLICT', '本批可用數量已改變，請重新整理後調整。'],
     ['HANDOFF_SERIAL_SCOPE_CONFLICT', '請選擇本批仍可用的序號。'],

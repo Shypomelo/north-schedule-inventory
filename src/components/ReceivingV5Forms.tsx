@@ -13,7 +13,8 @@ import {
   type ArrivalSerialDraft, type PendingRow, type ReceivingSnapshot,
 } from '@/lib/receiving-v5';
 import { parseSerialBatch } from '@/lib/receiving-serial-draft';
-import { selectActiveProjects } from '@/lib/project-selectors';
+import type { ScannerCode } from '@/lib/receiving-scanner-session';
+import { selectReceivingProjects } from '@/lib/project-selectors';
 import { formatTaipeiReceivingTime } from '@/lib/material-receiving';
 
 export const v5Field = 'mt-1 min-h-11 min-w-0 w-full rounded-lg border border-theme-border bg-page px-3 py-2 text-sm text-primary';
@@ -66,12 +67,14 @@ function useSerialDraft(data: ReceivingSnapshot, api: ReceivingV5Api, preferred?
   return { drafts, accept, resolving, remove: (raw: string) => update(current.current.filter(d => d.raw !== raw)), reset: () => update([]) };
 }
 
-export function SerialInput({ draft, data, disabled, planning = false, initialScan = false, compact = false }: {
+export function SerialInput({ draft, data, disabled, planning = false, initialScan = false, compact = false, onScanBatch }: {
   draft: ReturnType<typeof useSerialDraft>; data: ReceivingSnapshot; disabled: boolean; planning?: boolean; initialScan?: boolean; compact?: boolean;
+  onScanBatch?: (codes: ScannerCode[]) => Promise<string>;
 }) {
   const [mode, setMode] = useState<'manual' | 'batch' | 'scan' | null>(initialScan ? 'scan' : null);
   const [raw, setRaw] = useState('');
   const [feedback, setFeedback] = useState('');
+  const [scanWarning, setScanWarning] = useState('');
   const [duplicates, setDuplicates] = useState(0);
   const accept = async (value: string) => {
     try { const text = await draft.accept(value); setFeedback(text); if (text === '已在本批清單') setDuplicates(n => n + 1); return true; }
@@ -94,7 +97,7 @@ export function SerialInput({ draft, data, disabled, planning = false, initialSc
     <p role="status" className="text-sm">已加入 {draft.drafts.length} 筆 · 可辨識 {draft.drafts.filter(d => d.state === 'known').length} · 待補資料 {draft.drafts.filter(d => d.state !== 'known').length} · 重複 {duplicates}</p>
     {compact && mode !== 'scan' ? draft.drafts.length > 0 && <details><summary className="cursor-pointer py-2 text-sm">查看序號（{draft.drafts.length}）</summary>{list}</details> : list}{feedback && <p role="status" className="break-all text-sm">{feedback}</p>}
     {Boolean(draft.resolving) && <p role="status" className="text-sm">正在確認序號…</p>}
-    {mode === 'scan' && <BarcodeScanner mode="continuous" onDetected={value => { void accept(value); }} onCancel={() => setMode(null)} onFinish={() => setMode(null)}>
+    {mode === 'scan' && <BarcodeScanner mode="continuous" items={onScanBatch ? data.items : undefined} warning={onScanBatch ? scanWarning : undefined} onBatch={onScanBatch ? codes => onScanBatch(codes).then(text => { setFeedback(text); setScanWarning(''); }).catch(e => { setFeedback(receivingError(e)); setScanWarning('確認失敗，請重新掃描。'); throw e; }) : undefined} onDetected={value => { void accept(value); }} onCancel={() => setMode(null)} onFinish={() => setMode(null)}>
       <p className="font-semibold">本批 {draft.drafts.length}</p><p role="status" className="break-all">{feedback}</p>{list}
     </BarcodeScanner>}
   </div>;
@@ -131,7 +134,7 @@ export function PendingForm({ data: initialData, api, row, onClose, onSaved, emb
     <fieldset disabled={action.busy || Boolean(draft.resolving)} className="min-w-0 space-y-3">
       <InventoryItemCombobox items={data.items.filter(i => i.is_active || i.id === row?.itemId)} value={itemId} onCreate={createItem} disabled={Boolean(row && (row.kind === 'SE_SUPPLY' || row.fulfilment.fulfilled || row.observations.length))} onChange={id => { setItemId(id); draft.reset(); }} />
       {compact ? <div className={pendingCompactStyles.detailsGrid}>{quantityField}<label className="min-w-0 text-sm">單位<input aria-label="單位" readOnly className={v5Field + ' text-secondary'} value={item?.unit || '—'} /></label>{expectedField}</div> : <><div className="grid grid-cols-2 gap-3">{quantityField}<div className="text-sm">單位<p className="py-3">{item?.unit || '—'}</p></div></div>{expectedField}</>}
-      <ReceivingProjectCombobox projects={selectActiveProjects(data.projects)} value={projectId} onChange={setProjectId} disabled={Boolean(row && (row.kind === 'PROJECT_MATERIAL' || row.fulfilment.fulfilled))} />
+      <ReceivingProjectCombobox projects={selectReceivingProjects(data.projects)} value={projectId} onChange={setProjectId} disabled={Boolean(row && (row.kind === 'PROJECT_MATERIAL' || row.fulfilment.fulfilled))} />
       <label className="block text-sm">備註（選填）<textarea rows={2} className={v5Field + (compact ? ' ' + pendingCompactStyles.notes : '')} value={notes} onChange={e => setNotes(e.target.value)} /></label>
       {item?.requires_serial && !row && <><p className="text-sm">預登序號 {draft.drafts.length} / {quantity}（選填）</p><SerialInput draft={draft} data={data} planning compact={embedded} disabled={action.busy} /></>}
     </fieldset>

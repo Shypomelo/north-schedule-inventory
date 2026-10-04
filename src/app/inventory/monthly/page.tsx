@@ -406,6 +406,7 @@ export default function MonthlyReportPage() {
                     <th className="p-3 font-semibold">品名</th>
                     <th className="p-3 font-semibold text-right text-secondary">期初</th>
                     <th className="p-3 font-semibold text-right text-success">入庫</th>
+                    <th className="p-3 font-semibold text-right text-warning">入庫沖回</th>
                     <th className="p-3 font-semibold text-right text-accent">退料</th>
                     <th className="p-3 font-semibold text-right text-danger">出庫</th>
                     <th className="p-3 font-semibold text-right text-warning">調整</th>
@@ -422,6 +423,7 @@ export default function MonthlyReportPage() {
                       <td className="p-3 text-primary font-medium">{r.item_name}</td>
                       <td className="p-3 text-right text-secondary/80">{r.opening_quantity}</td>
                       <td className="p-3 text-right text-success">{r.monthly_in}</td>
+                      <td className="p-3 text-right text-warning">{r.monthly_in_reversal ?? 0}</td>
                       <td className="p-3 text-right text-accent">{r.monthly_return}</td>
                       <td className="p-3 text-right text-danger">{r.monthly_out}</td>
                       <td className="p-3 text-right text-warning">{r.monthly_adjust}</td>

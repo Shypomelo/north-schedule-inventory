@@ -20,6 +20,7 @@ const RECEIVE_METHODS = [
 export default function SESupplyPage() {
   const { currentUser } = useUser();
   const [records, setRecords] = useState<SESupplyRecord[]>([]);
+  const [receivingOriginIds, setReceivingOriginIds] = useState<Set<string>>(new Set());
   const [inventorySerials, setInventorySerials] = useState<InventorySerial[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -44,7 +45,10 @@ export default function SESupplyPage() {
       dbAdapter.getProjects(),
       dbAdapter.getInventorySerials()
     ]);
-    setRecords(recs.filter((r: SESupplyRecord) => !r.receiving_only));
+    const visible = recs.filter((r: SESupplyRecord) => !r.receiving_only);
+    const origins = await createReceivingApi(supabase).receivingSEOrigins(visible.map((r: SESupplyRecord) => r.id));
+    setRecords(visible);
+    setReceivingOriginIds(origins);
     setProjects(projs);
     setInventorySerials(serials);
     setIsLoading(false);
@@ -155,6 +159,19 @@ export default function SESupplyPage() {
 
   const handleDeleteRow = async (id: string) => {
     const record = records.find(r => r.id === id);
+    if (!record) return;
+    let lineage: { active: boolean } | null;
+    try { lineage = await createReceivingApi(supabase).receivingSELineage(id); }
+    catch (e) { alert(e instanceof Error ? e.message : '無法確認收貨來源，請重試。'); return; }
+    if (lineage) {
+      if (!lineage.active) { alert('這筆收貨來源已退回，請重新整理。'); return; }
+      if (!confirm('退回已收到？將取消這筆 SE 追蹤，並撤回對應的北辦入庫。')) return;
+      const reason = prompt('請填寫退回原因：');
+      if (!reason?.trim()) return;
+      try { await createReceivingApi(supabase).returnReceivingSE(id, reason.trim()); await loadData(); }
+      catch (e) { alert(e instanceof Error ? e.message.includes('DOWNSTREAM_CORRECTION_REQUIRED') ? '此筆已有後續使用或已關帳，需走更正流程。' : e.message : '退回失敗'); }
+      return;
+    }
     if (record?.inventory_serial_id) {
       if (!confirm('取消此設備預留？庫存數量不變。')) return;
       try { await createReceivingApi(supabase).cancelReservation(record); await loadData(); } catch (e) { alert(e instanceof Error ? e.message : '取消失敗'); }
@@ -352,7 +369,7 @@ export default function SESupplyPage() {
                         onClick={() => handleDeleteRow(r.id)}
                         disabled={currentUser?.role === 'VIEWER'}
                         className="text-secondary/50 hover:text-danger opacity-0 group-hover:opacity-100 transition-all p-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                        title={r.inventory_serial_id ? "取消預留" : "刪除紀錄"}
+                        title={receivingOriginIds.has(r.id) ? '退回已收到' : r.inventory_serial_id ? '取消預留' : '刪除紀錄'}
                       >
                         <Trash2 size={16} />
                       </button>
@@ -526,7 +543,7 @@ export default function SESupplyPage() {
               setContextMenu({ visible: false, x: 0, y: 0, recordId: null });
             }}
           >
-            <Trash2 size={14} /> 刪除紀錄
+            <Trash2 size={14} /> {contextMenu.recordId && receivingOriginIds.has(contextMenu.recordId) ? '退回已收到' : '刪除紀錄'}
           </button>
         </div>
       )}

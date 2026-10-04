@@ -351,6 +351,7 @@ function prepareInventoryRow(
           unit: row.unit || '',
           opening_quantity: numberOrZero(row.opening_quantity),
           monthly_in: numberOrZero(row.monthly_in),
+          monthly_in_reversal: numberOrZero(row.monthly_in_reversal),
           monthly_out: numberOrZero(row.monthly_out),
           monthly_return: numberOrZero(row.monthly_return),
           monthly_adjust: numberOrZero(row.monthly_adjust),

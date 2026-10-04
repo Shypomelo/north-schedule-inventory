@@ -7,7 +7,7 @@ import { formatTaipeiReceivingTime } from '@/lib/material-receiving';
 import { InventoryItemCombobox } from './ReceivingSerialControls';
 import { ReceivingProjectCombobox } from './ReceivingProjectCombobox';
 import { ActionError, PendingForm, PendingSerialEditor, useV5Action, useV5Request, v5Button, v5Field, v5Primary } from './ReceivingV5Forms';
-import { selectActiveProjects } from '@/lib/project-selectors';
+import { selectReceivingProjects } from '@/lib/project-selectors';
 
 export function PendingListRow({ row, data, api, expanded, canEdit, onToggle, onChanged, onArrival, onHistory }: {
   row: PendingRow; data: ReceivingSnapshot; api: ReceivingV5Api; expanded: boolean; canEdit: boolean;
@@ -58,7 +58,7 @@ export function ArrivalMetadata({ row, data, api, onChanged, onClose }: {
     await api.metadata(request({ p_arrival_id: row.arrival!.id, p_expected_version: version, p_project_id: projectId || null, p_notes: notes.trim() || null }));
     onClose(); await onChanged();
   }); }}>
-    <fieldset disabled={action.busy} className="min-w-0 space-y-3"><ReceivingProjectCombobox projects={selectActiveProjects(data.projects)} value={projectId} onChange={setProjectId} /><label className="block text-sm">備註（選填）<textarea className={v5Field} rows={2} value={notes} onChange={e => setNotes(e.target.value)} /></label></fieldset>
+    <fieldset disabled={action.busy} className="min-w-0 space-y-3"><ReceivingProjectCombobox projects={selectReceivingProjects(data.projects)} value={projectId} onChange={setProjectId} /><label className="block text-sm">備註（選填）<textarea className={v5Field} rows={2} value={notes} onChange={e => setNotes(e.target.value)} /></label></fieldset>
     <ActionError message={action.error} /><div className="flex flex-wrap gap-2"><button type="button" className={v5Button} disabled={action.busy} onClick={onClose}>取消編輯</button><button className={v5Primary} disabled={action.busy}>儲存到貨資料</button></div>
   </form>;
 }
@@ -147,7 +147,7 @@ export function ActualListRow({ row, data, pending, api, conflict, expanded, can
   canEdit: boolean; onToggle: () => void; onChanged: () => Promise<void>; onHistory: () => void;
 }) {
   const [edit, setEdit] = useState<'metadata' | 'matches' | null>(null);
-  const status = row.state === 'LEGACY' ? '歷史收貨' : row.state === 'POSTED' ? '已入庫' : conflict ? '已收到・序號待確認' : '已收到・待補品項';
+  const status = row.state === 'LEGACY' ? '歷史收貨' : row.state === 'POSTED' ? '已入庫' : row.state === 'STAGED' ? '已收到・待入庫' : conflict ? '已收到・序號待確認' : '已收到・待補品項';
   return <article data-actual-row={row.key} className="min-w-0 rounded-xl border border-theme-border bg-card">
     <button type="button" aria-expanded={expanded} onClick={onToggle} className="flex w-full min-w-0 items-start justify-between gap-3 p-3 text-left">
       <span className="min-w-0 space-y-1"><span className="block break-all font-semibold">{row.label}{row.state !== 'UNRESOLVED' && ` ×${row.quantity} ${row.unit}`}</span><span className="block text-xs text-secondary">{row.at ? formatTaipeiReceivingTime(row.at) : '收貨時間未記錄'}{row.observations.length ? `｜序號 ${row.observations.length}` : ''}</span><span className={`block text-sm ${row.state === 'UNRESOLVED' ? 'text-warning' : 'text-secondary'}`}>{status}</span></span>

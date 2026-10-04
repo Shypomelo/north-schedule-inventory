@@ -107,6 +107,7 @@ export const calculateInventoryMonthlyReport = ({
         ? previousClosingQuantityByItemId.get(item.id) ?? 0
         : item.opening_quantity || 0,
       monthly_in: 0,
+      monthly_in_reversal: 0,
       monthly_out: 0,
       monthly_return: 0,
       monthly_adjust: 0,
@@ -150,6 +151,10 @@ export const calculateInventoryMonthlyReport = ({
       transaction.quantity,
     );
 
+    if (transaction.transaction_type === 'IN_REVERSAL') {
+      row.monthly_in_reversal += transaction.quantity;
+    }
+
     if (transaction.transaction_type === 'OUT') {
       row.monthly_out += transaction.quantity;
       row.usage_quantity += transaction.quantity;
@@ -168,6 +173,7 @@ export const calculateInventoryMonthlyReport = ({
       closing_quantity: calculateInventoryStockQuantity({
         opening: row.opening_quantity,
         inQuantity: row.monthly_in,
+        inReversalQuantity: row.monthly_in_reversal,
         outQuantity: row.monthly_out,
         adjustQuantity: row.monthly_adjust,
       }),
@@ -175,6 +181,7 @@ export const calculateInventoryMonthlyReport = ({
     .filter(row => (
       row.opening_quantity !== 0
       || row.monthly_in !== 0
+      || row.monthly_in_reversal !== 0
       || row.monthly_out !== 0
       || row.monthly_return !== 0
       || row.monthly_adjust !== 0

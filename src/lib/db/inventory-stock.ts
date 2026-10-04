@@ -7,7 +7,7 @@ export const getInventoryTransactionQuantityDelta = (
   if (transactionType === 'IN' || transactionType === 'RETURN') return quantity;
   if (transactionType === 'TRANSFER_IN') return quantity;
   if (transactionType === 'TRANSFER_OUT') return -quantity;
-  if (transactionType === 'OUT') return -quantity;
+  if (transactionType === 'OUT' || transactionType === 'IN_REVERSAL') return -quantity;
   if (transactionType === 'ADJUST') return quantity;
   return 0;
 };
@@ -28,15 +28,17 @@ export const getInventoryInflowQuantity = (
 export const calculateInventoryStockQuantity = ({
   opening = 0,
   inQuantity = 0,
+  inReversalQuantity = 0,
   outQuantity = 0,
   returnQuantity = 0,
   adjustQuantity = 0,
 }: {
   opening?: number;
   inQuantity?: number;
+  inReversalQuantity?: number;
   outQuantity?: number;
   returnQuantity?: number;
   adjustQuantity?: number;
 }): number => {
-  return opening + inQuantity - outQuantity + returnQuantity + adjustQuantity;
+  return opening + inQuantity - inReversalQuantity - outQuantity + returnQuantity + adjustQuantity;
 };

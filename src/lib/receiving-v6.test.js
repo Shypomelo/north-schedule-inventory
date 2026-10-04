@@ -2,13 +2,94 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const load = require('./test-load-ts.cjs');
-const {receivingWorkItems,workItemSearch,workItemStock,pendingSerialDraft,finishSerialDraft,groupedSerialArrival,handoffCorrectionRequired} = load(path.resolve(__dirname,'receiving-v6.ts'));
+const {matchesReceivingFilter,receivingWorkItems,workItemSearch,workItemStock,pendingSerialDraft,finishSerialDraft,groupedSerialArrival,handoffCorrectionRequired,receivingPendingList,receivedItemGroups,receivingHistory} = load(path.resolve(__dirname,'receiving-v6.ts'));
 const {pendingRows} = load(path.resolve(__dirname,'receiving-v5.ts'));
-const empty = () => ({projects:[{id:'A',name:'A案'},{id:'B',name:'B案'}],items:[{id:'i',code:'P401',name:'设备',requires_serial:true,is_active:true},{id:'q',code:'CABLE',requires_serial:false,is_active:true}],materials:[],supplies:[],batches:[],arrivals:[],lines:[],observations:[],matches:[],matchObservations:[],receipts:[],fulfilment:{},scopes:{},scopeErrors:{},transactions:[],closings:[]});
+const empty = () => ({projects:[{id:'A',name:'A案'},{id:'B',name:'B案'}],items:[{id:'i',code:'P401',name:'设备',unit:'台',requires_serial:true,is_active:true},{id:'q',code:'CABLE',name:'線材',unit:'m',requires_serial:false,is_active:true}],materials:[],supplies:[],batches:[],arrivals:[],lines:[],observations:[],matches:[],matchObservations:[],receipts:[],fulfilment:{},scopes:{},scopeErrors:{},transactions:[],closings:[],actors:[],receiptSerials:[],inventorySerials:[],transactionSerials:[]});
 function pending(d,id='p',qty=20,filled=0,item='i',project='A',serials=[]){d.supplies.push({id,receiving_only:true,inventory_item_id:item,project_id:project,quantity:qty,unit:'台'});d.fulfilment['SE_SUPPLY:'+id]={expected:qty,fulfilled:filled,remaining:qty-filled,active:qty>filled,remaining_status:qty>filled?'ACTIVE':'FULFILLED',cancellation:null};serials.forEach((s,i)=>d.observations.push({id:id+i,normalized_serial:s,raw_serial:s,inventory_item_id:item,se_supply_record_id:id,retired_at:null,active_receipt_id:null}));}
 function arrival(d,id='a',qty=8,item='q',serials=[]){d.arrivals.push({id,actual_received_at:'2026-09-26T06:20:00Z',project_id:null});d.lines.push({id,arrival_id:id,inventory_item_id:item,quantity:qty,unit:'m',resolution_state:item?'POSTED':'UNRESOLVED',receipt_id:item?id+'r':null});serials.forEach((s,i)=>d.observations.push({id:id+i,arrival_line_id:id,normalized_serial:s,raw_serial:s,inventory_serial_id:id+'s'+i,active_receipt_id:id+'r'}));}
 function match(d,line,p,qty,indices=[]){const id=line+p;d.matches.push({id,arrival_line_id:line,se_supply_record_id:p,quantity:qty,cancelled_at:null});indices.forEach(i=>d.matchObservations.push({match_id:id,arrival_entry_id:line+i,cancelled_at:null}));}
 const none={result_type:'no_match',candidates:[]};
+test('pending tab uses canonical remaining quantity, with partial arrival kept in the same tab',()=>{const d=empty();pending(d,'none',7,0);pending(d,'partial',7,3);pending(d,'done',7,7);assert.deepEqual(receivingPendingList(d).map(row=>[row.id,row.fulfilment.remaining]),[['none',7],['partial',4]]);});
+test('received tab groups staged serial arrivals by item and keeps unknown line separate',()=>{const d=empty();arrival(d,'a',3,'i',['A1-AA','A2-AA','A3-AA']);arrival(d,'b',4,'i',['B1-AA','B2-AA','B3-AA','B4-AA']);arrival(d,'u',1,null,['U1-AA']);d.lines.find(line=>line.id==='a').resolution_state='STAGED';d.lines.find(line=>line.id==='b').resolution_state='STAGED';d.lines.find(line=>line.id==='u').resolution_state='UNRESOLVED';for(const entry of d.observations){entry.inventory_serial_id=null;entry.active_receipt_id=null;}const groups=receivedItemGroups(d);const known=groups.find(group=>group.itemId==='i'),unknown=groups.find(group=>group.key==='arrival:u');assert.equal(known.pn,'P401');assert.equal(known.quantity,7);assert.equal(known.rows.length,2);assert.equal(known.rows.flatMap(row=>row.observations).length,7);assert.deepEqual(known.states,['STAGED']);assert.deepEqual(unknown.states,['UNRESOLVED']);assert.equal(unknown.rows.length,1);});
+test('history joins route receipt, reversal, transaction and actor without duplicate received cards',()=>{const d=empty();d.actors.push({id:'actor',name:'小林'});d.arrivals.push({id:'a',actual_received_at:'2026-09-26T06:20:00Z',created_at:'2026-09-26T06:20:00Z',created_by:'actor',project_id:'A'});d.lines.push({id:'line',arrival_id:'a',inventory_item_id:'i',quantity:1,unit:'台',resolution_state:'POSTED',receipt_id:'r'});d.receipts.push({id:'r',source_type:'ARRIVAL_ROUTE',route_arrival_line_id:'line',arrival_line_id:null,inventory_transaction_id:'tx',event_type:'RECEIVE',quantity_received:1,received_by:'actor',received_at:'2026-09-26T06:21:00Z',created_at:'2026-09-26T06:21:00Z',receipt_location:'OFFICE'},{id:'rev',source_type:'ARRIVAL_ROUTE',route_arrival_line_id:'line',arrival_line_id:null,inventory_transaction_id:'rtx',event_type:'REVERSAL',reversal_of_id:'r',quantity_received:1,received_by:'actor',received_at:'2026-09-26T06:22:00Z',created_at:'2026-09-26T06:22:00Z',receipt_location:'OFFICE'});d.transactions.push({id:'tx',item_id:'i',transaction_type:'IN',source:'ARRIVAL_ROUTE',handler:'小林',created_at:'2026-09-26T06:21:00Z'},{id:'rtx',item_id:'i',transaction_type:'IN_REVERSAL',source:'RECEIVING_IN_REVERSAL',handler:'小林',created_at:'2026-09-26T06:22:00Z'});assert.equal(receivedItemGroups(d).length,0);const history=receivingHistory(d);assert.deepEqual(history.map(row=>row.type),['入庫撤回','正式入庫','實際到貨']);assert.deepEqual(history.map(row=>row.quantity),[-1,1,1]);assert.equal(history[2].state,'庫存效果 0');assert(history.every(row=>row.actor==='小林'));});
+
+test('serialized posting uses exact remaining entries, then removes the completed group',()=>{const d=empty();arrival(d,'a',7,'i',Array.from({length:7},(_,i)=>`SN${i+1}-AA`));d.lines[0].resolution_state='STAGED';for(const entry of d.observations){entry.inventory_serial_id=null;entry.active_receipt_id=null;}assert.equal(receivedItemGroups(d)[0].quantity,7);const chosen=d.observations.slice(0,3);d.receipts.push({id:'route1',source_type:'ARRIVAL_ROUTE',route_arrival_line_id:'a',event_type:'RECEIVE',quantity_received:3});for(const entry of chosen){entry.inventory_serial_id=`serial:${entry.id}`;entry.active_receipt_id='route1';}assert.equal(receivedItemGroups(d)[0].quantity,4);assert.deepEqual(receivedItemGroups(d)[0].rows[0].observations.filter(entry=>!entry.inventory_serial_id).map(entry=>entry.id),d.observations.slice(3).map(entry=>entry.id));d.receipts.push({id:'route2',source_type:'ARRIVAL_ROUTE',route_arrival_line_id:'a',event_type:'RECEIVE',quantity_received:4});for(const entry of d.observations.slice(3)){entry.inventory_serial_id=`serial:${entry.id}`;entry.active_receipt_id='route2';}assert.equal(receivedItemGroups(d).length,0);});
+
+test('canonical legacy ARRIVAL receipt leaves no staged quantity for an already posted serial',()=>{
+  const d=empty();arrival(d,'a',1,'i',['SE4000H-1']);
+  d.receipts.push({id:'ar',source_type:'ARRIVAL',arrival_line_id:'a',route_arrival_line_id:null,event_type:'RECEIVE',quantity_received:1});
+  assert.doesNotThrow(()=>receivedItemGroups(d));
+  assert.equal(receivedItemGroups(d).length,0);
+});
+
+test('returned legacy ARRIVAL serial becomes an exact REENTRY stage',()=>{
+  const d=empty();arrival(d,'a',1,'i',['RSEM0004-AA']);d.lines[0].receipt_id='ar';
+  d.receipts.push({id:'ar',source_type:'ARRIVAL',arrival_line_id:'a',event_type:'RECEIVE',quantity_received:1,
+    inventory_transaction_id:'tx',inventory_linked:true},
+  {id:'rev',source_type:'ARRIVAL',arrival_line_id:'a',event_type:'REVERSAL',reversal_of_id:'ar',
+    quantity_received:1,inventory_transaction_id:'rtx',inventory_linked:true,received_at:'2026-09-26T07:00:00Z'});
+  d.transactions.push({id:'tx',item_id:'i',transaction_type:'IN',is_voided:false,excluded_by_initialization_id:null},
+    {id:'rtx',item_id:'i',transaction_type:'IN_REVERSAL',reverses_transaction_id:'tx',is_voided:false,excluded_by_initialization_id:null});
+  d.receiptSerials.push({receipt_id:'rev',entry_id:'a0',inventory_serial_id:'as0'});
+  d.inventorySerials.push({id:'as0',item_id:'i',status:'待入庫',serial_number:'RSEM0004-AA'});
+  d.transactionSerials.push({transaction_id:'rtx',serial_id:'as0',is_pending:false});
+  d.observations[0].active_receipt_id=null;
+  const groups=receivedItemGroups(d);
+  assert.equal(groups.length,1);
+  assert.equal(groups[0].quantity,1);
+  assert.deepEqual(groups[0].stages.map(stage=>[stage.kind,stage.reversalReceiptId,stage.serials[0].inventorySerialId]),[['REENTRY','rev','as0']]);
+});
+
+test('project preparation is separate from SITE and reduces available receipt scope',()=>{
+  const d=empty();arrival(d,'a',2,'i',['RSEM0005-AA','RSEM0006-AA']);
+  d.scopes.ar={received:2,requires_serial:true,available:0,se:0,site:0,prep:2,
+    available_serial_ids:[],allocations:[{inventory_serial_id:'as0',quantity:1,route_type:'PROJECT_PREP',cancelled_at:null},
+      {inventory_serial_id:'as1',quantity:1,route_type:'PROJECT_PREP',cancelled_at:null}]};
+  const stock=workItemStock(receivingWorkItems(d)[0],d);
+  assert.equal(stock.prep,2);assert.equal(stock.site,0);assert.equal(stock.available,0);
+});
+
+test('legacy receipt relation is exact and cannot double count with routed receipts',()=>{
+  const d=empty();arrival(d,'a',1,'i',['SE4000H-1']);
+  d.receipts.push({id:'ar',source_type:'ARRIVAL',arrival_line_id:'other-line',event_type:'RECEIVE',quantity_received:1});
+  assert.throws(()=>receivedItemGroups(d),/到貨序號與待入庫數量不一致/);
+  d.receipts[0].arrival_line_id='a';
+  d.receipts.push({id:'route',source_type:'ARRIVAL_ROUTE',route_arrival_line_id:'a',event_type:'RECEIVE',quantity_received:1});
+  assert.throws(()=>receivedItemGroups(d),/兩種正式入庫收貨來源/);
+});
+
+test('normal staging cancellation preserves posted three and removes only remaining four',()=>{
+  const d=empty();arrival(d,'a',7,'i',Array.from({length:7},(_,i)=>`S${i+1}-AA`));
+  d.lines[0].resolution_state='STAGED';
+  d.receipts.push({id:'posted',source_type:'ARRIVAL_ROUTE',route_arrival_line_id:'a',event_type:'RECEIVE',quantity_received:3});
+  d.observations.forEach((entry,index)=>{entry.inventory_serial_id=index<3?`serial-${index}`:null;entry.active_receipt_id=index<3?'posted':null;entry.retired_at=index>=3?'2026-10-03T10:00:00Z':null;});
+  d.cancellations=[{id:'cancel',arrival_line_id:'a',reversal_receipt_id:null,quantity:4,entry_ids:d.observations.slice(3).map(entry=>entry.id),created_at:'2026-10-03T10:00:00Z',created_by:'actor'}];
+  assert.equal(receivedItemGroups(d).length,0);
+  assert.equal(receivingWorkItems(d).find(row=>row.key==='arrival:a')?.received,3);
+  assert.equal(receivingHistory(d).find(row=>row.id==='cancel:cancel')?.quantity,-4);
+});
+
+test('re-entry staging cancellation removes only the canceled reversal quantity',()=>{
+  const d=empty();arrival(d,'a',1,'i',['S1-AA']);
+  d.receipts.push({id:'posted',source_type:'ARRIVAL_ROUTE',route_arrival_line_id:'a',event_type:'RECEIVE',quantity_received:1,inventory_transaction_id:'tx',inventory_linked:true},
+    {id:'reversal',source_type:'ARRIVAL_ROUTE',route_arrival_line_id:'a',event_type:'REVERSAL',quantity_received:1,reversal_of_id:'posted',inventory_transaction_id:'rtx',inventory_linked:true});
+  d.transactions.push({id:'tx',item_id:'i',transaction_type:'IN',is_voided:false,excluded_by_initialization_id:null},
+    {id:'rtx',item_id:'i',transaction_type:'IN_REVERSAL',reverses_transaction_id:'tx',is_voided:false,excluded_by_initialization_id:null});
+  d.receiptSerials.push({receipt_id:'reversal',entry_id:'a0',inventory_serial_id:'as0'});
+  d.inventorySerials.push({id:'as0',item_id:'i',status:'作廢',serial_number:'S1-AA'});
+  d.transactionSerials.push({transaction_id:'rtx',serial_id:'as0',is_pending:false});
+  d.observations[0].active_receipt_id=null;d.observations[0].retired_at='2026-10-03T10:00:00Z';
+  d.cancellations=[{id:'cancel',arrival_line_id:'a',reversal_receipt_id:'reversal',quantity:1,entry_ids:['a0'],created_at:'2026-10-03T10:00:00Z',created_by:'actor'}];
+  assert.equal(receivedItemGroups(d).length,0);
+});
+
+test('nonserialized posting shows 10 then 6 then no staged group',()=>{const d=empty();arrival(d,'a',10,'q');d.lines[0].resolution_state='STAGED';assert.equal(receivedItemGroups(d)[0].quantity,10);d.receipts.push({id:'route1',source_type:'ARRIVAL_ROUTE',route_arrival_line_id:'a',event_type:'RECEIVE',quantity_received:4});assert.equal(receivedItemGroups(d)[0].quantity,6);d.receipts.push({id:'route2',source_type:'ARRIVAL_ROUTE',route_arrival_line_id:'a',event_type:'RECEIVE',quantity_received:6});assert.equal(receivedItemGroups(d).length,0);});
+test('receiving tabs retain three pending statuses, received only, and all',()=>{
+  const statuses=['待收','部分到貨','待補資料','已收到'];
+  assert.deepEqual(statuses.filter(s=>matchesReceivingFilter(s,'待處理')),statuses.slice(0,3));
+  assert.deepEqual(statuses.filter(s=>matchesReceivingFilter(s,'已收到')),['已收到']);
+  assert.deepEqual(statuses.filter(s=>matchesReceivingFilter(s,'全部')),statuses);
+});
 test('UI-5/6: 20 + 8 + 5 projects into one row, two immutable event identities',()=>{const d=empty();pending(d,'p',20,13,'q');arrival(d,'a',8);arrival(d,'b',5);match(d,'a','p',8);match(d,'b','p',5);const r=receivingWorkItems(d);assert.equal(r.length,1);assert.equal(r[0].received,13);assert.equal(r[0].pending.fulfilment.remaining,7);assert.deepEqual(r[0].slices.map(s=>s.actual.key),['arrival:a','arrival:b']);});
 test('UI-17: standalone disappears after full match',()=>{const d=empty();pending(d,'p',20,0,'q');arrival(d);assert.equal(receivingWorkItems(d).length,2);match(d,'a','p',8);d.fulfilment['SE_SUPPLY:p'].fulfilled=8;assert.equal(receivingWorkItems(d).length,1);});
 test('UI-18: 10 = matched 6 + unmatched 4, no double count',()=>{const d=empty();pending(d,'p',20,6,'q');arrival(d,'a',10);match(d,'a','p',6);const rows=receivingWorkItems(d);assert.equal(rows.length,2);assert.deepEqual(rows.map(r=>r.slices[0].quantity),[6,4]);assert.equal(rows.flatMap(r=>r.slices).reduce((n,s)=>n+s.quantity,0),10);});
@@ -20,6 +101,7 @@ test('multiple pending aliases never select first',()=>{const d=empty();pending(
 test('explicit project conflict prevents auto-match',()=>{const d=empty();pending(d,'a',20,0,'i','A',['7515CA50-A4']);const draft=pendingSerialDraft('7515CA50-A4',d,'B');assert.equal(draft.pendingKey,null);});
 test('already claimed preregistration is not reused',()=>{const d=empty();pending(d,'a',20,0,'i','A',['7515CA50-A4']);d.matchObservations.push({pending_entry_id:'a0',cancelled_at:null});assert.equal(pendingSerialDraft('7515CA50-A4',d).pendingKey,null);});
 test('canonical existing identity prevents a second IN, regardless of pending hit',()=>{const d=empty();pending(d,'a',20,0,'i','A',['7515CA50-A4']);const r=finishSerialDraft(pendingSerialDraft('7515CA50-A4',d),{result_type:'unique_match',candidates:[{id:'existing'}]},d);assert.equal(r.state,'conflict');assert.equal(r.itemId,null);assert.equal(r.pendingKey,null);});
+test('conflicting arrival observation cannot be packaged into a new arrival',()=>{const d=empty();arrival(d,'old',1,null,['7515CA50-A4']);const r=finishSerialDraft(pendingSerialDraft('7515CA50-A4',d),none,d);assert.equal(r.state,'conflict');assert.throws(()=>groupedSerialArrival([r],[]),/序號.*已存在/);});
 test('UI-8 batch groups 12 / 5 / 3 without per-serial assignment',()=>{const d=empty();const a=Array.from({length:12},(_,i)=>'P401A'+i+'-AA'),b=Array.from({length:5},(_,i)=>'P401B'+i+'-AA');pending(d,'a',20,0,'i','A',a);pending(d,'b',20,0,'i','B',b);const drafts=[...a,...b,'UNKNOWN1-AA','UNKNOWN2-AA','UNKNOWN3-AA'].map(s=>finishSerialDraft(pendingSerialDraft(s,d),none,d));const g=groupedSerialArrival(drafts,pendingRows(d));assert.deepEqual(g.matches.map(m=>m.quantity),[12,5]);assert.equal(g.lines.reduce((n,l)=>n+l.quantity,0),20);assert.equal(g.lines.filter(l=>!l.inventory_item_id).length,3);});
 test('UI-9/10 no safe identity remains independently completable unknown arrival',()=>{const d=empty();const v=finishSerialDraft(pendingSerialDraft('UNKNOWN1-AA',d),none,d);assert.equal(v.itemId,null);assert.equal(v.pendingKey,null);arrival(d,'u',1,null,['UNKNOWN1-AA']);assert.equal(receivingWorkItems(d)[0].status,'待補資料');});
 test('same item alone never automatically links unrelated pending',()=>{const d=empty();pending(d);const v=finishSerialDraft(pendingSerialDraft('UNLISTED-AA',d),none,d,pendingRows(d)[0]);assert.equal(v.itemId,'i');assert.equal(v.pendingKey,null);});

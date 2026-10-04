@@ -4,9 +4,9 @@ export type TodoStatus = '待安排' | '已排程' | '已完成' | '取消' | '�
 export type TodoScope = 'TEAM' | 'PRIVATE';
 export type ScheduleCreationSource = 'APP' | 'GOOGLE_IMPORT' | 'SYSTEM' | 'LEGACY';
 export type WorkGroupKey = 'ENGINEERING' | 'PROJECT';
-export type TransactionType = 'IN' | 'OUT' | 'RETURN' | 'ADJUST';
+export type TransactionType = 'IN' | 'OUT' | 'RETURN' | 'ADJUST' | 'IN_REVERSAL';
 export type StockCategory = 'CONSTRUCTION' | 'MAINTENANCE' | 'VENDOR_SPARE';
-export type SerialStatus = '在庫' | '已出庫' | '已使用' | '已退回' | '待補' | '報廢' | '作廢';
+export type SerialStatus = '在庫' | '已出庫' | '已使用' | '已退回' | '待補' | '待入庫' | '報廢' | '作廢';
 
 export type ActivityActionType =
   | 'REGISTER_MAINTENANCE_EQUIPMENT'
@@ -88,6 +88,7 @@ export interface SESupplyRecord {
   received_at: string | null;
   received_by: string | null;
   receiving_archived_at: string | null;
+  receiving_deleted_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -117,6 +118,7 @@ export interface WorkGroup {
 
 export interface Project {
   id: string;
+  deleted_at?: string | null;
   name: string;
   short_name: string | null;
   address: string | null;
@@ -432,7 +434,9 @@ export type DeliveryDestination =
 
 export type MaterialReceiptSourceType =
   | 'PROJECT_MATERIAL'
-  | 'SE_SUPPLY';
+  | 'SE_SUPPLY'
+  | 'ARRIVAL'
+  | 'ARRIVAL_ROUTE';
 
 export type MaterialReceiptEventType =
   | 'RECEIVE'
@@ -485,6 +489,7 @@ export interface ProjectMaterial {
   delivery_destination_note: string | null;
   notes: string | null;
   receiving_archived_at: string | null;
+  receiving_deleted_at?: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -520,6 +525,9 @@ export interface MaterialReceipt {
   se_supply_record_id: string | null;
   event_type: MaterialReceiptEventType;
   reversal_of_id: string | null;
+  reentry_of_reversal_id?: string | null;
+  arrival_line_id?: string | null;
+  route_arrival_line_id?: string | null;
   quantity_received: number;
   received_by: string;
   received_at: string;
@@ -544,6 +552,8 @@ export interface ReverseMaterialReceiptInput {
 
 export interface InventoryTransaction {
   id: string;
+  reverses_transaction_id?: string | null;
+  reenters_reversal_id?: string | null;
   schedule_task_id?: string | null;
   item_id: string;
   transaction_type: TransactionType;
@@ -637,6 +647,7 @@ export interface InventoryMonthlyClosingItem {
   unit: string;
   opening_quantity: number;
   monthly_in: number;
+  monthly_in_reversal: number;
   monthly_out: number;
   monthly_return: number;
   monthly_adjust: number;

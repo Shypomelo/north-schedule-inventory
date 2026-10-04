@@ -36,19 +36,30 @@ test('voided credit/debit never changes monthly closing or exported closing', ()
   const expected = project([makeItem()], [active]);
   const actual = project([makeItem()], [active,...voided]);
   assert.deepEqual(actual, expected);
-  assert.equal(exported(actual, [active,...voided]).summary[0][8], 8);
+  assert.equal(exported(actual, [active,...voided]).summary[0][9], 8);
+});
+
+test('IN reversal remains a business column without restoring debug columns', () => {
+  const transactions = [makeTransaction('in'), makeTransaction('reversal', {
+    transaction_type: 'IN_REVERSAL', quantity: 2, reverses_transaction_id: 'in',
+  })];
+  const result = exported(project([makeItem()], transactions), transactions);
+  assert.equal(result.summary[0][5], 2);
+  assert.equal(result.summary[0][9], 6);
+  assert.deepEqual(result.details.map(row => row[1]), ['IN', '入庫沖回']);
+  assert.equal(result.details[1].length, 7);
 });
 
 test('summary has only consecutive business columns and no notes/debug output', () => {
   const summary = project([makeItem()], []);
   summary[0].notes = '截圖顯示另有進貨；請匯入後再補實際紀錄；SE提供未入庫';
   const result = exported(summary);
-  assert.deepEqual(result.summaryHeader, ['品項','分類','單位','期初','入庫','退料','出庫','調整','期末','來源','品項狀態']);
-  assert.equal(result.summary[0].length, 11);
+  assert.deepEqual(result.summaryHeader, ['品項','分類','單位','期初','入庫','入庫沖回','退料','出庫','調整','期末','來源','品項狀態']);
+  assert.equal(result.summary[0].length, 12);
   assert(!JSON.stringify(result.rows).includes(summary[0].notes));
-  assert.equal(XLSX.utils.decode_range(result.sheet['!ref']).e.c, 10);
-  assert.equal(result.sheet['!cols'].length, 11);
-  assert.equal(result.sheet.L5, undefined);
+  assert.equal(XLSX.utils.decode_range(result.sheet['!ref']).e.c, 11);
+  assert.equal(result.sheet['!cols'].length, 12);
+  assert.equal(result.sheet.M5, undefined);
 });
 
 test('detail columns and autofilter end at G with no empty old void column', () => {
@@ -81,7 +92,7 @@ test('all 35 supplied monthly rows retain the exact UI closing quantities', () =
   const excel = exported(ui, transactions);
   assert.equal(ui.length, 35);
   assert.equal(excel.summary.length, 35);
-  assert.deepEqual(excel.summary.map(row=>[row[0],row[8]]), ui.map(row=>[row.item_name,row.closing_quantity]));
+  assert.deepEqual(excel.summary.map(row=>[row[0],row[9]]), ui.map(row=>[row.item_name,row.closing_quantity]));
   assert.equal(excel.details.length, 35);
 });
 
@@ -95,7 +106,7 @@ test('CLOSED summary keeps stored snapshot numbers and does not mutate source da
   const result = exported(summary, transactions, 'CLOSED');
   assert.equal(result.rows[1][1], '已封存');
   assert.equal(result.summary[0][3], 2);
-  assert.equal(result.summary[0][8], 2);
+  assert.equal(result.summary[0][9], 2);
   assert.equal(JSON.stringify({summary,transactions}), before);
 });
 

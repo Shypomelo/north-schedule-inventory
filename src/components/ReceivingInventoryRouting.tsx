@@ -9,7 +9,7 @@ import { dbAdapter } from '@/lib/db';
 import { supabase } from '@/lib/db/supabaseClient';
 import type { InventoryItem, InventorySerial, Project, ProjectMaterial, SESupplyRecord } from '@/lib/db/types';
 import { createReceivingApi, isActiveSEReservation, ReceivingSerialEntry } from '@/lib/db/receiving-routing';
-import { selectActiveProjects } from '@/lib/project-selectors';
+import { selectReceivingProjects } from '@/lib/project-selectors';
 import type { PendingReceivingItem } from '@/lib/material-receiving';
 
 const api = createReceivingApi(supabase);
@@ -200,7 +200,7 @@ export function InventoryRoutingPanel({ itemId, onChanged }: { itemId: string; o
   const request = useRequest();
   const refresh = useCallback(async () => {
     const [i, s, p, r] = await Promise.all([dbAdapter.getInventoryItems(), dbAdapter.getInventorySerials(), dbAdapter.getProjects(), dbAdapter.getSESupplyRecords()]);
-    setItems(i); setSerials(s); setProjects(selectActiveProjects(p)); setReserved(r.filter(isActiveSEReservation));
+    setItems(i); setSerials(s); setProjects(selectReceivingProjects(p)); setReserved(r.filter(isActiveSEReservation));
   }, []);
   useEffect(() => { void refresh().catch(e => setError(message(e))); }, [refresh]);
   useEffect(() => { let active = true; setMaterials([]); setMaterialId(''); if (projectId) dbAdapter.listProjectMaterials(projectId).then(rows => { if (active) setMaterials(rows); }).catch(e => { if (active) setError(message(e)); }); return () => { active = false; }; }, [projectId]);

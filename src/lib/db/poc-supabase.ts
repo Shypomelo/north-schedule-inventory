@@ -204,6 +204,8 @@ const buildInventoryItemPayload = (
 
 const mapInventoryTransaction = (row: any): InventoryTransaction => ({
   id: row.id,
+  reverses_transaction_id: row.reverses_transaction_id || null,
+  reenters_reversal_id: row.reenters_reversal_id || null,
   item_id: row.item_id,
   transaction_type: row.transaction_type,
   transaction_date: row.transaction_date,
@@ -283,6 +285,7 @@ const mapInventoryMonthlyClosingItem = (row: any): InventoryMonthlyClosingItem =
   unit: row.unit || '',
   opening_quantity: toNumber(row.opening_quantity),
   monthly_in: toNumber(row.monthly_in),
+  monthly_in_reversal: toNumber(row.monthly_in_reversal),
   monthly_out: toNumber(row.monthly_out),
   monthly_return: toNumber(row.monthly_return),
   monthly_adjust: toNumber(row.monthly_adjust),
@@ -760,6 +763,7 @@ const createMonthlyClosingInSupabase = async (
       unit: item.unit,
       opening_quantity: item.opening_quantity,
       monthly_in: item.monthly_in,
+      monthly_in_reversal: item.monthly_in_reversal,
       monthly_out: item.monthly_out,
       monthly_return: item.monthly_return,
       monthly_adjust: item.monthly_adjust,

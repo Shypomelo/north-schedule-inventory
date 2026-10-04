@@ -67,12 +67,15 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
   const [isPendingSerial, setIsPendingSerial] = useState(initialData?.pending_serial_count ? initialData.pending_serial_count > 0 : false);
   const [selectedSerials, setSelectedSerials] = useState<string[]>(initialData?.transaction_type !== 'IN' ? initialSerials : []);
   const [serialLookupInput, setSerialLookupInput] = useState('');
+  const [projectOpen, setProjectOpen] = useState(false);
   const [serialLookupMsg, setSerialLookupMsg] = useState<string | null>(null);
   const [ambiguousSerialCandidates, setAmbiguousSerialCandidates] = useState<InventorySerialLookupCandidate[]>([]);
   const [editReason, setEditReason] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [reservedIds, setReservedIds] = useState<Set<string> | null>(null);
+  const projectMatches = formData.project_name.trim() ? projects.filter(p => p.name.toLocaleLowerCase().includes(formData.project_name.trim().toLocaleLowerCase())).slice(0, 8) : [];
+  const selectedProject = projects.find(p => p.name === formData.project_name);
   useEffect(() => { let active = true; dbAdapter.getSESupplyRecords().then(rows => { if (active) setReservedIds(new Set(rows.filter(isActiveSEReservation).map(r => r.inventory_serial_id!))); }).catch(() => { if (active) setErrorMsg('無法確認 SE 預留狀態，暫停選取出庫序號'); }); return () => { active = false; }; }, []);
   const isEditMode = !!initialData?.id;
 
@@ -469,19 +472,20 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
 
         {(formData.transaction_type === 'OUT' || formData.transaction_type === 'RETURN') && (
           <>
-            <label className="flex flex-col gap-1">
+            <div className="relative flex flex-col gap-1">
               <span className="text-sm font-semibold text-warning">案場 ({formData.transaction_type === 'OUT' ? '出庫' : '退料'}必填) *</span>
               <input 
-                list="projects-list"
                 required
                 placeholder="選擇或輸入案場名稱..."
                 className="bg-page border border-warning/50 rounded p-2 focus:border-warning outline-none text-primary"
-                value={formData.project_name} onChange={e => setFormData({...formData, project_name: e.target.value})} 
+                role="combobox" aria-expanded={projectOpen && projectMatches.length > 0} aria-controls="project-quick-select"
+                value={formData.project_name} onChange={e => { setFormData({...formData, project_name: e.target.value}); setProjectOpen(Boolean(e.target.value.trim())); }}
+                onKeyDown={e => { if (e.key === 'Escape') setProjectOpen(false); if (e.key === 'ArrowDown' && projectOpen && projectMatches.length) { e.preventDefault(); document.querySelector<HTMLButtonElement>('#project-quick-select button')?.focus(); } }}
+                onBlur={e => { if (!e.currentTarget.parentElement?.contains(e.relatedTarget as Node)) setProjectOpen(false); }}
               />
-              <datalist id="projects-list">
-                {projects.map(p => <option key={p.id} value={p.name} />)}
-              </datalist>
-            </label>
+              {selectedProject && <span className="text-xs text-accent">已選擇：{selectedProject.name}</span>}
+              {projectOpen && projectMatches.length > 0 && <div id="project-quick-select" className="absolute inset-x-0 top-full z-20 max-h-48 overflow-auto rounded-lg border border-theme-border bg-card shadow-lg" role="listbox" aria-label="既有案場快選">{projectMatches.map(p => <button key={p.id} type="button" role="option" aria-selected={selectedProject?.id === p.id} className="block min-h-11 w-full px-3 py-2 text-left text-sm hover:bg-page aria-selected:bg-accent/10" onMouseDown={e => e.preventDefault()} onClick={() => { setFormData({...formData, project_name: p.name}); setProjectOpen(false); }}>{p.name}</button>)}</div>}
+            </div>
             <label className="flex flex-col gap-1">
               <span className="text-sm font-semibold text-secondary">{formData.transaction_type === 'OUT' ? '領料人' : '退料人'}</span>
               <select 
@@ -576,6 +580,7 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
                     <div className="flex gap-2">
                       <input
                         type="text"
+                        autoComplete="off" autoCorrect="off" autoCapitalize="characters" spellCheck={false} inputMode="text"
                         value={serialLookupInput}
                         onChange={e => {
                           const nextInput = e.target.value;

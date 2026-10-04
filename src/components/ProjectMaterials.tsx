@@ -5,6 +5,7 @@ import { Bell, ChevronDown, ChevronRight, Clipboard, MoreHorizontal, PackagePlus
 import { useUser } from './UserContext';
 import { useRowAutosave, type RowAutosaveState } from '@/hooks/useRowAutosave';
 import { dbAdapter } from '@/lib/db';
+import { supabase } from '@/lib/db/supabaseClient';
 import { ReceiptDateTimeInput } from './ReceiptDateTimeInput';
 import { MaterialReceiptHistoryDialog } from './MaterialReceiptHistoryDialog';
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
@@ -27,6 +28,22 @@ import { summarizeMaterialReceipts } from '@/lib/material-receiving';
 
 const compactInputClass = 'h-8 w-full min-w-0 rounded-md border border-theme-border bg-page px-2 text-xs text-primary outline-none focus:border-accent disabled:opacity-60';
 
+async function loadProjectPreparations(materialIds: string[]): Promise<Record<string, number>> {
+  const totals: Record<string, number> = {};
+  for (let start = 0; start < materialIds.length; start += 100) {
+    for (let offset = 0; ; offset += 500) {
+      const { data, error } = await supabase.from('receiving_inventory_allocations')
+        .select('project_material_id,quantity').eq('route_type', 'PROJECT_PREP').is('cancelled_at', null)
+        .in('project_material_id', materialIds.slice(start, start + 100)).order('id').range(offset, offset + 499);
+      if (error) throw new Error(error.message);
+      data?.forEach(row => { if (row.project_material_id) totals[row.project_material_id] =
+        (totals[row.project_material_id] || 0) + Number(row.quantity); });
+      if (!data || data.length < 500) break;
+    }
+  }
+  return totals;
+}
+
 const statusClass: Record<ProjectMaterial['procurement_status'], string> = {
   NOT_ORDERED: 'border-warning/30 bg-warning/10 text-warning',
   ORDERED: 'border-accent/30 bg-accent/10 text-accent',
@@ -47,6 +64,7 @@ export function ProjectMaterials({ projectId, projectName, canEdit }: Props) {
   const [catalog, setCatalog] = useState<MaterialCatalogItem[]>([]);
   const [groups, setGroups] = useState<MaterialGroup[]>([]);
   const [receipts, setReceipts] = useState<MaterialReceipt[]>([]);
+  const [preparations, setPreparations] = useState<Record<string, number>>({});
   const [historyMaterial, setHistoryMaterial] = useState<ProjectMaterial | null>(null);
   const [expandedBatchIds, setExpandedBatchIds] = useState<Set<string>>(new Set());
   const [showBatchCreate, setShowBatchCreate] = useState(false);
@@ -69,11 +87,13 @@ export function ProjectMaterials({ projectId, projectName, canEdit }: Props) {
         dbAdapter.listMaterialGroups(true),
         dbAdapter.listMaterialReceipts(),
       ]);
+      const preparationRows = await loadProjectPreparations(materialRows.map(material => material.id));
       setBatches(batchRows);
       setMaterials(materialRows);
       setCatalog(catalogRows);
       setGroups(groupRows);
       setReceipts(receiptRows);
+      setPreparations(preparationRows);
       const preferred = batchRows.find(batch => deriveBatchProcurementSummary(
         batch,
         materialRows.filter(material => material.batch_id === batch.id),
@@ -293,6 +313,7 @@ export function ProjectMaterials({ projectId, projectName, canEdit }: Props) {
     setBatches(batchRows);
     setMaterials(materialRows);
     setReceipts(receiptRows);
+    setPreparations(await loadProjectPreparations(materialRows.map(material => material.id)));
   }, [projectId]);
 
   const toggleBatch = (id: string) => setExpandedBatchIds(current => {
@@ -320,7 +341,7 @@ export function ProjectMaterials({ projectId, projectName, canEdit }: Props) {
     {notice && <div className="rounded-lg border border-success/30 bg-success/10 p-3 text-sm text-success">{notice}</div>}
     {orderedBatches.length === 0 ? <div className="rounded-xl border border-dashed border-theme-border p-10 text-center text-secondary">尚未建立叫料批次。</div> : orderedBatches.map(batch => {
       const batchMaterials = materials.filter(material => material.batch_id === batch.id);
-      return <BatchCard key={batch.id} batch={batch} projectName={projectName} materials={batchMaterials} receipts={receipts} catalog={catalog} groups={groups} canEdit={canEdit} isExpanded={expandedBatchIds.has(batch.id)} isBusy={busyId !== null} batchSaveState={batchAutosave.stateFor(batch.id)} materialStateFor={materialAutosave.stateFor} onToggle={() => toggleBatch(batch.id)} onBatchChange={updates => batchAutosave.updateRow(batch.id, updates)} onBatchBlur={() => batchAutosave.flush(batch.id)} onSameDayChange={value => void setBatchSameDay(batch, value)} onDeleteBatch={() => void deleteBatch(batch, batchMaterials)} onMaterialChange={(id, updates) => materialAutosave.updateRow(id, updates)} onMaterialReceiptTimeChange={(material, value) => void updateMaterialReceiptTime(material, value)} onMaterialBlur={id => materialAutosave.flush(id)} onDeleteMaterial={material => void deleteMaterial(material)} onOpenHistory={setHistoryMaterial} onAddMaterial={addMaterial} onNotice={setNotice} onError={setError} currentUserId={currentUser?.id ?? null} />;
+      return <BatchCard key={batch.id} batch={batch} projectName={projectName} materials={batchMaterials} receipts={receipts} preparations={preparations} catalog={catalog} groups={groups} canEdit={canEdit} isExpanded={expandedBatchIds.has(batch.id)} isBusy={busyId !== null} batchSaveState={batchAutosave.stateFor(batch.id)} materialStateFor={materialAutosave.stateFor} onToggle={() => toggleBatch(batch.id)} onBatchChange={updates => batchAutosave.updateRow(batch.id, updates)} onBatchBlur={() => batchAutosave.flush(batch.id)} onSameDayChange={value => void setBatchSameDay(batch, value)} onDeleteBatch={() => void deleteBatch(batch, batchMaterials)} onMaterialChange={(id, updates) => materialAutosave.updateRow(id, updates)} onMaterialReceiptTimeChange={(material, value) => void updateMaterialReceiptTime(material, value)} onMaterialBlur={id => materialAutosave.flush(id)} onDeleteMaterial={material => void deleteMaterial(material)} onOpenHistory={setHistoryMaterial} onAddMaterial={addMaterial} onNotice={setNotice} onError={setError} currentUserId={currentUser?.id ?? null} />;
     })}
     {historyMaterial ? <MaterialReceiptHistoryDialog receipts={receipts} sourceType="PROJECT_MATERIAL" sourceId={historyMaterial.id} itemLabel={historyMaterial.specification?.trim() || historyMaterial.item_name} contextLabel={projectName} unit={historyMaterial.unit} canEdit={canEdit} onClose={() => setHistoryMaterial(null)} onChanged={refreshReceiptState} /> : null}
   </div>;
@@ -331,6 +352,7 @@ interface BatchCardProps {
   projectName: string;
   materials: ProjectMaterial[];
   receipts: MaterialReceipt[];
+  preparations: Record<string, number>;
   catalog: MaterialCatalogItem[];
   groups: MaterialGroup[];
   canEdit: boolean;
@@ -390,7 +412,7 @@ const createCustomDraft = (): CustomMaterialDraft => ({
   delivery_destination_note: '',
 });
 
-function BatchCard({ batch, projectName, materials, receipts, catalog, groups, canEdit, isExpanded, isBusy, batchSaveState, materialStateFor, onToggle, onBatchChange, onBatchBlur, onSameDayChange, onDeleteBatch, onMaterialChange, onMaterialReceiptTimeChange, onMaterialBlur, onDeleteMaterial, onOpenHistory, onAddMaterial, onNotice, onError, currentUserId }: BatchCardProps) {
+function BatchCard({ batch, projectName, materials, receipts, preparations, catalog, groups, canEdit, isExpanded, isBusy, batchSaveState, materialStateFor, onToggle, onBatchChange, onBatchBlur, onSameDayChange, onDeleteBatch, onMaterialChange, onMaterialReceiptTimeChange, onMaterialBlur, onDeleteMaterial, onOpenHistory, onAddMaterial, onNotice, onError, currentUserId }: BatchCardProps) {
   const [showRegularAdd, setShowRegularAdd] = useState(false);
   const [quickSlots, setQuickSlots] = useState<QuickAddSlot[]>([]);
   const [customDrafts, setCustomDrafts] = useState<CustomMaterialDraft[]>([]);
@@ -488,7 +510,7 @@ function BatchCard({ batch, projectName, materials, receipts, catalog, groups, c
       <div className="overflow-x-auto"><div className="min-w-[48rem]">
         <div className="grid grid-cols-[2rem_4.75rem_minmax(6.5rem,1fr)_5.25rem_5.25rem_9.75rem_7.5rem_2rem] gap-1 border-b border-theme-border bg-page/35 px-2 py-1.5 text-[11px] font-medium text-secondary"><span>請購</span><span>群組</span><span>型號／規格</span><span>數量／單位</span><span>送達</span><span>預計到貨</span><span>實際到貨</span><span>⋯</span></div>
         {materials.length === 0 && customDrafts.length === 0 ? <div className="p-6 text-center text-sm text-secondary">此批次尚無物料。</div> : <>
-          {materials.map(material => <MaterialGridRow key={material.id} material={material} batch={batch} receipts={receipts} groupLabel={getProjectMaterialGroupLabel(material, catalog, groups)} canEdit={canEdit} isBusy={isBusy} saveState={materialStateFor(material.id)} onChange={updates => onMaterialChange(material.id, updates)} onBlur={() => onMaterialBlur(material.id)} onPlannedReceiptChange={value => onMaterialReceiptTimeChange(material, value)} onOpenHistory={() => onOpenHistory(material)} onDelete={() => onDeleteMaterial(material)} />)}
+          {materials.map(material => <MaterialGridRow key={material.id} material={material} batch={batch} receipts={receipts} prepared={preparations[material.id] || 0} groupLabel={getProjectMaterialGroupLabel(material, catalog, groups)} canEdit={canEdit} isBusy={isBusy} saveState={materialStateFor(material.id)} onChange={updates => onMaterialChange(material.id, updates)} onBlur={() => onMaterialBlur(material.id)} onPlannedReceiptChange={value => onMaterialReceiptTimeChange(material, value)} onOpenHistory={() => onOpenHistory(material)} onDelete={() => onDeleteMaterial(material)} />)}
           {customDrafts.map(draft => <CustomDraftGridRow key={draft.id} draft={draft} batch={batch} currentUserId={currentUserId} onAddMaterial={onAddMaterial} onCreated={() => setCustomDrafts(current => current.filter(row => row.id !== draft.id))} onRemove={() => setCustomDrafts(current => current.filter(row => row.id !== draft.id))} />)}
         </>}
       </div></div>
@@ -496,7 +518,7 @@ function BatchCard({ batch, projectName, materials, receipts, catalog, groups, c
   </section>;
 }
 
-function MaterialGridRow({ material, batch, receipts, groupLabel, canEdit, isBusy, saveState, onChange, onBlur, onPlannedReceiptChange, onOpenHistory, onDelete }: { material: ProjectMaterial; batch: ProjectMaterialBatch; receipts: MaterialReceipt[]; groupLabel: string; canEdit: boolean; isBusy: boolean; saveState: RowAutosaveState; onChange: (updates: Partial<ProjectMaterial>) => void; onBlur: () => void; onPlannedReceiptChange: (value: string | null) => void; onOpenHistory: () => void; onDelete: () => void }) {
+function MaterialGridRow({ material, batch, receipts, prepared, groupLabel, canEdit, isBusy, saveState, onChange, onBlur, onPlannedReceiptChange, onOpenHistory, onDelete }: { material: ProjectMaterial; batch: ProjectMaterialBatch; receipts: MaterialReceipt[]; prepared: number; groupLabel: string; canEdit: boolean; isBusy: boolean; saveState: RowAutosaveState; onChange: (updates: Partial<ProjectMaterial>) => void; onBlur: () => void; onPlannedReceiptChange: (value: string | null) => void; onOpenHistory: () => void; onDelete: () => void }) {
   const [showDetails, setShowDetails] = useState(false);
   const receiptSummary = summarizeMaterialReceipts(receipts, 'PROJECT_MATERIAL', material.id, Number(material.quantity), material.delivery_destination);
   const finishOnEnter = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -513,7 +535,7 @@ function MaterialGridRow({ material, batch, receipts, groupLabel, canEdit, isBus
         {material.delivery_destination === 'OTHER' ? <input disabled={!canEdit} maxLength={80} value={material.delivery_destination_note || ''} onChange={event => onChange({ delivery_destination_note: event.target.value || null })} onKeyDown={finishOnEnter} placeholder="自訂位置" className={compactInputClass} aria-label={`${material.item_name}其他送達位置`} /> : null}
       </div>
       {batch.same_day_delivery ? <span className="px-1 text-xs text-secondary">{formatCompactTaipeiReceiptTime(batch.planned_receipt_at)}</span> : <ReceiptDateTimeInput compact label={`${material.item_name}預計到貨`} disabled={!canEdit || Boolean(batch.received_at)} value={getEffectiveExpectedDeliveryAt(material, batch)} onChange={onPlannedReceiptChange} />}
-      <button type="button" disabled={receiptSummary.effectiveQuantity <= 0} onClick={onOpenHistory} className="min-h-8 rounded-md px-1 text-left text-xs text-secondary hover:bg-page disabled:cursor-default disabled:hover:bg-transparent" aria-label={`${material.item_name}收料紀錄`}>{receiptSummary.status === 'PENDING' ? '—' : <><span className={`block font-bold ${receiptSummary.status === 'PARTIAL_RECEIVED' ? 'text-warning' : 'text-success'}`}>{receiptSummary.status === 'PARTIAL_RECEIVED' ? '未全' : '已收到'}</span><span className="block tabular-nums">{receiptSummary.effectiveQuantity} / {material.quantity} {material.unit}</span><span className="block">{formatCompactTaipeiReceiptTime(receiptSummary.lastReceivedAt)}</span></>}</button>
+      <div className="min-w-0"><button type="button" disabled={receiptSummary.effectiveQuantity <= 0} onClick={onOpenHistory} className="min-h-8 rounded-md px-1 text-left text-xs text-secondary hover:bg-page disabled:cursor-default disabled:hover:bg-transparent" aria-label={`${material.item_name}收料紀錄`}>{receiptSummary.status === 'PENDING' ? '—' : <><span className={`block font-bold ${receiptSummary.status === 'PARTIAL_RECEIVED' ? 'text-warning' : 'text-success'}`}>{receiptSummary.status === 'PARTIAL_RECEIVED' ? '未全' : '已收到'}</span><span className="block tabular-nums">{receiptSummary.effectiveQuantity} / {material.quantity} {material.unit}</span><span className="block">{formatCompactTaipeiReceiptTime(receiptSummary.lastReceivedAt)}</span></>}</button>{prepared > 0 && <p className="px-1 text-xs font-medium text-accent">北辦已備 {prepared} / 需求 {material.quantity}</p>}</div>
       <button type="button" onClick={() => setShowDetails(current => !current)} className="flex h-8 items-center justify-center rounded-md text-secondary hover:bg-page" aria-label={`${material.item_name}更多設定`}><MoreHorizontal size={16} /></button>
     </div>
     {showDetails && <div className="mx-2 mb-2 grid gap-2 rounded-lg border border-theme-border bg-page/25 p-2 sm:grid-cols-[16rem_13rem_minmax(10rem,1fr)_auto] sm:items-end">

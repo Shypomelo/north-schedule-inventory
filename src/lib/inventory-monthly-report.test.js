@@ -64,7 +64,7 @@ test('Excel serializes the exact projection result without another balance calcu
   const rows=calculate(options({transactions:[tx('IN',3)]}));
   const {workbook}=buildMonthlyReportWorkbook('2026','09','OPEN',rows,[],[],[],[item()]);
   const parsed=XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]],{header:1});
-  assert.equal(parsed[5][3],5); assert.equal(parsed[5][8],8);
+  assert.equal(parsed[5][3],5); assert.equal(parsed[5][9],8);
 });
 
 // Exercise the real page's CLOSED/OPEN selection, effect dependencies and export

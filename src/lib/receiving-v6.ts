@@ -1,20 +1,286 @@
-import { actualRows, pendingRows, matchSourceKey, sourceFields, serialsAlias, type ActualRow, type PendingRow, type ReceivingSnapshot, type CreateArrivalLine } from './receiving-v5';
+import { actualRows, pendingRows, matchSourceKey, sourceFields, serialsAlias, itemLabel, projectLabel, type ActualRow, type PendingRow, type ReceivingSnapshot, type CreateArrivalLine } from './receiving-v5';
 import { normalizeSerialInput } from './inventory-serial-normalization';
 import type { InventorySerialLookupResult } from './db/types';
 import type { ReceivingAllocation } from './db/receiving-routing';
+
+export function matchesReceivingFilter(status: string, filter: string): boolean {
+  return filter === '全部' || (filter === '待處理'
+    ? status === '待收' || status === '部分到貨' || status === '待補資料'
+    : status === filter);
+}
 
 export interface HandoffAllocation extends ReceivingAllocation {
   state: 'ACTIVE' | 'CANCELLED' | 'REVERSED' | 'USED' | 'TERMINAL';
   supersedes_allocation_id: string | null; reversal_receipt_id: string | null;
 }
 export interface HandoffScope {
-  receipt_id: string; item_id: string; requires_serial: boolean; received: number; se: number; site: number;
+  receipt_id: string; item_id: string; requires_serial: boolean; received: number; se: number; site: number; prep?: number;
   other: number; available: number; available_serial_ids: string[]; allocations: HandoffAllocation[];
 }
-export interface HandoffTransaction { id: string; item_id: string; project_id: string | null; transaction_type: string; quantity: number; transaction_date: string; schedule_task_id: string | null; is_voided: boolean; excluded_by_initialization_id: string | null }
+export interface HandoffTransaction { id: string; item_id: string; project_id: string | null; transaction_type: string; quantity: number; transaction_date: string; schedule_task_id: string | null; is_voided: boolean; excluded_by_initialization_id: string | null; source: string | null; handler: string | null; created_at: string; reverses_transaction_id: string | null; reenters_reversal_id: string | null }
+export interface ReceiptSerialLink { receipt_id: string; entry_id: string; inventory_serial_id: string; linked_existing: boolean }
+export interface ReceivingInventorySerial { id: string; item_id: string; serial_number: string; status: string }
+export interface ReceivingTransactionSerial { transaction_id: string; serial_id: string; is_pending: boolean }
 export interface ReceivingV6Snapshot extends ReceivingSnapshot {
   scopes: Record<string, HandoffScope>; scopeErrors: Record<string, string>;
   transactions: HandoffTransaction[]; closings: { year: string; month: string; status: string }[];
+  actors: { id: string; name: string }[];
+  receiptSerials: ReceiptSerialLink[]; inventorySerials: ReceivingInventorySerial[];
+  transactionSerials: ReceivingTransactionSerial[];
+  cancellations: ReceivingStageCancellation[];
+}
+export interface ReceivingStageCancellation {
+  id: string; arrival_line_id: string; reversal_receipt_id: string | null;
+  quantity: number; entry_ids: string[]; reason: string; created_by: string; created_at: string;
+}
+export interface ReceivedSerialIdentity { entryId: string; inventorySerialId: string | null; serialNumber: string }
+export type ReceivedStage = {
+  kind: 'NORMAL' | 'REENTRY'; key: string; lineId: string; reversalReceiptId: string | null; reversalAt: string | null;
+  quantity: number; requiresSerial: boolean; serials: ReceivedSerialIdentity[]; row: ActualRow;
+};
+export interface ReceivedGroup {
+  key: string; itemId: string | null; pn: string; name: string; quantity: number; unit: string;
+  at: string | null; projectLabels: string[]; states: ActualRow['state'][]; temporary: boolean; rows: ActualRow[];
+  remainingByLine: Record<string, number>;
+  stages: ReceivedStage[];
+}
+export interface ReceivingHistoryRow {
+  id: string; at: string; actor: string; item: string; quantity: number; unit: string;
+  type: string; state: string; projectLabel: string; transactionId: string | null;
+  receiptId: string | null; arrivalLineId: string | null; itemId: string | null;
+  requiresSerial: boolean; serials: ReceivedSerialIdentity[]; reversibleSerials: ReceivedSerialIdentity[];
+  reversibleQuantity: number; returnToReceived: boolean;
+}
+const eventTime = (value: string | null) => value ? Date.parse(value) || 0 : 0;
+
+/** The remaining quantity comes from the canonical Pending fulfilment RPC. */
+export function receivingPendingList(data: ReceivingSnapshot): PendingRow[] {
+  return pendingRows(data).filter(row => {
+    const source = row.kind === 'PROJECT_MATERIAL' ? data.materials.find(m => m.id === row.id) : data.supplies.find(s => s.id === row.id);
+    return row.fulfilment.active && Number(row.fulfilment.remaining) > 0 && !source?.receiving_deleted_at;
+  });
+}
+
+/** Legacy lines own one ARRIVAL receipt; routed lines use original ARRIVAL_ROUTE receipts. */
+export function arrivalPostingRemaining(row: ActualRow, data: ReceivingSnapshot): number {
+  if (!row.line) return row.quantity;
+  const canceled = (('cancellations' in data ? data.cancellations : []) as ReceivingStageCancellation[])
+    .filter(event => event.arrival_line_id === row.line!.id && !event.reversal_receipt_id)
+    .reduce((sum, event) => sum + Number(event.quantity), 0);
+  if (row.state === 'UNRESOLVED') return row.quantity - canceled;
+  const legacyReceipt = data.receipts.find(receipt => receipt.id === row.line!.receipt_id
+    && receipt.source_type === 'ARRIVAL' && receipt.arrival_line_id === row.line!.id
+    && receipt.event_type === 'RECEIVE' && !receipt.reentry_of_reversal_id);
+  const routePosted = data.receipts.filter(receipt => receipt.source_type === 'ARRIVAL_ROUTE'
+    && receipt.route_arrival_line_id === row.line!.id && receipt.event_type === 'RECEIVE'
+    && !receipt.reentry_of_reversal_id).reduce((sum, receipt) => sum + Number(receipt.quantity_received), 0);
+  if (legacyReceipt && routePosted) throw new Error('到貨已有兩種正式入庫收貨來源，請重新整理。');
+  const posted = legacyReceipt ? Number(legacyReceipt.quantity_received) : routePosted;
+  const remaining = row.quantity - posted - canceled;
+  if (!Number.isFinite(remaining) || remaining < 0) throw new Error('到貨入庫數量不一致，請重新整理。');
+  return remaining;
+}
+
+export function stageableSerialEntries(row: ActualRow) {
+  return row.observations.filter(entry => !entry.retired_at && !entry.inventory_serial_id && !entry.active_receipt_id);
+}
+
+function receiptSerialIdentities(receiptId: string, data: ReceivingV6Snapshot): ReceivedSerialIdentity[] {
+  return data.receiptSerials.filter(link => link.receipt_id === receiptId).map(link => {
+    const entry = data.observations.find(value => value.id === link.entry_id);
+    const serial = data.inventorySerials.find(value => value.id === link.inventory_serial_id);
+    if (!entry || !serial || entry.inventory_serial_id !== serial.id) throw new Error('收據序號關聯不完整，請重新整理。');
+    return { entryId: entry.id, inventorySerialId: serial.id, serialNumber: serial.serial_number };
+  });
+}
+
+function transactionOwnsSerial(data: ReceivingV6Snapshot, transactionId: string, serialId: string) {
+  return data.transactionSerials.some(link => link.transaction_id === transactionId && link.serial_id === serialId && !link.is_pending);
+}
+
+/** Group unposted physical arrivals by canonical item; unresolved lines keep their own identity. */
+export function receivedItemGroups(data: ReceivingV6Snapshot, arrivalId?: string, sourceRows?: ActualRow[]): ReceivedGroup[] {
+  const groups = new Map<string, ReceivedGroup>();
+  for (const row of sourceRows || actualRows(data)) {
+    if (arrivalId && row.arrival?.id !== arrivalId) continue;
+    const itemId = row.line?.inventory_item_id || null;
+    const item = data.items.find(value => value.id === itemId);
+    const stages: ReceivedStage[] = [];
+    const normal = row.state === 'LEGACY' ? Math.max(0, row.quantity - row.reversed) : arrivalPostingRemaining(row, data);
+    if (row.line && row.state !== 'UNRESOLVED' && normal > 0) {
+      const entries = stageableSerialEntries(row);
+      if (item?.requires_serial && entries.length !== normal) throw new Error('到貨序號與待入庫數量不一致，請重新整理。');
+      stages.push({ kind: 'NORMAL', key: `normal:${row.line.id}`, lineId: row.line.id, reversalReceiptId: null, reversalAt: null,
+        quantity: normal, requiresSerial: Boolean(item?.requires_serial),
+        serials: item?.requires_serial ? entries.map(entry => ({ entryId: entry.id, inventorySerialId: null, serialNumber: entry.normalized_serial })) : [], row });
+    }
+    if (row.line && itemId) for (const reversal of data.receipts.filter(receipt => (receipt.source_type === 'ARRIVAL_ROUTE' || receipt.source_type === 'ARRIVAL')
+      && (receipt.route_arrival_line_id || receipt.arrival_line_id) === row.line!.id && receipt.event_type === 'REVERSAL'
+      && receipt.inventory_linked && receipt.inventory_transaction_id)) {
+      const origin = data.receipts.find(receipt => receipt.id === reversal.reversal_of_id);
+      const reversalTx = data.transactions.find(tx => tx.id === reversal.inventory_transaction_id);
+      if (!origin || origin.source_type !== reversal.source_type
+        || (origin.route_arrival_line_id || origin.arrival_line_id) !== row.line.id
+        || (origin.source_type === 'ARRIVAL' && row.line.receipt_id !== origin.id && !origin.reentry_of_reversal_id)
+        || !origin.inventory_transaction_id || !reversalTx || reversalTx.transaction_type !== 'IN_REVERSAL'
+        || reversalTx.reverses_transaction_id !== origin.inventory_transaction_id || reversalTx.is_voided
+        || reversalTx.excluded_by_initialization_id) throw new Error('入庫撤回關聯不完整，請重新整理。');
+      const reentered = data.transactions.filter(tx => tx.reenters_reversal_id === reversalTx.id && !tx.is_voided
+        && !tx.excluded_by_initialization_id).reduce((sum, tx) => sum + Number(tx.quantity), 0);
+      const canceled = data.cancellations?.filter(event => event.reversal_receipt_id === reversal.id)
+        .reduce((sum, event) => sum + Number(event.quantity), 0) || 0;
+      const staged = Number(reversal.quantity_received) - reentered - canceled;
+      if (!Number.isFinite(staged) || staged < 0) throw new Error('重新入庫數量不一致，請重新整理。');
+      if (!staged) continue;
+      const serials = item?.requires_serial ? receiptSerialIdentities(reversal.id, data).filter(identity => {
+        const entry = data.observations.find(value => value.id === identity.entryId);
+        const serial = data.inventorySerials.find(value => value.id === identity.inventorySerialId);
+        return entry && !entry.retired_at && !entry.active_receipt_id && serial?.item_id === itemId
+          && serial.status === '待入庫' && transactionOwnsSerial(data, reversalTx.id, serial.id);
+      }) : [];
+      if (item?.requires_serial && serials.length !== staged) throw new Error('重新入庫序號關聯不完整，請重新整理。');
+      stages.push({ kind: 'REENTRY', key: `reentry:${reversal.id}`, lineId: row.line.id, reversalReceiptId: reversal.id,
+        reversalAt: reversal.received_at,
+        quantity: staged, requiresSerial: Boolean(item?.requires_serial), serials, row });
+    }
+    const remaining = stages.reduce((sum, stage) => sum + stage.quantity, 0)
+      + (row.state === 'LEGACY' || row.state === 'UNRESOLVED' ? normal : 0);
+    if (!remaining) continue;
+    if (itemId && !item) throw new Error('到貨品項資料不完整，請重新整理。');
+    const key = arrivalId ? itemId ? `arrival:${arrivalId}:item:${itemId}` : `arrival:${arrivalId}:unresolved`
+      : row.state === 'LEGACY' ? row.key : itemId ? `item:${itemId}` : row.key;
+    const group = groups.get(key) || {
+      key, itemId, pn: item?.code || (row.state === 'UNRESOLVED' ? '待補品項' : row.label),
+      name: item?.name || (row.state === 'UNRESOLVED' ? '尚未確認品項' : row.label),
+      quantity: 0, unit: row.unit, at: row.at, projectLabels: [], states: [], temporary: false, rows: [], remainingByLine: {}, stages: [],
+    };
+    group.quantity += remaining;
+    group.remainingByLine[row.line?.id || row.key] = remaining;
+    group.stages.push(...stages);
+    if (eventTime(row.at) > eventTime(group.at)) group.at = row.at;
+    if (row.projectLabel !== '未指定案件' && !group.projectLabels.includes(row.projectLabel)) group.projectLabels.push(row.projectLabel);
+    if (!group.states.includes(row.state)) group.states.push(row.state);
+    if (row.arrival && !row.matches.length) group.temporary = true;
+    group.rows.push(row);
+    groups.set(key, group);
+  }
+  return Array.from(groups.values()).sort((a, b) => eventTime(b.at) - eventTime(a.at) || a.key.localeCompare(b.key));
+}
+
+/** Read-only timeline from existing arrival, receipt, reversal, and transaction records. */
+export function receivingHistory(data: ReceivingV6Snapshot): ReceivingHistoryRow[] {
+  const actors = new Map(data.actors.map(actor => [actor.id, actor.name]));
+  const transactions = new Map(data.transactions.map(tx => [tx.id, tx]));
+  const linkedTransactions = new Set(data.receipts.map(receipt => receipt.inventory_transaction_id).filter(Boolean));
+  const rows: ReceivingHistoryRow[] = [];
+  for (const actual of actualRows(data).filter(row => row.arrival)) {
+    rows.push({ id: actual.key, at: actual.at || actual.arrival!.created_at,
+      actor: actors.get(actual.arrival!.created_by) || '未知經手人', item: actual.label,
+      quantity: actual.quantity, unit: actual.unit, type: '實際到貨',
+      state: '庫存效果 0',
+      projectLabel: actual.projectLabel, transactionId: null, receiptId: null,
+      arrivalLineId: actual.line?.id || null, itemId: actual.line?.inventory_item_id || null,
+      requiresSerial: false, serials: [], reversibleSerials: [], reversibleQuantity: 0, returnToReceived: false });
+  }
+  for (const event of data.cancellations || []) {
+    const line = data.lines.find(value => value.id === event.arrival_line_id);
+    const item = data.items.find(value => value.id === line?.inventory_item_id);
+    rows.push({ id: `cancel:${event.id}`, at: event.created_at,
+      actor: actors.get(event.created_by) || '歷史人員', item: itemLabel(item),
+      quantity: -Number(event.quantity), unit: line?.unit || item?.unit || '',
+      type: '取消實際到貨', state: 'Physical Arrival 取消',
+      projectLabel: projectLabel(data.projects, data.arrivals.find(value => value.id === line?.arrival_id)?.project_id || null),
+      transactionId: null, receiptId: null, arrivalLineId: line?.id || null,
+      itemId: line?.inventory_item_id || null, requiresSerial: Boolean(item?.requires_serial),
+      serials: [], reversibleSerials: [], reversibleQuantity: 0, returnToReceived: false });
+  }
+  for (const receipt of data.receipts) {
+    const tx = receipt.inventory_transaction_id ? transactions.get(receipt.inventory_transaction_id) : undefined;
+    const lineId = receipt.route_arrival_line_id || receipt.arrival_line_id;
+    const line = data.lines.find(value => value.id === lineId);
+    const material = data.materials.find(value => value.id === receipt.project_material_id);
+    const supply = data.supplies.find(value => value.id === receipt.se_supply_record_id);
+    const itemId = tx?.item_id || line?.inventory_item_id || material?.inventory_item_id || supply?.inventory_item_id;
+    const projectId = line ? data.arrivals.find(value => value.id === line.arrival_id)?.project_id : material?.project_id || supply?.project_id;
+    const item = data.items.find(value => value.id === itemId);
+    const serials = receiptSerialIdentities(receipt.id, data);
+    const reversed = data.receipts.filter(value => value.event_type === 'REVERSAL' && value.reversal_of_id === receipt.id)
+      .reduce((sum, value) => sum + Number(value.quantity_received), 0);
+    const remaining = receipt.event_type === 'RECEIVE' && receipt.receipt_location === 'OFFICE'
+      && receipt.inventory_linked && tx?.transaction_type === 'IN' && !tx.is_voided
+      && !tx.excluded_by_initialization_id ? Number(receipt.quantity_received) - reversed : 0;
+    if (!Number.isFinite(remaining) || remaining < 0) throw new Error('收據撤回數量不一致，請重新整理。');
+    const reversibleSerials = item?.requires_serial && remaining > 0 ? serials.filter(identity => {
+      const entry = data.observations.find(value => value.id === identity.entryId);
+      const serial = data.inventorySerials.find(value => value.id === identity.inventorySerialId);
+      const link = data.receiptSerials.find(value => value.receipt_id === receipt.id && value.entry_id === identity.entryId);
+      return Boolean(link && !link.linked_existing && entry?.active_receipt_id === receipt.id && serial?.item_id === itemId
+        && serial?.status === '在庫' && tx && transactionOwnsSerial(data, tx.id, serial.id));
+    }) : [];
+    const reversibleQuantity = item?.requires_serial ? Math.min(remaining, reversibleSerials.length) : remaining;
+    const arrival = line ? data.arrivals.find(value => value.id === line.arrival_id) : undefined;
+    const type = receipt.event_type === 'REVERSAL' ? (tx?.transaction_type === 'IN_REVERSAL' ? '入庫撤回' : '收貨更正')
+      : receipt.reentry_of_reversal_id ? '重新入庫' : receipt.source_type === 'ARRIVAL_ROUTE' ? '正式入庫' : '收貨';
+    rows.push({ id: `receipt:${receipt.id}`, at: receipt.received_at || receipt.created_at,
+      actor: actors.get(receipt.received_by) || tx?.handler || '未知經手人',
+      item: itemLabel(data.items.find(value => value.id === itemId)) === '待補品項'
+        ? material?.item_name || supply?.new_model || '待補品項' : itemLabel(data.items.find(value => value.id === itemId)),
+      quantity: Number(receipt.quantity_received) * (receipt.event_type === 'REVERSAL' ? -1 : 1),
+      unit: data.items.find(value => value.id === itemId)?.unit || material?.unit || supply?.unit || line?.unit || '',
+      type, state: tx ? `${tx.transaction_type} · ${tx.source || '庫存交易'}` : receipt.receipt_location === 'SITE' ? '案場收貨' : '收貨紀錄',
+      projectLabel: data.projects.find(value => value.id === projectId)?.name || '未指定案件', transactionId: tx?.id || null,
+      receiptId: receipt.id, arrivalLineId: lineId || null, itemId: itemId || null,
+      requiresSerial: Boolean(item?.requires_serial), serials, reversibleSerials,
+      reversibleQuantity, returnToReceived: (receipt.source_type === 'ARRIVAL_ROUTE' || receipt.source_type === 'ARRIVAL') && Boolean(line && arrival && !arrival.voided_at)
+        && Boolean(item?.is_active) && reversibleQuantity > 0 });
+  }
+  for (const tx of data.transactions) {
+    if (linkedTransactions.has(tx.id) || !tx.source || !/^(ARRIVAL_ROUTE|RECEIVING_)/.test(tx.source)) continue;
+    rows.push({ id: `transaction:${tx.id}`, at: tx.created_at, actor: tx.handler || '未知經手人',
+      item: itemLabel(data.items.find(value => value.id === tx.item_id)), quantity: Number(tx.quantity),
+      unit: data.items.find(value => value.id === tx.item_id)?.unit || '', type: '庫存交易',
+      state: `${tx.transaction_type} · ${tx.source}`, projectLabel: data.projects.find(value => value.id === tx.project_id)?.name || '未指定案件',
+      transactionId: tx.id, receiptId: null, arrivalLineId: null, itemId: tx.item_id,
+      requiresSerial: false, serials: [], reversibleSerials: [], reversibleQuantity: 0, returnToReceived: false });
+  }
+  return rows.sort((a, b) => eventTime(b.at) - eventTime(a.at) || b.id.localeCompare(a.id));
+}
+
+export function reverseReceiptPayload(row: ReceivingHistoryRow, requestId: string, quantity: number,
+  entryIds: string[], reversedAt: string, reason: string) {
+  if (!row.returnToReceived || !row.receiptId || !row.transactionId || !row.itemId || !reason.trim()
+    || !Number.isFinite(Date.parse(reversedAt)) || !Number.isFinite(Date.parse(row.at))
+    || !Number.isFinite(quantity) || quantity <= 0 || quantity > row.reversibleQuantity
+    || (row.requiresSerial ? !Number.isInteger(quantity) || entryIds.length !== quantity
+      || new Set(entryIds).size !== quantity
+      || entryIds.some(id => !row.reversibleSerials.some(serial => serial.entryId === id)) : entryIds.length !== 0))
+    throw new Error('收據撤回資料不完整或數量超過可撤回範圍。');
+  return { p_request_id: requestId, p_receipt_id: row.receiptId, p_quantity: quantity,
+    p_entry_ids: entryIds, p_reversed_at: Date.parse(reversedAt) < Date.parse(row.at) ? row.at : reversedAt,
+    p_reason: reason.trim() };
+}
+
+export function receivedPostCommand(stage: ReceivedStage, requestId: string, quantity: number,
+  entryIds: string[], receivedAt: string) {
+  if (!Number.isFinite(quantity) || quantity <= 0 || quantity > stage.quantity
+    || (stage.requiresSerial ? !Number.isInteger(quantity) || entryIds.length !== quantity
+      || new Set(entryIds).size !== quantity
+      || entryIds.some(id => !stage.serials.some(serial => serial.entryId === id)) : entryIds.length !== 0))
+    throw new Error('待入庫序號或數量不一致，請重新整理。');
+  if (stage.kind === 'NORMAL') {
+    if (!stage.lineId || stage.reversalReceiptId || entryIds.some(id => stage.serials.find(serial => serial.entryId === id)?.inventorySerialId))
+      throw new Error('一般到貨入庫關聯不完整，請重新整理。');
+    return { name: 'post_receiving_arrival_line' as const,
+      args: { p_request_id: requestId, p_line_id: stage.lineId, p_quantity: quantity,
+        p_entry_ids: entryIds, p_posting_date: null } };
+  }
+  if (!stage.reversalReceiptId || entryIds.some(id => !stage.serials.find(serial => serial.entryId === id)?.inventorySerialId))
+    throw new Error('重新入庫收據關聯不完整，請重新整理。');
+  if (!stage.reversalAt || !Number.isFinite(Date.parse(stage.reversalAt)) || !Number.isFinite(Date.parse(receivedAt)))
+    throw new Error('重新入庫時間關聯不完整，請重新整理。');
+  return { name: 'reenter_receiving_inventory' as const,
+    args: { p_request_id: requestId, p_reversal_receipt_id: stage.reversalReceiptId, p_quantity: quantity,
+      p_entry_ids: entryIds, p_received_at: new Date(Math.max(Date.parse(receivedAt), Date.parse(stage.reversalAt))).toISOString(), p_notes: null } };
 }
 export interface ArrivalSlice { actual: ActualRow; quantity: number; entryIds: string[]; serialIds: string[]; receiptId: string | null }
 export type WorkStatus = '待收' | '部分到貨' | '已收到' | '待補資料' | '已取消';
@@ -34,7 +300,10 @@ export function receivingWorkItems(data: ReceivingSnapshot): ReceivingWorkItem[]
   for (const actual of actualRows(data)) {
     const receiptId = actual.line?.receipt_id || actual.receipt?.id || null;
     const slice = (quantity: number, entries = actual.observations): ArrivalSlice => ({ actual, quantity, receiptId, entryIds: entries.map(e => e.id), serialIds: entries.flatMap(e => e.inventory_serial_id ? [e.inventory_serial_id] : []) });
-    const net = Math.max(0, actual.quantity - actual.reversed);
+    const canceled = (('cancellations' in data ? data.cancellations : []) as ReceivingStageCancellation[])
+      .filter(event => event.arrival_line_id === actual.line?.id)
+      .reduce((sum, event) => sum + Number(event.quantity), 0);
+    const net = Math.max(0, actual.quantity - actual.reversed - canceled);
     if (actual.receipt) {
       const key = matchSourceKey(actual.receipt);
       const owner = result.get(key);
@@ -51,7 +320,7 @@ export function receivingWorkItems(data: ReceivingSnapshot): ReceivingWorkItem[]
       owner.slices.push(slice(Number(match.quantity), entries));
     }
     if (assigned > net) throw new Error('收貨對應數量不一致，請重新整理。');
-    if (net > assigned || actual.state === 'UNRESOLVED') result.set(actual.key, {
+    if (net > assigned || (actual.state === 'UNRESOLVED' && net > 0)) result.set(actual.key, {
       key: actual.key, label: actual.label, projectLabel: actual.projectLabel, status: actual.state === 'UNRESOLVED' ? '待補資料' : '已收到',
       slices: [slice(net - assigned, actual.observations.filter(e => !assignedEntries.has(e.id)))], received: net - assigned, unit: actual.unit, at: actual.at,
     });
@@ -67,18 +336,20 @@ export function workItemSearch(row: ReceivingWorkItem, query: string) {
 
 /** Never attribute a quantity-only handoff to a particular match without provenance. */
 export function workItemStock(row: ReceivingWorkItem, data: ReceivingV6Snapshot) {
-  let available = 0, se = 0, site = 0, shared = false, known = false;
+  let available = 0, se = 0, site = 0, prep = 0, shared = false, known = false;
   for (const slice of row.slices) {
     const scope = slice.receiptId && data.scopes[slice.receiptId]; if (!scope) continue;
     known = true;
     if (!scope.requires_serial && slice.quantity !== scope.received) { shared = true; continue; }
-    if (!scope.requires_serial) { available += scope.available; se += scope.se; site += scope.site; continue; }
+    if (!scope.requires_serial) { available += scope.available; se += scope.se; site += scope.site; prep += scope.prep || 0; continue; }
     available += scope.available_serial_ids.filter(id => slice.serialIds.includes(id)).length;
     for (const a of scope.allocations.filter(a => !a.cancelled_at && a.inventory_serial_id && slice.serialIds.includes(a.inventory_serial_id))) {
-      if (a.route_type === 'SE') se += Number(a.quantity); else site += Number(a.quantity);
+      if (a.route_type === 'SE') se += Number(a.quantity);
+      else if (a.route_type === 'PROJECT_PREP') prep += Number(a.quantity);
+      else site += Number(a.quantity);
     }
   }
-  return { available, se, site, shared, known };
+  return { available, se, site, prep, shared, known };
 }
 
 export interface SerialAutoDraft {
@@ -112,6 +383,7 @@ export function finishSerialDraft(draft: SerialAutoDraft, lookup: InventorySeria
 export function groupedSerialArrival(drafts: SerialAutoDraft[], pending: PendingRow[]) {
   const groups = new Map<string, { line: CreateArrivalLine; pending?: PendingRow }>();
   for (const d of drafts) {
+    if (d.state === 'conflict') throw new Error(`序號 ${d.raw} 已存在或與品項衝突，請返回掃描確認。`);
     if (d.choiceRequired) throw new Error('請先選擇有多種可能的預計收貨，或保留未對應。');
     const target = pending.find(p => p.key === d.pendingKey);
     if (d.pendingKey && (!target || target.itemId !== d.itemId || !target.fulfilment.active)) throw new Error('預計收貨已變更，請重新整理。');
@@ -129,6 +401,12 @@ export function handoffCorrectionRequired(a: HandoffAllocation, scope: HandoffSc
   if (a.route_type === 'SE') {
     const se = data.supplies.find(s => s.id === a.se_supply_record_id);
     return !se || Boolean(se.replace_date || se.cancelled_at) || se.inventory_serial_id !== a.inventory_serial_id || Number(se.quantity) !== Number(a.quantity);
+  }
+  if (a.route_type === 'PROJECT_PREP') {
+    const material = data.materials.find(m => m.id === a.project_material_id);
+    return !material || Boolean(material.receiving_archived_at) || material.inventory_item_id !== a.inventory_item_id
+      || material.delivery_destination !== 'SITE' || (a.inventory_serial_id != null
+        && !data.inventorySerials.some(s => s.id === a.inventory_serial_id && s.status === '在庫'));
   }
   const tx = data.transactions.find(t => t.id === a.inventory_transaction_id);
   const site = data.receipts.find(r => r.id === a.site_receipt_id);
