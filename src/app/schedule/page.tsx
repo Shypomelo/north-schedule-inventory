@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { ActivityLog, ScheduleTask, ScheduleTaskMember, Project, User, Todo, TaskStatus, WorkGroup, WorkGroupKey } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { ScheduleTaskFormDialog } from '@/components/ScheduleTaskFormDialog';
@@ -34,6 +34,7 @@ import {
   collapseExpandedMonthWeeks,
   toggleExpandedMonthWeek,
 } from '@/lib/schedule-month-expand';
+import { renderScheduleWeekPng } from '@/lib/schedule-week-image';
 
 type ViewMode = 'week' | 'month';
 type ScheduleFontSize = 'small' | 'medium' | 'large';
@@ -102,6 +103,21 @@ export default function SchedulePage() {
   const [viewMode, setViewMode] = useState<ViewMode>('week');
   const [scheduleFontSize, setScheduleFontSize] = useState<ScheduleFontSize>('medium');
   const [currentDate, setCurrentDate] = useState(new Date());
+  const weekCursorReady = useRef(false);
+  useEffect(() => {
+    const value = new URLSearchParams(window.location.search).get('week');
+    if (value && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      const parsed = new Date(`${value}T12:00:00`);
+      if (!Number.isNaN(parsed.getTime()) && format(parsed, 'yyyy-MM-dd') === value) setCurrentDate(parsed);
+    }
+    weekCursorReady.current = true;
+  }, []);
+  useEffect(() => {
+    if (!weekCursorReady.current) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set('week', format(startOfWeek(currentDate, { weekStartsOn: 1 }), 'yyyy-MM-dd'));
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+  }, [currentDate]);
   const [isPresentationMode, setIsPresentationMode] = useState(false);
   const [expandedMonthWeeks, setExpandedMonthWeeks] = useState<Set<string>>(collapseExpandedMonthWeeks);
   const visibleMonthKey = format(currentDate, 'yyyy-MM');
@@ -709,6 +725,24 @@ export default function SchedulePage() {
     };
   };
 
+  const downloadWeekImage = async () => {
+    try {
+      const days = weekDays.map(day => ({
+        date: format(day, 'yyyy/MM/dd'),
+        tasks: sortTasks(groupTasks.filter(task => task.task_date === format(day, 'yyyy-MM-dd'))).map(task => {
+          const display = getScheduleTaskPresentation(task, projects, users, members);
+          return { title: [display.projectName, formatTaskTime(task)].filter(Boolean).join(' · ') || '排程任務',
+            detail: [display.cardDetail, display.assigneeDisplay].filter(Boolean).join(' · ') };
+        }),
+      }));
+      const blob = await renderScheduleWeekPng(days, new Date());
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a'); anchor.href = url;
+      anchor.download = `weekly-schedule-${format(weekStart, 'yyyy-MM-dd')}.png`;
+      anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (cause) { alert(cause instanceof Error ? cause.message : '無法產生排程圖片。'); }
+  };
+
   const renderWeeklySchedule = (days: Date[], includeTodoColumn: boolean, presentationMode = false) => {
     const displayFontSizeClasses = presentationMode ? {
       primary: 'text-[clamp(1rem,1.35vw,1.75rem)] leading-[clamp(1.35rem,1.8vw,2.2rem)]',
@@ -1241,6 +1275,7 @@ export default function SchedulePage() {
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={() => void downloadWeekImage()} className="min-h-10 rounded-lg border border-[var(--border)] px-3 font-semibold hover:bg-[var(--surface-secondary)]">下載本週排程 PNG</button>
               <button type="button" onClick={() => setCurrentDate(subDays(currentDate, 7))} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-[var(--border)] px-3 font-semibold hover:bg-[var(--surface-secondary)]" aria-label="上一週">
                 <ChevronLeft size={20} />上一週
               </button>
