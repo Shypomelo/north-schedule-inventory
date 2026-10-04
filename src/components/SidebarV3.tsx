@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useUser } from '@/components/UserContext';
 import { useTheme } from '@/components/ThemeContext';
 import { UserSelector } from '@/components/UserSelector';
-import { Building2, Calendar, ChevronLeft, ChevronRight, Home, ListChecks, LogOut, Menu, Package, Palette, Settings, Truck, UserRound, Users, Wrench, X } from 'lucide-react';
+import { Building2, Calendar, ChevronLeft, ChevronRight, Home, Link2, ListChecks, LogOut, Menu, Package, Palette, Settings, Truck, UserRound, Users, Wrench, X } from 'lucide-react';
 import { isMobileNavigationEdgeSwipe, type SwipePoint } from '@/lib/mobile-navigation-gesture';
 import { dbAdapter } from '@/lib/db';
 import type { MemberPosition, Position } from '@/lib/db/types';
@@ -108,6 +108,7 @@ export function Sidebar() {
           </div>}
         </details>
         {navItem('/inventory', '庫存管理', Package, collapsed, true)}
+        {navItem('/toolbox', '工具箱', Link2, collapsed, true)}
         {navItem('/se-supply', 'SE 供貨追蹤', Truck, collapsed, true)}
         {currentRole === 'admin' && (
           <details className="group mt-2" open={!collapsed}>
