@@ -21,9 +21,10 @@ import { ReceivingPendingDeleteConfirm } from './ReceivingPendingDeleteConfirm';
 import { useReceivingActionMenu, type ReceivingActionTarget } from './ReceivingActionMenu';
 import { ActionError, v5Button, v5Primary } from './ReceivingV5Forms';
 import { ReceivingPendingBatchForm } from './ReceivingPendingBatchForm';
+import { receivingReminderBucket, type ReminderBucket } from '@/lib/receiving-reminders';
 
 const api = createReceivingV6Api(supabase);
-type Tab = 'pending' | 'received' | 'history';
+type Tab = 'pending' | 'received' | 'history' | 'reminders';
 type Dialog = { kind: 'work'; key: string } | { kind: 'received'; key: string; mode: 'inventory' | 'SE' | 'PROJECT_PREP' | 'resolve' | 'cancel' } | { kind: 'return'; key: string } | { kind: 'pending' } | { kind: 'actual' };
 const shortTime = (value: string | null) => value ? new Intl.DateTimeFormat('zh-TW', {
   timeZone: 'Asia/Taipei', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
@@ -84,6 +85,8 @@ export function ReceivingV6Center() {
   useEffect(() => { const requestGeneration = generation; void load(); return () => { requestGeneration.current++; }; }, [load]);
 
   const pending = useMemo(() => data ? receivingPendingList(data) : [], [data]);
+  const reminders = pending.map(row => ({ row, bucket: data ? receivingReminderBucket(row, data, new Date()) : null }))
+    .filter((entry): entry is { row: PendingRow; bucket: ReminderBucket } => entry.bucket !== null);
   const history = useMemo(() => data ? receivingHistory(data) : [], [data]);
   const batches = useMemo(() => data ? receivingBatchViews(data, history) : [], [data, history]);
   const today = receivingTaipeiDay(new Date().toISOString());
@@ -122,6 +125,7 @@ export function ReceivingV6Center() {
     { key: 'pending', label: '待收貨', count: pending.length },
     { key: 'received', label: '已收到', count: recentBatches.length },
     { key: 'history', label: '收貨紀錄', count: batches.length + standaloneHistory.length },
+    { key: 'reminders', label: '提醒', count: reminders.length },
   ];
   const createButtons = <><button type="button" className={v5Button} disabled={!editable || !data} onClick={() => setDialog({ kind: 'pending' })}>＋預計收貨</button><button type="button" className={v5Primary} disabled={!editable || !data} onClick={() => setDialog({ kind: 'actual' })}>＋實際到貨</button></>;
 
@@ -132,6 +136,7 @@ export function ReceivingV6Center() {
       <div role="tablist" aria-label="收貨分類" className="mt-3 flex gap-4 overflow-x-auto">{tabs.map(value => <button type="button" role="tab" key={value.key} aria-selected={tab === value.key} className={'shrink-0 border-b-2 pb-2 text-sm font-semibold ' + (tab === value.key ? 'border-accent text-accent' : 'border-transparent text-secondary hover:text-primary')} onClick={() => setTab(value.key)}>{value.label}<span className="ml-1.5 tabular-nums font-normal">{value.count}</span></button>)}</div>
     </header>
     <div className="min-w-0 px-3 sm:px-4"><ActionError message={error} />{notice && <p role="status" className="py-2 text-sm text-accent">{notice}</p>}{loading && !data && <p role="status" className="py-8 text-sm text-secondary">載入物料收貨…</p>}
+      {tab === 'reminders' && <div role="tabpanel" aria-label="到貨提醒" className="space-y-4 py-4">{([['overdue', '已逾期'], ['today', '今日到貨'], ['upcoming', '即將到貨']] as const).map(([bucket, label]) => <section key={bucket} className="rounded-lg border border-theme-border p-3"><h2 className="mb-2 font-semibold text-primary">{label} · {reminders.filter(entry => entry.bucket === bucket).length}</h2><div className="divide-y divide-theme-border">{reminders.filter(entry => entry.bucket === bucket).map(({ row }) => <button type="button" key={row.key} onClick={() => setDialog({ kind: 'work', key: row.key })} className="flex w-full flex-wrap justify-between gap-2 py-3 text-left text-sm text-primary"><span>{row.label} · {row.projectLabel}</span><span className="text-secondary">{row.expectedAt ? shortTime(row.expectedAt) : ''} · 待收 {formatReceivingQuantity(row.fulfilment.remaining)} {row.unit}</span></button>)}</div></section>)}</div>}
       {tab === 'pending' && <div role="tabpanel" aria-label="待收貨" className="divide-y divide-theme-border">{shownPending.map(row => {
         const target = pendingMenuTarget(row, editable);
         return <div key={row.key} className="flex min-w-0 items-center gap-1">
@@ -172,7 +177,7 @@ export function ReceivingV6Center() {
           return <article key={row.id} data-history-row={row.id} {...actionMenu.bind(target)} className="flex min-w-0 items-center gap-2 text-xs"><span className="min-w-0 flex-1 break-words">{row.type} · {row.item} · {formatReceivingQuantity(row.quantity)} {row.unit} · {row.state}</span>{target.actions.length > 0 && <button type="button" className="min-h-9 px-2" onClick={event => actionMenu.openFromButton(target, event.currentTarget)}><MoreHorizontal size={17} /></button>}</article>;
         })}</div>
       </details>)}{standaloneHistory.map(row => <article key={row.id} className="py-2 text-sm">{formatTaipeiReceivingTime(row.at)} · {row.type} · {row.item}</article>)}</div>}
-      {!loading && !(tab === 'pending' ? shownPending.length : tab === 'received' ? shownReceived.length : shownHistory.length + standaloneHistory.length) && <p className="py-10 text-center text-sm text-secondary">{query ? '沒有符合的資料' : tab === 'pending' ? '目前沒有待收貨' : tab === 'received' ? '目前沒有已收到的貨品' : '目前沒有收貨紀錄'}</p>}
+      {!loading && !(tab === 'pending' ? shownPending.length : tab === 'received' ? shownReceived.length : tab === 'reminders' ? reminders.length : shownHistory.length + standaloneHistory.length) && <p className="py-10 text-center text-sm text-secondary">{query ? '沒有符合的資料' : tab === 'pending' ? '目前沒有待收貨' : tab === 'received' ? '目前沒有已收到的貨品' : tab === 'reminders' ? '目前沒有到貨提醒' : '目前沒有收貨紀錄'}</p>}
     </div>
     {actionMenu.popup}
     {deleteTarget && <ReceivingPendingDeleteConfirm key={deleteTarget.key + ':' + deleteTarget.source.updatedAt}

@@ -49,6 +49,7 @@ export default function InventoryBalancePage() {
   const [txModal, setTxModal] = useState<{ visible: boolean, type: TransactionType, itemId: string | null }>({ visible: false, type: 'IN', itemId: null });
   const [isSubmittingTx, setIsSubmittingTx] = useState(false);
   const [showZeroStock, setShowZeroStock] = useState(false);
+  const [showLowStock, setShowLowStock] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string>('設備維修');
 
   const MAIN_CATEGORIES = ['設備維修', '建置 / 維修'];
@@ -176,6 +177,7 @@ export default function InventoryBalancePage() {
     }
   };
   const simpleBalances = balances.map(b => ({ item_id: b.item_id, balance: b.balance }));
+  const lowStockCount = balances.filter(b => b.low_stock_threshold > 0 && b.balance <= b.low_stock_threshold).length;
   const txModalItem = txModal.itemId ? items.find(item => item.id === txModal.itemId) : undefined;
 
   return (
@@ -189,6 +191,9 @@ export default function InventoryBalancePage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          <button type="button" aria-pressed={showLowStock} onClick={() => setShowLowStock(value => !value)} className={`rounded-lg border px-3 py-2 text-sm font-semibold ${showLowStock ? 'border-warning bg-warning/20 text-warning' : 'border-theme-border text-secondary'}`}>
+            低庫存 {lowStockCount}
+          </button>
           <label className="flex items-center gap-2 text-secondary text-sm cursor-pointer mr-2 hover:text-accent transition-colors">
             <input 
 
@@ -245,11 +250,11 @@ export default function InventoryBalancePage() {
       <div className="flex-1 overflow-auto bg-card/30 border border-theme-border rounded-xl relative shadow-xl">
         {isLoading ? (
           <div className="absolute inset-0 flex items-center justify-center text-secondary">載入中...</div>
-        ) : balances.filter(b => b.category === activeCategory).length === 0 ? (
+        ) : balances.filter(b => b.category === activeCategory && (!showLowStock || (b.low_stock_threshold > 0 && b.balance <= b.low_stock_threshold))).length === 0 ? (
            <div className="absolute inset-0 flex flex-col items-center justify-center text-secondary/70">
              <Package size={48} className="mb-4 opacity-50" />
              <p>此分類目前無任何品項資料</p>
-             <button onClick={() => setDetailItemId('NEW')} disabled={currentUser?.role === 'VIEWER'} className="text-accent hover:underline mt-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline">
+             <button onClick={() => setDetailItemId('NEW')} disabled={currentUser?.role !== 'ADMIN' && currentUser?.role !== 'ENGINEER'} className="text-accent hover:underline mt-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline">
                點此新增品項
              </button>
            </div>
@@ -267,8 +272,7 @@ export default function InventoryBalancePage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-theme-border/50 text-sm">
-              {balances.filter(b => b.category === activeCategory && (showZeroStock || b.balance > 0)).map((b, i) => {
-                const isLowStock = b.balance <= b.low_stock_threshold;
+              {balances.filter(b => b.category === activeCategory && (showZeroStock || showLowStock || b.balance > 0) && (!showLowStock || (b.low_stock_threshold > 0 && b.balance <= b.low_stock_threshold))).map((b, i) => {
                 return (
                   <tr 
                     key={i} 
@@ -278,7 +282,7 @@ export default function InventoryBalancePage() {
                   >
                     <td className="p-4 text-secondary">{b.source}</td>
                     <td className="p-4 text-primary font-medium group-hover:text-accent transition-colors">
-                      {b.item_name}
+                      {b.item_name}{b.low_stock_threshold > 0 && b.balance <= b.low_stock_threshold && <span className="ml-2 text-xs text-warning">低庫存</span>}
                     </td>
                     <td className="p-4 text-right font-semibold text-secondary/80">{b.opening}</td>
                     <td className="p-4 text-right font-semibold text-success/80">{b.mtd_in > 0 ? `+${b.mtd_in}` : '-'}</td>
