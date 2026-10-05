@@ -10,7 +10,7 @@ import {
 export interface MatchInput { project_material_id?: string; se_supply_record_id?: string; quantity: number; entry_ids?: string[] }
 export interface MatchCandidate extends PendingRow { eligibleEntryIds?: string[]; unregisteredEntryIds?: string[]; unregisteredCapacity?: number }
 export interface CreateArrivalResult { arrival: Arrival; lines: ArrivalLine[]; matches: { status: 'MATCHED' | 'CONFLICT'; message?: string }[] }
-export function createReceivingV5Api(client: SupabaseClient) {
+export function createReceivingV5Api(client: SupabaseClient, procurementReadOnly = false) {
   async function rpc<T>(name: string, args: Record<string, unknown>): Promise<T> {
     const { data, error } = await client.rpc(name, args);
     if (error) throw new Error(error.message);
@@ -77,7 +77,7 @@ export function createReceivingV5Api(client: SupabaseClient) {
   }
   async function load(): Promise<ReceivingSnapshot> {
     const [projects, items, materials, supplies, arrivals, lines, observations, matches, matchObservations, receipts, batches] = await Promise.all([
-      rows<Project & { project_name?: string; project_short_name?: string; deleted_at?: string | null }>('projects'), rows<InventoryItem>('inventory_items'),
+      (procurementReadOnly ? rpc<(Project & { project_name?: string; project_short_name?: string; deleted_at?: string | null })[]>('get_procurement_project_labels', {}) : rows<Project & { project_name?: string; project_short_name?: string; deleted_at?: string | null }>('projects')), rows<InventoryItem>('inventory_items'),
       rows<ProjectMaterial>('project_materials', { delivery_destination: 'OFFICE' }), rows<SESupplyRecord>('se_supply_records'),
       rows<Arrival>('receiving_arrivals'), rows<ArrivalLine>('receiving_arrival_lines'),
       rows<ArrivalObservation>('receiving_serial_entries'), rows<ArrivalMatch>('receiving_arrival_matches'),

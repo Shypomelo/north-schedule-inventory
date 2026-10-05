@@ -153,7 +153,7 @@ export function ReceivingThreeWayDetail({ group, data, api, canEdit, initialMode
     {group.rows.some(row => row.observations.length > 0) && <details className="rounded-lg border border-theme-border px-3 py-2 text-sm"><summary className="cursor-pointer">查看序號 · {group.rows.reduce((sum, row) => sum + row.observations.length, 0)}</summary>
       <ul className="max-h-48 overflow-y-auto pt-2">{group.rows.flatMap(row => row.observations.map(entry => <li key={entry.id} className="break-all py-0.5">{entry.normalized_serial}</li>))}</ul></details>}
     {canEdit && <div aria-label="後續處理" className="flex flex-wrap gap-2">{modes.map(value => <button key={value.key} type="button" aria-pressed={mode === value.key} className={mode === value.key ? v5Primary : v5Button} onClick={() => setMode(value.key)}>{value.label}</button>)}</div>}
-    {mode === 'resolve' && unresolved && (group.rows.some(row => row.observations.length > 0)
+    {canEdit && mode === 'resolve' && unresolved && (group.rows.some(row => row.observations.length > 0)
       ? <ReceivingBatchResolve group={group} data={data} api={api} onChanged={onChanged} />
       : group.rows[0] && <CompleteUnknown row={group.rows[0]} data={data} api={api} onChanged={async () => { await onChanged(); }} />)}
     {mode === 'inventory' && !unresolved && <ReceivingPostDetail group={group} data={data} api={api} canPost={canEdit && group.stages.length > 0} onPosted={onChanged} />}

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useUser } from '@/components/UserContext';
 import { LogIn, AlertCircle } from 'lucide-react';
 import { getSafeNextPath, selectLoginNextPath } from '@/lib/auth-lifecycle';
+import { isProcurementRoute, landingPath } from '@/lib/procurement-access';
 
 const INTENDED_PATH_STORAGE_KEY = 'north-schedule-intended-path';
 
@@ -38,7 +39,9 @@ export default function LoginPage() {
   useEffect(() => {
     if (currentUser && !isLoading && nextReady) {
       const snapshot = getLoginRedirectSnapshot();
-      const targetPath = snapshot.redirectTo;
+      const targetPath = currentUser.role === 'PROCUREMENT'
+        ? (isProcurementRoute(snapshot.redirectTo) ? snapshot.redirectTo : landingPath(currentUser.role))
+        : snapshot.redirectTo;
       sessionStorage.removeItem(INTENDED_PATH_STORAGE_KEY);
       router.replace(targetPath);
     }

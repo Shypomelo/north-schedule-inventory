@@ -3,11 +3,14 @@
 import React, { useState, useEffect } from 'react';
 import { InventoryTransaction, InventoryItem, Project, InventorySerial, InventoryTransactionSerial, InventorySerialLookupCandidate } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
+import { useUser } from '@/components/UserContext';
+import { getProcurementProjectLabels } from '@/lib/db/procurement-labels';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { classifySerialFormat } from '@/lib/inventory-serial-normalization';
 
 export default function SerialsPage() {
+  const { currentUser } = useUser();
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [transactions, setTransactions] = useState<InventoryTransaction[]>([]);
@@ -16,11 +19,11 @@ export default function SerialsPage() {
   
   const [isLoading, setIsLoading] = useState(true);
 
-  const fetchData = async () => {
+  const fetchData = React.useCallback(async () => {
     setIsLoading(true);
     const [itms, projs, txs, srls, txSrls] = await Promise.all([
       dbAdapter.getInventoryItems(),
-      dbAdapter.getProjects(),
+      currentUser?.role === 'PROCUREMENT' ? getProcurementProjectLabels() : dbAdapter.getProjects(),
       dbAdapter.getInventoryTransactions(),
       dbAdapter.getInventorySerials(),
       dbAdapter.getInventoryTransactionSerials()
@@ -31,11 +34,11 @@ export default function SerialsPage() {
     setAllSerials(srls);
     setTxSerials(txSrls);
     setIsLoading(false);
-  };
+  }, [currentUser?.role]);
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   const pendingList = txSerials.filter(serialLink => {
     if (!serialLink.is_pending) return false;
@@ -56,6 +59,7 @@ export default function SerialsPage() {
   );
 
   const handleFillPending = async (txSerialId: string, txId: string, inputSerial: string) => {
+    if (currentUser?.role !== 'ADMIN' && currentUser?.role !== 'ENGINEER') return;
     if (!inputSerial.trim()) return alert("請輸入序號");
     const serialStr = inputSerial.trim();
     if (classifySerialFormat(serialStr) === 'unknown') {
@@ -114,7 +118,7 @@ export default function SerialsPage() {
                     </div>
                   )}
 
-                  <div className="mt-auto pt-2">
+                  {currentUser?.role !== 'PROCUREMENT' && <div className="mt-auto pt-2">
                     <form 
                       onSubmit={(e) => {
                         e.preventDefault();
@@ -132,7 +136,7 @@ export default function SerialsPage() {
                         補登
                       </button>
                     </form>
-                  </div>
+                  </div>}
                 </div>
               );
             })}

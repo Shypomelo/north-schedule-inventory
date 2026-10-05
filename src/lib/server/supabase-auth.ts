@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { isStandardAppRole } from '@/lib/procurement-access';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -88,6 +89,9 @@ export async function requireActiveTeamMember(
 
   if (!member) {
     return { context: null, error: jsonError('User is not an active team member', 403) };
+  }
+  if (!isStandardAppRole(member.role?.toUpperCase())) {
+    return { context: null, error: jsonError('Standard app member access is required', 403) };
   }
 
   return {

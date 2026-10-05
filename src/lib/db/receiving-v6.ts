@@ -19,8 +19,8 @@ type PostArrivalLineResult = {
   remaining_staged_quantity: number;
 };
 
-export function createReceivingV6Api(client: SupabaseClient) {
-  const base = createReceivingV5Api(client);
+export function createReceivingV6Api(client: SupabaseClient, procurementReadOnly = false) {
+  const base = createReceivingV5Api(client, procurementReadOnly);
   async function rpc<T>(name: string, args: Record<string, unknown>): Promise<T> {
     const { data, error } = await client.rpc(name, args);
     if (error) throw new Error(error.message);
@@ -65,7 +65,7 @@ export function createReceivingV6Api(client: SupabaseClient) {
         base.load(),
         rows<HandoffTransaction>('inventory_transactions', 'id,item_id,project_id,transaction_type,quantity,transaction_date,schedule_task_id,is_voided,excluded_by_initialization_id,source,handler,created_at,reverses_transaction_id,reenters_reversal_id', 'id'),
         rows<ReceivingV6Snapshot['closings'][number]>('inventory_monthly_closings', 'year,month,status', 'id'),
-        rows<ReceivingV6Snapshot['actors'][number]>('team_members', 'id,name', 'id'),
+        (procurementReadOnly ? rpc<ReceivingV6Snapshot['actors']>('get_procurement_actor_labels', {}) : rows<ReceivingV6Snapshot['actors'][number]>('team_members', 'id,name', 'id')),
         rows<ReceivingV6Snapshot['receiptSerials'][number]>('material_receipt_serials', 'receipt_id,entry_id,inventory_serial_id,linked_existing', ['receipt_id', 'entry_id']),
         rows<ReceivingV6Snapshot['cancellations'][number]>('receiving_arrival_stage_cancellations', 'id,arrival_line_id,reversal_receipt_id,quantity,entry_ids,reason,created_by,created_at', 'id'),
       ]);

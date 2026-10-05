@@ -161,7 +161,7 @@ export default function MonthlyReportPage() {
   const isMonthlyDataLoading = isLoading || isMonthlyItemsLoading;
 
   const handleCloseMonth = async () => {
-    if (currentClosing || currentUser?.role === 'VIEWER' || isMonthlyDataLoading || monthlyItemsError) return;
+    if (currentClosing || (currentUser?.role !== 'ADMIN' && currentUser?.role !== 'ENGINEER') || isMonthlyDataLoading || monthlyItemsError) return;
 
     setIsLoading(true);
     try {
@@ -367,16 +367,16 @@ export default function MonthlyReportPage() {
                      解除封存
                    </button>
                  )
-               ) : (
+               ) : currentUser?.role !== 'PROCUREMENT' ? (
                  <button
                    onClick={handleCloseMonth}
-                   disabled={currentUser?.role === 'VIEWER' || isMonthlyDataLoading || Boolean(monthlyItemsError)}
+                   disabled={(currentUser?.role !== 'ADMIN' && currentUser?.role !== 'ENGINEER') || isMonthlyDataLoading || Boolean(monthlyItemsError)}
                    className="flex items-center gap-2 px-4 py-2 rounded shadow transition bg-success hover:bg-success/80 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                  >
                    <CheckCircle size={18} />
                    封存本月
                  </button>
-               )}
+               ) : null}
                <button 
                  onClick={handleExport}
                  disabled={isMonthlyDataLoading || Boolean(monthlyItemsError) || displayData.length === 0}

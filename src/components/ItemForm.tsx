@@ -20,7 +20,7 @@ export function ItemForm({
   isOpeningQuantityLocked = false,
 }: ItemFormProps) {
   const { currentUser } = useUser();
-  const isViewer = currentUser?.role === 'VIEWER';
+  const isViewer = currentUser?.role !== 'ADMIN' && currentUser?.role !== 'ENGINEER';
   const [formData, setFormData] = useState({
     code: initialData?.code || '',
     name: initialData?.name || '',

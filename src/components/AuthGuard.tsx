@@ -4,6 +4,7 @@ import React, { useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useUser } from '@/components/UserContext';
 import { Loader2 } from 'lucide-react';
+import { isProcurementRoute, landingPath } from '@/lib/procurement-access';
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const { currentUser, isLoading } = useUser();
@@ -11,6 +12,10 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   useEffect(() => {
+    if (!isLoading && currentUser?.role === 'PROCUREMENT' && pathname !== '/login' && !isProcurementRoute(pathname)) {
+      router.replace(landingPath(currentUser.role));
+      return;
+    }
     if (!isLoading && !currentUser && pathname !== '/login') {
       const currentPath = typeof window !== 'undefined'
         ? `${window.location.pathname}${window.location.search}`
@@ -34,6 +39,10 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   // Only render children if user is logged in or if we are on the login page
   if (!currentUser && pathname !== '/login') {
     return null; // Will redirect in useEffect
+  }
+
+  if (currentUser?.role === 'PROCUREMENT' && pathname !== '/login' && !isProcurementRoute(pathname)) {
+    return null;
   }
 
   return <>{children}</>;

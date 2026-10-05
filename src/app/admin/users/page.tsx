@@ -153,6 +153,7 @@ export default function AdminUsersPage() {
       const payload = editingUser && isOwnerUser(editingUser)
         ? { ...formData, role: 'ADMIN' as UserRole, is_active: true }
         : formData;
+      const procurementProfile = payload.role === 'PROCUREMENT';
 
       await dbAdapter.updateMemberWorkspaceProfile({
         memberId: editingUser?.id ?? null,
@@ -162,11 +163,11 @@ export default function AdminUsersPage() {
         isActive: payload.is_active !== false,
         googleCalendarEmail: payload.google_calendar_email || null,
         notes: payload.notes || null,
-        positionIds: selectedPositionIds,
-        workGroupIds: selectedWorkGroupIds,
-        defaultWorkGroupId,
-        dashboardViewIds: selectedDashboardViewIds,
-        defaultDashboardViewId,
+        positionIds: procurementProfile ? [] : selectedPositionIds,
+        workGroupIds: procurementProfile ? [] : selectedWorkGroupIds,
+        defaultWorkGroupId: procurementProfile ? null : defaultWorkGroupId,
+        dashboardViewIds: procurementProfile ? [] : selectedDashboardViewIds,
+        defaultDashboardViewId: procurementProfile ? null : defaultDashboardViewId,
       });
       setIsModalOpen(false);
       await loadUsers();
@@ -402,7 +403,7 @@ export default function AdminUsersPage() {
                   </label>
                   <label className="flex flex-col gap-1.5 text-sm font-medium text-secondary">系統權限
                     <select value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as UserRole})} disabled={editingOwner} className="rounded-lg border border-theme-border bg-page p-2.5 text-primary outline-none focus:border-accent disabled:opacity-60">
-                      <option value="ADMIN">管理員</option><option value="ENGINEER">一般使用者</option><option value="VIEWER">唯讀</option>
+                      <option value="ADMIN">管理員</option><option value="ENGINEER">一般使用者</option><option value="VIEWER">唯讀</option><option value="PROCUREMENT">採購</option>
                     </select>
                   </label>
                   <label className="flex flex-col gap-1.5 text-sm font-medium text-secondary">狀態
@@ -419,7 +420,7 @@ export default function AdminUsersPage() {
                 </div>
               </section>
 
-              <fieldset className="rounded-lg border border-theme-border p-3">
+              <fieldset disabled={formData.role === 'PROCUREMENT'} className="rounded-lg border border-theme-border p-3 disabled:opacity-50">
                 <legend className="px-1 text-sm font-semibold text-primary">職位（可複選）</legend>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {positions.filter(position => position.is_active).map(position => <label key={position.id} className="flex min-h-11 items-center gap-2 rounded-lg bg-page px-3 py-2 text-sm text-primary"><input type="checkbox" checked={selectedPositionIds.includes(position.id)} onChange={event => setSelectedPositionIds(current => event.target.checked ? Array.from(new Set([...current, position.id])) : current.filter(id => id !== position.id))} className="h-4 w-4 accent-accent" />{position.name}</label>)}
@@ -427,7 +428,7 @@ export default function AdminUsersPage() {
                 </div>
               </fieldset>
 
-              <fieldset className="rounded-lg border border-theme-border p-3">
+              <fieldset disabled={formData.role === 'PROCUREMENT'} className="rounded-lg border border-theme-border p-3 disabled:opacity-50">
                 <legend className="px-1 text-sm font-semibold text-primary">工作群組與預設工作空間</legend>
                 <div className="space-y-2">{workGroups.filter(group => group.is_active).map(group => {
                   const selected = selectedWorkGroupIds.includes(group.id);
@@ -435,7 +436,7 @@ export default function AdminUsersPage() {
                 })}</div>
               </fieldset>
 
-              <fieldset className="rounded-lg border border-theme-border p-3">
+              <fieldset disabled={formData.role === 'PROCUREMENT'} className="rounded-lg border border-theme-border p-3 disabled:opacity-50">
                 <legend className="px-1 text-sm font-semibold text-primary">Dashboard 工作視角與預設視角</legend>
                 <p className="mb-2 text-xs text-secondary">管理員固定可使用所有啟用視角；勾選項目只保存其偏好與預設。</p>
                 <div className="space-y-2">{dashboardViews.filter(view => view.is_active).map(view => {

@@ -5,6 +5,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   ADMIN: '管理員',
   ENGINEER: '一般使用者',
   VIEWER: '唯讀',
+  PROCUREMENT: '採購',
 };
 
 export const ENGINEERING_POSITION_NAME = '工程';

@@ -10,6 +10,8 @@ import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
 import { InventoryRoutingPanel } from './ReceivingInventoryRouting';
 import { ItemForm } from './ItemForm';
 import { useUser } from './UserContext';
+import { isInventoryEditor } from '@/lib/procurement-access';
+import { getProcurementProjectLabels } from '@/lib/db/procurement-labels';
 import { getInventoryBatchUsageSummary, isEffectiveInventorySerial } from '@/lib/db/inventory-batch-status';
 
 interface ItemDetailModalProps {
@@ -22,6 +24,7 @@ type TabKey = 'SUMMARY' | 'EDIT' | 'BATCHES' | 'HISTORY';
 
 export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailModalProps) {
   const { currentUser } = useUser();
+  const canEdit = isInventoryEditor(currentUser?.role);
   const [activeTab, setActiveTab] = useState<TabKey>('SUMMARY');
   const [routingRevision, setRoutingRevision] = useState(0);
   
@@ -47,7 +50,7 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
         dbAdapter.getInventoryItems(),
         dbAdapter.getInventoryTransactions(),
         dbAdapter.getInventorySerials(),
-        dbAdapter.getProjects(),
+        currentUser?.role === 'PROCUREMENT' ? getProcurementProjectLabels() : dbAdapter.getProjects(),
         // @ts-ignore
         dbAdapter.getInventoryBatches ? dbAdapter.getInventoryBatches() : Promise.resolve([]),
         dbAdapter.hasInventoryItemMonthlyClosing(itemId),
@@ -63,7 +66,7 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
       setIsLoading(false);
     }
     load();
-  }, [itemId, routingRevision]);
+  }, [itemId, routingRevision, currentUser?.role]);
 
   // Focus input automatically when expanded
   useEffect(() => {
@@ -126,6 +129,7 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
 
   const handleManualRegisterSerial = async (e: React.FormEvent, batchId: string) => {
     e.preventDefault();
+    if (!canEdit) return;
     if (!newSerialNo.trim() || !item) return;
     
     const serialStr = newSerialNo.trim();
@@ -186,6 +190,7 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
   };
 
   const handleDeleteSerial = async (serialId: string) => {
+    if (!canEdit) return;
     if (!confirm('確定要刪除此序號嗎？(此操作僅刪除序號資料，不會改變庫存數量)')) return;
     try {
       if (dbAdapter.deleteInventorySerial) {
@@ -201,7 +206,7 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
   };
 
   const handleUpdateSource = async (newSource: string) => {
-    if (!item || currentUser?.role === 'VIEWER') return;
+    if (!item || !canEdit) return;
     try {
       const updated = await dbAdapter.updateInventoryItem(item.id, { source_type: newSource });
       setItem(updated);
@@ -215,7 +220,7 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
   const handleUpdateItem = async (
     updates: Omit<InventoryItem, 'id' | 'created_at' | 'updated_at'>,
   ) => {
-    if (!item || currentUser?.role === 'VIEWER') return;
+    if (!item || !canEdit) return;
 
     setIsSavingItem(true);
     try {
@@ -267,7 +272,7 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
             {/* Sidebar Navigation */}
             <div className="w-full shrink-0 overflow-x-auto border-b border-theme-border/50 bg-card/20 p-2 md:w-64 md:overflow-y-auto md:border-b-0 md:border-r md:p-4">
               <div className="flex gap-2 md:flex-col">
-                {tabs.map(t => (
+                {tabs.filter(t => canEdit || t.key !== 'EDIT').map(t => (
                   <button
                     key={t.key}
                     onClick={() => setActiveTab(t.key as TabKey)}
@@ -287,7 +292,7 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
             {/* Main Content Area */}
             <div className="min-w-0 flex-1 overflow-y-auto bg-card/50 p-3 sm:p-6">
               
-              {activeTab === 'SUMMARY' && itemId && currentUser?.role !== 'VIEWER' && <InventoryRoutingPanel itemId={itemId} onChanged={() => { setRoutingRevision(value => value + 1); onItemUpdated(); }} />}
+              {activeTab === 'SUMMARY' && itemId && canEdit && <InventoryRoutingPanel itemId={itemId} onChanged={() => { setRoutingRevision(value => value + 1); onItemUpdated(); }} />}
               {activeTab === 'SUMMARY' && (
                 <div className="flex flex-col gap-5 max-w-2xl">
                   <h3 className="text-lg font-bold text-primary border-b border-theme-border/50 pb-2">庫存摘要</h3>
@@ -301,7 +306,7 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
                       <select 
                         value={item?.source_type || ''}
                         onChange={(e) => handleUpdateSource(e.target.value)}
-                        disabled={currentUser?.role === 'VIEWER'}
+                        disabled={!canEdit}
                         className="bg-transparent text-lg font-medium text-primary outline-none w-full border-b border-dashed border-theme-border focus:border-accent cursor-pointer disabled:cursor-not-allowed disabled:text-secondary/50"
                       >
                         <option value="陽光" className="bg-card">陽光</option>
@@ -362,7 +367,7 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
                 </div>
               )}
 
-              {activeTab === 'EDIT' && item && (
+              {activeTab === 'EDIT' && item && canEdit && (
                 <div className="flex flex-col gap-5 max-w-2xl">
                   <h3 className="text-lg font-bold text-primary border-b border-theme-border/50 pb-2">品項編輯</h3>
                   <ItemForm
@@ -468,7 +473,7 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
                               <div className="p-4 border-t border-theme-border bg-page/50">
                                 
                                 <div className="mb-4">
-                                  <form onSubmit={(e) => handleManualRegisterSerial(e, batch.id)} className="flex gap-2">
+                                  {canEdit && <form onSubmit={(e) => handleManualRegisterSerial(e, batch.id)} className="flex gap-2">
                                     <input 
                                       ref={serialInputRef}
                                       type="text" 
@@ -485,7 +490,7 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
                                     >
                                       新增序號
                                     </button>
-                                  </form>
+                                  </form>}
                                   {!isBatchVoided && usage.pendingQuantity === 0 && (
                                     <div className="text-success text-sm mt-2 flex items-center gap-1">
                                       ✓ 此批次序號已全數補齊
@@ -515,7 +520,7 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
                                             <tr 
                                               key={s.id} 
                                               className="hover:bg-card/60 cursor-context-menu"
-                                              onContextMenu={(e) => { e.preventDefault(); setSerialContextMenu({ visible: true, x: e.clientX, y: e.clientY, serialId: s.id }); }}
+                                              onContextMenu={(e) => { e.preventDefault(); if (canEdit) setSerialContextMenu({ visible: true, x: e.clientX, y: e.clientY, serialId: s.id }); }}
                                             >
                                               <td className="p-2 font-mono text-success">{s.serial_number}</td>
                                               <td className="p-2">
@@ -616,7 +621,7 @@ export function ItemDetailModal({ itemId, onClose, onItemUpdated }: ItemDetailMo
         )}
 
         {/* Serial Context Menu */}
-        {serialContextMenu.visible && (
+        {canEdit && serialContextMenu.visible && (
           <div 
             className="fixed z-[60] bg-card border border-theme-border rounded-lg shadow-2xl py-1 w-48 text-sm text-primary animate-in fade-in zoom-in-95 duration-100"
             style={{ top: serialContextMenu.y, left: serialContextMenu.x }}

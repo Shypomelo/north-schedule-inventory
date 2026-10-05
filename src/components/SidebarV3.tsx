@@ -48,6 +48,7 @@ export function Sidebar() {
   }, [pathname]);
 
   useEffect(() => {
+    if (!currentUser || currentUser.role === 'PROCUREMENT') return;
     let live = true;
     Promise.all([dbAdapter.getPositions(), dbAdapter.getMemberPositions()])
       .then(([positionRows, membershipRows]) => {
@@ -55,7 +56,7 @@ export function Sidebar() {
       })
       .catch(error => console.error('Sidebar position assignments failed to load:', error));
     return () => { live = false; };
-  }, []);
+  }, [currentUser]);
 
   useEffect(() => {
     if (!isMobileOpen) return;
@@ -102,6 +103,13 @@ export function Sidebar() {
       <div className={`shrink-0 overflow-hidden whitespace-nowrap font-bold text-[var(--sidebar-brand)] ${collapsed ? 'h-0 w-0 opacity-0' : 'text-xl'}`}>北部工程排程系統</div>
       {showPreviewBadge && <span className={`${collapsed ? 'absolute left-full top-2 z-30 bg-[var(--bg-sidebar)]' : 'shrink-0'} whitespace-nowrap rounded border border-[var(--sidebar-border)] px-2 py-1 text-center text-[10px] font-semibold tracking-wide text-[var(--sidebar-muted)]`}>PREVIEW · CANDIDATE</span>}
       <nav className="sidebar-scrollbar flex w-full flex-1 flex-col gap-2 overflow-y-auto overflow-x-hidden pb-6 pr-1">
+        {currentUser?.role === 'PROCUREMENT' ? (
+          <>
+            {navItem('/inventory', '庫存', Package, collapsed, true)}
+            {navItem('/receiving', '收貨', Truck, collapsed, true)}
+          </>
+        ) : (
+          <>
         {navItem('/', '儀表板 (Dashboard)', Home, collapsed)}
         {navItem('/schedule', '排程管理', Calendar, collapsed, true)}
         <details className="group mt-2" open={!collapsed}>
@@ -129,6 +137,8 @@ export function Sidebar() {
               {navItem('/admin/materials', '常用物料管理', Package, false, true)}
             </div>}
           </details>
+        )}
+          </>
         )}
       </nav>
       {!collapsed && (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) && <div className="shrink-0"><UserSelector /></div>}

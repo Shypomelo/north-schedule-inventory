@@ -2,10 +2,12 @@
 import { inventorySerialInputs, inventoryWriteError } from '@/lib/db/inventory-atomic';
 
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { InventoryItem, InventoryTransaction, Project, InventorySerial, TransactionType, isActiveFormalTransaction } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { useUser } from '@/components/UserContext';
+import { isInventoryEditor } from '@/lib/procurement-access';
+import { getProcurementProjectLabels } from '@/lib/db/procurement-labels';
 import { Package, AlertTriangle, ArrowRightLeft, Plus, MousePointerClick, MoreVertical } from 'lucide-react';
 import Link from 'next/link';
 import { ItemDetailModal } from '@/components/ItemDetailModal';
@@ -34,6 +36,7 @@ interface BalanceDisplay {
 
 export default function InventoryBalancePage() {
   const { currentUser } = useUser();
+  const canEdit = isInventoryEditor(currentUser?.role);
   const [balances, setBalances] = useState<BalanceDisplay[]>([]);
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -54,12 +57,12 @@ export default function InventoryBalancePage() {
 
   const MAIN_CATEGORIES = ['設備維修', '建置 / 維修'];
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setIsLoading(true);
     const [itms, txs, projs, srls, batches] = await Promise.all([
       dbAdapter.getInventoryItems(),
       dbAdapter.getInventoryTransactions(),
-      dbAdapter.getProjects(),
+      currentUser?.role === 'PROCUREMENT' ? getProcurementProjectLabels() : dbAdapter.getProjects(),
       dbAdapter.getInventorySerials(),
       // @ts-ignore
       dbAdapter.getInventoryBatches ? dbAdapter.getInventoryBatches() : Promise.resolve([])
@@ -122,7 +125,7 @@ export default function InventoryBalancePage() {
 
     setBalances(displayData);
     setIsLoading(false);
-  };
+  }, [currentUser?.role]);
 
   const [isInitModalOpen, setIsInitModalOpen] = useState(false);
 
@@ -133,14 +136,16 @@ export default function InventoryBalancePage() {
     const handleClick = () => setContextMenu({ visible: false, x: 0, y: 0, itemId: null });
     window.addEventListener('click', handleClick);
     return () => window.removeEventListener('click', handleClick);
-  }, []);
+  }, [loadData]);
 
   const handleContextMenu = (e: React.MouseEvent, itemId: string) => {
     e.preventDefault();
+    if (!canEdit) return;
     setContextMenu({ visible: true, x: e.clientX, y: e.clientY, itemId });
   };
 
   const handleCreateTx = async (data: Omit<InventoryTransaction, 'id' | 'created_at' | 'updated_at'> & { category?: string }, serialsInput: string, isPendingSerial: boolean = false) => {
+    if (!canEdit) return;
     setIsSubmittingTx(true);
     try {
       const serialsList = serialsInput.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
@@ -187,7 +192,7 @@ export default function InventoryBalancePage() {
           <h2 className="text-2xl font-bold text-primary">庫存總覽</h2>
           <p className="text-secondary text-sm mt-1">
             本月 ({format(new Date(), 'yyyy-MM')}) 即時庫存統計。
-            <span className="text-warning ml-2">提示：對品項按右鍵可以快速異動庫存！</span>
+            {canEdit && <span className="text-warning ml-2">提示：對品項按右鍵可以快速異動庫存！</span>}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -220,14 +225,14 @@ export default function InventoryBalancePage() {
             <ArrowRightLeft size={18} />
             查看所有流水帳
           </Link>
-          <button 
+          {currentUser?.role !== 'PROCUREMENT' && <button
             onClick={() => setDetailItemId('NEW')}
-            disabled={currentUser?.role === 'VIEWER'}
+            disabled={!canEdit}
             className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded shadow transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Plus size={18} />
             新增品項
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -307,7 +312,7 @@ export default function InventoryBalancePage() {
       </div>
 
       {/* Context Menu */}
-      {contextMenu.visible && (
+      {canEdit && contextMenu.visible && (
         <div 
           className="fixed z-50 bg-card border border-theme-border rounded-lg shadow-2xl py-1 w-48 text-sm text-primary animate-in fade-in zoom-in-95 duration-100"
           style={{ top: contextMenu.y, left: contextMenu.x }}
@@ -352,7 +357,7 @@ export default function InventoryBalancePage() {
       )}
       
       {/* Transaction Modal Wrapper */}
-      {txModal.visible && (
+      {canEdit && txModal.visible && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-2 sm:p-4">
           <div className="absolute inset-0 bg-page/80 backdrop-blur-sm" onClick={() => setTxModal({ visible: false, type: 'IN', itemId: null })} />
           <div className="relative max-h-[calc(100dvh-1rem)] w-full max-w-2xl overflow-y-auto rounded-xl border border-theme-border bg-card p-4 shadow-2xl sm:max-h-[90vh] sm:p-6">

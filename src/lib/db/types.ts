@@ -1,4 +1,4 @@
-export type UserRole = 'ADMIN' | 'ENGINEER' | 'VIEWER';
+export type UserRole = 'ADMIN' | 'ENGINEER' | 'VIEWER' | 'PROCUREMENT';
 export type TaskStatus = '未開始' | '進行中' | '已完成' | '取消' | '' | '改期' | '完成';
 export type TodoStatus = '待安排' | '已排程' | '已完成' | '取消' | '已退件' | '已收納';
 export type TodoScope = 'TEAM' | 'PRIVATE';

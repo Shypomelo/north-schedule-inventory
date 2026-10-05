@@ -23,7 +23,6 @@ import { ActionError, v5Button, v5Primary } from './ReceivingV5Forms';
 import { ReceivingPendingBatchForm } from './ReceivingPendingBatchForm';
 import { receivingReminderBucket, type ReminderBucket } from '@/lib/receiving-reminders';
 
-const api = createReceivingV6Api(supabase);
 type Tab = 'pending' | 'received' | 'history' | 'reminders';
 type Dialog = { kind: 'work'; key: string } | { kind: 'received'; key: string; mode: 'inventory' | 'SE' | 'PROJECT_PREP' | 'resolve' | 'cancel' } | { kind: 'return'; key: string } | { kind: 'pending' } | { kind: 'actual' };
 const shortTime = (value: string | null) => value ? new Intl.DateTimeFormat('zh-TW', {
@@ -51,7 +50,8 @@ const historyMenuTarget = (row: ReceivingHistoryRow, canEdit: boolean): Receivin
 
 export function ReceivingV6Center() {
   const { currentUser } = useUser();
-  const canEdit = Boolean(currentUser && currentUser.role !== 'VIEWER');
+  const api = useMemo(() => createReceivingV6Api(supabase, currentUser?.role === 'PROCUREMENT'), [currentUser?.role]);
+  const canEdit = currentUser?.role === 'ADMIN' || currentUser?.role === 'ENGINEER';
   const [data, setData] = useState<ReceivingV6Snapshot | null>(null);
   const [loading, setLoading] = useState(true), [error, setError] = useState(''), [notice, setNotice] = useState('');
   const [query, setQuery] = useState(''), [tab, setTab] = useState<Tab>('pending');
@@ -81,7 +81,7 @@ export function ReceivingV6Center() {
       if (ticket === generation.current) { setData(next); return next; }
     } catch (cause) { if (ticket === generation.current) setError(receivingError(cause)); }
     finally { if (ticket === generation.current) setLoading(false); }
-  }, []);
+  }, [api]);
   useEffect(() => { const requestGeneration = generation; void load(); return () => { requestGeneration.current++; }; }, [load]);
 
   const pending = useMemo(() => data ? receivingPendingList(data) : [], [data]);

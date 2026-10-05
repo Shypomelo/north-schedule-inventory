@@ -2,12 +2,14 @@
 import { inventorySerialInputs, inventoryWriteError } from '@/lib/db/inventory-atomic';
 
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { InventoryTransaction, InventoryItem, Project, InventorySerial, isActiveFormalTransaction } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { TransactionForm } from '@/components/TransactionForm';
 import { TransactionHistoryModal } from '@/components/TransactionHistoryModal';
 import { useUser } from '@/components/UserContext';
+import { isInventoryEditor } from '@/lib/procurement-access';
+import { getProcurementProjectLabels } from '@/lib/db/procurement-labels';
 import { Plus } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -18,6 +20,7 @@ const unwrapSettled = <T,>(result: PromiseSettledResult<T>): T => {
 
 export default function TransactionsPage() {
   const { currentUser } = useUser();
+  const canEdit = isInventoryEditor(currentUser?.role);
   const [transactions, setTransactions] = useState<InventoryTransaction[]>([]);
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -36,7 +39,7 @@ export default function TransactionsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadWarning, setLoadWarning] = useState<string | null>(null);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setIsLoading(true);
     setLoadError(null);
     setLoadWarning(null);
@@ -45,7 +48,7 @@ export default function TransactionsPage() {
       const results = await Promise.allSettled([
         dbAdapter.getInventoryTransactions(),
         dbAdapter.getInventoryItems(),
-        dbAdapter.getProjects(),
+        currentUser?.role === 'PROCUREMENT' ? getProcurementProjectLabels() : dbAdapter.getProjects(),
         dbAdapter.getInventoryBalances(),
         dbAdapter.getInventorySerials(),
         dbAdapter.getInventoryTransactionSerials(),
@@ -100,11 +103,11 @@ export default function TransactionsPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [currentUser?.role]);
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   const resolveTransactionSerialLinks = async (_data: unknown, serials: string[], _existing?: Set<string>) => inventorySerialInputs(serials.join('\n'));
 
@@ -216,18 +219,18 @@ export default function TransactionsPage() {
     <div className="max-w-7xl mx-auto flex flex-col h-full">
       <div className="mb-5 flex flex-col items-stretch justify-between gap-3 sm:mb-8 lg:flex-row lg:items-center">
         <h2 className="text-2xl font-bold text-primary">庫存流水帳 (異動紀錄)</h2>
-        <button 
+        {currentUser?.role !== 'PROCUREMENT' && <button
           onClick={() => {
             setEditingTx(null);
             setEditingTxSerials([]);
             setIsModalOpen(true);
           }}
-          disabled={currentUser?.role === 'VIEWER'}
+          disabled={!canEdit}
           className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded shadow transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Plus size={20} />
           新增異動 (IN/OUT/RETURN/ADJUST)
-        </button>
+        </button>}
       </div>
 
       <div className="mb-6 flex items-center justify-end">
@@ -312,12 +315,12 @@ export default function TransactionsPage() {
                     <td className={`p-4 max-w-[200px] truncate ${tx.is_voided ? 'text-secondary/50 line-through' : 'text-secondary'}`} title={tx.notes || ''}>{tx.notes || '-'}</td>
                     <td className="p-4 text-secondary/60 text-xs">{format(new Date(tx.created_at), 'yyyy/MM/dd HH:mm')}</td>
                     <td className="p-4 text-center space-x-2">
-                      {!tx.is_voided && tx.transaction_type !== 'IN_REVERSAL' && (
+                      {canEdit && !tx.is_voided && tx.transaction_type !== 'IN_REVERSAL' && (
                         <>
-                          <button onClick={() => openEditModal(tx)} disabled={currentUser?.role === 'VIEWER'} className="text-accent hover:text-accent-hover text-xs bg-accent/20 px-2 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed">編輯</button>
+                          <button onClick={() => openEditModal(tx)} disabled={!canEdit} className="text-accent hover:text-accent-hover text-xs bg-accent/20 px-2 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed">編輯</button>
                           <button
                             onClick={() => handleVoidTx(tx.id)}
-                            disabled={currentUser?.role === 'VIEWER' || (tx.transaction_type === 'IN' && currentUser?.role !== 'ADMIN')}
+                            disabled={!canEdit || (tx.transaction_type === 'IN' && currentUser?.role !== 'ADMIN')}
                             title={tx.transaction_type === 'IN' && currentUser?.role !== 'ADMIN' ? '僅限管理員作廢入庫紀錄' : undefined}
                             className="text-warning hover:text-warning/80 text-xs bg-warning/20 px-2 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed"
                           >
@@ -335,7 +338,7 @@ export default function TransactionsPage() {
         )}
       </div>
 
-      {isModalOpen && (
+      {canEdit && isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-page/80 p-2 backdrop-blur-sm sm:p-4">
           <div className="max-h-[calc(100dvh-1rem)] w-full max-w-3xl overflow-auto rounded-2xl border border-theme-border bg-card p-4 shadow-2xl sm:max-h-[90vh] sm:p-6">
             <h2 className="text-2xl font-bold text-primary mb-6">{editingTx ? '修改異動紀錄' : '新增庫存異動'}</h2>

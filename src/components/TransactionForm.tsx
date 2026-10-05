@@ -40,7 +40,7 @@ interface TransactionFormProps {
 
 export function TransactionForm({ items, projects, balances, allSerials, batches = [], onSubmit, onCancel, isSubmitting, initialData, initialSerials = [], onAddNewItem }: TransactionFormProps) {
   const { currentUser } = useUser();
-  const isViewer = currentUser?.role === 'VIEWER';
+  const isViewer = currentUser?.role !== 'ADMIN' && currentUser?.role !== 'ENGINEER';
   // Keep the balance the operator saw when opening this form. Background
   // refreshes must not silently rebase an in-progress physical count.
   const [countBalances] = useState(() => balances);

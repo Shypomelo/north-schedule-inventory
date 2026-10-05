@@ -11,7 +11,7 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
   const { currentUser } = useUser();
   const perspectives = useDashboardView();
   const workGroups = useWorkGroups();
-  if (!currentUser || currentUser.role === 'ADMIN') return <>{children}</>;
+  if (!currentUser || currentUser.role === 'ADMIN' || currentUser.role === 'PROCUREMENT') return <>{children}</>;
   if (perspectives.error || workGroups.error) {
     return <div role="alert" className="m-auto max-w-xl p-8 text-center text-danger">{perspectives.error || workGroups.error}</div>;
   }
