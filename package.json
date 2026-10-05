@@ -4,7 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "node scripts/dev.mjs",
+    "prebuild": "node scripts/verify-deployment-environment.mjs",
     "build": "node scripts/build.mjs",
+    "prebuild:verify": "node scripts/verify-deployment-environment.mjs",
     "build:verify": "node scripts/verify-build.mjs",
     "start": "next start",
     "lint": "next lint"

@@ -11,6 +11,12 @@ import { dbAdapter } from '@/lib/db';
 import type { MemberPosition, Position } from '@/lib/db/types';
 import { ROLE_LABELS, selectEngineeringMembers } from '@/lib/personnel-workspace';
 import { buildMemberProjectsHref } from '@/lib/project-routes';
+import { deploymentSafetyState } from '@/lib/deployment-safety';
+
+const showPreviewBadge = deploymentSafetyState(
+  process.env.NEXT_PUBLIC_DEPLOYMENT_ENV,
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+) === 'preview-candidate';
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -94,6 +100,7 @@ export function Sidebar() {
   const panel = (collapsed: boolean, mobile = false) => (
     <>
       <div className={`shrink-0 overflow-hidden whitespace-nowrap font-bold text-[var(--sidebar-brand)] ${collapsed ? 'h-0 w-0 opacity-0' : 'text-xl'}`}>北部工程排程系統</div>
+      {showPreviewBadge && <span className={`${collapsed ? 'absolute left-full top-2 z-30 bg-[var(--bg-sidebar)]' : 'shrink-0'} whitespace-nowrap rounded border border-[var(--sidebar-border)] px-2 py-1 text-center text-[10px] font-semibold tracking-wide text-[var(--sidebar-muted)]`}>PREVIEW · CANDIDATE</span>}
       <nav className="sidebar-scrollbar flex w-full flex-1 flex-col gap-2 overflow-y-auto overflow-x-hidden pb-6 pr-1">
         {navItem('/', '儀表板 (Dashboard)', Home, collapsed)}
         {navItem('/schedule', '排程管理', Calendar, collapsed, true)}
@@ -150,7 +157,8 @@ export function Sidebar() {
     <>
       <header className="fixed inset-x-0 top-0 z-40 flex h-[calc(2.5rem+env(safe-area-inset-top))] items-center justify-between border-b border-[var(--sidebar-border)] bg-[var(--bg-sidebar)] px-3 pt-[env(safe-area-inset-top)] text-[var(--sidebar-text)] md:hidden">
         <button type="button" onClick={() => setIsMobileOpen(true)} className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-[var(--sidebar-hover)]" aria-label="開啟導覽選單"><Menu size={20} /></button>
-        <div className="truncate px-2 text-sm font-bold leading-none text-[var(--sidebar-brand)]">北部工程排程系統</div><div className="w-9" />
+        <div className="min-w-0 truncate px-2 text-sm font-bold leading-none text-[var(--sidebar-brand)]">北部工程排程系統</div>
+        {showPreviewBadge ? <span className="shrink-0 rounded border border-[var(--sidebar-border)] px-1.5 py-1 text-[9px] font-semibold tracking-wide text-[var(--sidebar-muted)]">PREVIEW · CANDIDATE</span> : <div className="w-9" />}
       </header>
       <aside className={`relative hidden h-[100dvh] shrink-0 flex-col gap-4 border-r border-[var(--sidebar-border)] bg-[var(--bg-sidebar)] transition-all [--text-primary:var(--sidebar-text)] [--text-secondary:var(--sidebar-muted)] md:flex ${isCollapsed ? 'w-16 items-center p-2' : 'w-64 p-4'}`}>
         <button type="button" onClick={() => setIsCollapsed(value => !value)} className="absolute -right-3 top-6 z-50 flex h-6 w-6 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--bg-card)] text-[var(--text-secondary)]" aria-label={isCollapsed ? '展開側欄' : '收合側欄'}>{isCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}</button>

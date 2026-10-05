@@ -4,6 +4,7 @@ import { DashboardViewProvider } from '@/components/DashboardViewContext';
 import { AuthGuard } from "@/components/AuthGuard";
 import { LayoutContent } from "@/components/LayoutContentV3";
 import { ThemeProvider } from "@/components/ThemeContext";
+import { DeploymentSafetyGate } from "@/components/DeploymentSafetyGate";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -37,13 +38,15 @@ export default function RootLayout({
         />
       </head>
       <body className="antialiased h-screen overflow-hidden flex">
-        <ThemeProvider>
-          <UserProvider>
-            <AuthGuard>
-              <DashboardViewProvider><LayoutContent>{children}</LayoutContent></DashboardViewProvider>
-            </AuthGuard>
-          </UserProvider>
-        </ThemeProvider>
+        <DeploymentSafetyGate>
+          <ThemeProvider>
+            <UserProvider>
+              <AuthGuard>
+                <DashboardViewProvider><LayoutContent>{children}</LayoutContent></DashboardViewProvider>
+              </AuthGuard>
+            </UserProvider>
+          </ThemeProvider>
+        </DeploymentSafetyGate>
       </body>
     </html>
   );
