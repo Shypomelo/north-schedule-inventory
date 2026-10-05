@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useUser } from '@/components/UserContext';
 import { supabase } from '@/lib/db/supabaseClient';
+import { creatableToolLinkScopes } from '@/lib/toolbox-links';
 
 type Scope = 'PERSONAL' | 'DEPARTMENT' | 'GLOBAL';
 type ToolLink = {
@@ -29,6 +30,7 @@ export default function ToolboxPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const isAdmin = currentUser?.role === 'ADMIN';
+  const createScopes = creatableToolLinkScopes(currentUser?.role);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -51,7 +53,7 @@ export default function ToolboxPage() {
   [links, scope, category, query, sort]);
   const categories = Array.from(new Set(links.filter(link => link.scope === scope).map(link => link.category))).sort();
   const canEdit = (link: ToolLink) => link.scope === 'PERSONAL' ? link.owner_member_id === currentUser?.id : isAdmin;
-  const openNew = () => { setEditingId(null); setDraft({ ...emptyDraft, scope, work_group_id: scope === 'DEPARTMENT' ? groups[0]?.id || null : null }); setError(''); };
+  const openNew = () => { const createScope = createScopes.includes(scope) ? scope : 'PERSONAL'; setScope(createScope); setCategory('ALL'); setEditingId(null); setDraft({ ...emptyDraft, scope: createScope, work_group_id: createScope === 'DEPARTMENT' ? groups[0]?.id || null : null }); setError(''); };
   const openEdit = (link: ToolLink) => { setEditingId(link.id); setDraft({ name: link.name, url: link.url, category: link.category, description: link.description, icon_key: link.icon_key, sort_order: link.sort_order, scope: link.scope, work_group_id: link.work_group_id }); setError(''); };
   const save = async () => {
     if (!draft || !currentUser) return;
@@ -77,7 +79,7 @@ export default function ToolboxPage() {
 
   if (!currentUser) return null;
   return <main className="mx-auto max-w-6xl space-y-5 p-4 sm:p-8">
-    <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-bold text-primary">工具箱</h1><p className="text-sm text-secondary">常用網站與工作連結</p></div>
+    <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-bold text-primary">工具箱管理</h1><p className="text-sm text-secondary">常用網站與工作連結的完整管理</p></div>
       <button type="button" onClick={openNew} className="rounded-lg bg-accent px-4 py-2 font-semibold text-white">新增連結</button></div>
     <div role="tablist" aria-label="連結範圍" className="flex gap-2">{(Object.keys(labels) as Scope[]).map(value =>
       <button type="button" role="tab" aria-selected={scope === value} key={value} onClick={() => { setScope(value); setCategory('ALL'); setDraft(null); }} className={`rounded-lg px-4 py-2 ${scope === value ? 'bg-accent text-white' : 'bg-card text-primary'}`}>{labels[value]}</button>)}</div>
@@ -92,7 +94,7 @@ export default function ToolboxPage() {
       <label className="text-sm text-secondary">排序<input type="number" className={inputClass} value={draft.sort_order} onChange={e => setDraft({ ...draft, sort_order: Number(e.target.value) })} /></label>
       <label className="text-sm text-secondary">說明<input className={inputClass} value={draft.description || ''} onChange={e => setDraft({ ...draft, description: e.target.value })} /></label>
       <label className="text-sm text-secondary">圖示 key<input className={inputClass} value={draft.icon_key || ''} onChange={e => setDraft({ ...draft, icon_key: e.target.value })} /></label>
-      <label className="text-sm text-secondary">範圍<select className={inputClass} value={draft.scope} onChange={e => { const next = e.target.value as Scope; setDraft({ ...draft, scope: next, work_group_id: next === 'DEPARTMENT' ? groups[0]?.id || null : null }); }}><option value="PERSONAL">個人</option>{isAdmin && <option value="DEPARTMENT">部門</option>}{isAdmin && <option value="GLOBAL">全部</option>}</select></label>
+      <label className="text-sm text-secondary">範圍<select className={inputClass} value={draft.scope} onChange={e => { const next = e.target.value as Scope; setDraft({ ...draft, scope: next, work_group_id: next === 'DEPARTMENT' ? groups[0]?.id || null : null }); }}>{createScopes.map(value => <option key={value} value={value}>{labels[value]}</option>)}</select></label>
       {draft.scope === 'DEPARTMENT' && <label className="text-sm text-secondary">部門<select className={inputClass} value={draft.work_group_id || ''} onChange={e => setDraft({ ...draft, work_group_id: e.target.value })}>{groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>}
       <div className="flex items-end gap-2"><button type="button" onClick={() => void save()} className="rounded-lg bg-accent px-4 py-2 text-white">儲存</button><button type="button" onClick={() => setDraft(null)} className="rounded-lg border border-theme-border px-4 py-2 text-primary">取消</button></div>
     </section>}

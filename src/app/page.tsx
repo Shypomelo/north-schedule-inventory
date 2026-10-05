@@ -15,6 +15,7 @@ import { TodoRow } from '@/components/TodoRow';
 import { TodoQuickComposer } from '@/components/TodoQuickComposer';
 import { useDashboardView } from '@/components/DashboardViewContext';
 import { DesignWorkbench } from '@/components/DesignWorkbench';
+import { DashboardToolbox } from '@/components/DashboardToolbox';
 import { MaterialReceivingCenter } from '@/components/MaterialReceivingCenter';
 import { ProjectOverviewCards } from '@/components/ProjectOverviewCards';
 import { workbenchAdapter } from '@/lib/db/workbench-adapter';
@@ -106,6 +107,7 @@ export default function DashboardPage() {
         <div className="hidden shrink-0 text-right md:ml-auto md:block"><div className="font-semibold">{format(new Date(), 'M月d日 EEEE', { locale: zhTW })}</div><div className="mt-0.5 text-sm text-secondary">{currentUser?.name}</div></div>
       </div>
     </header>
+    <DashboardToolbox key={currentUser?.id} />
     {subpage==='receiving'
       ? <div className="px-4 py-5 md:px-6 xl:px-8"><MaterialReceivingCenter/></div>
       : selected.key==='DESIGN'
