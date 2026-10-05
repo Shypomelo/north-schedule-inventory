@@ -3,7 +3,7 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { addDays, format } from 'date-fns';
 import { zhTW } from 'date-fns/locale';
-import { ArrowUpRight, BriefcaseBusiness, CalendarDays, CheckCircle2, Circle, LayoutDashboard, ListTodo, Loader2, MapPin, Package, PackageCheck, Users, Wrench } from 'lucide-react';
+import { ArrowUpRight, BriefcaseBusiness, CalendarDays, CheckCircle2, Circle, LayoutDashboard, Link2, ListTodo, Loader2, MapPin, Package, PackageCheck, Users, Wrench } from 'lucide-react';
 import { ProjectDetailModal } from '@/components/ProjectDetailModal';
 import { ScheduleTaskDetail } from '@/components/ScheduleTaskDetail';
 import { ScheduleTaskFormDialog } from '@/components/ScheduleTaskFormDialog';
@@ -87,12 +87,13 @@ export default function DashboardPage() {
   if(loading)return <p className="p-5">載入工作視角…</p>;
   if(error||!selected)return <p role="alert" className="p-5">{error||'未指派啟用工作視角'}</p>;
   const perspectiveLabel=(key:DashboardViewKey)=>({ENGINEERING:'工程',PROJECT_MANAGEMENT:'專案',DESIGN:'設計'} as const)[key];
-  const subpageLabel=(page:DashboardSubpage)=>({overview:'儀表總覽',maintenance:'維修清單',receiving:'物料到貨'} as const)[page];
+  const subpageLabel=(page:DashboardSubpage)=>({overview:'儀表總覽',maintenance:'維修清單',receiving:'物料到貨',toolbox:'工具箱'} as const)[page];
   const chooseSubpage=(next:DashboardSubpage)=>{
     if(!currentUser)return;
     setSubpage(next);
     window.localStorage.setItem(dashboardSubpageStorageKey(currentUser.id,selected.key),next);
   };
+  const visibleSubpage=availableDashboardSubpages(selected.key).includes(subpage)?subpage:'overview';
   return <div className="min-h-full bg-page text-primary">
     <header className="border-b border-theme-border bg-card/35 px-4 py-3 md:px-6 xl:px-8">
       <div className="flex flex-row flex-wrap items-center gap-2 md:gap-3 min-[1200px]:flex-nowrap">
@@ -102,17 +103,18 @@ export default function DashboardPage() {
         </nav>
         <span className="hidden h-8 w-px shrink-0 bg-theme-border min-[1200px]:block" aria-hidden="true" />
         <nav className="order-1 flex w-full shrink-0 basis-full gap-1 rounded-xl border border-theme-border bg-card p-1 min-[1200px]:order-none min-[1200px]:w-fit min-[1200px]:basis-auto" aria-label={`${perspectiveLabel(selected.key)}儀表功能`} role="tablist">
-        {availableDashboardSubpages(selected.key).map(page=><button type="button" role="tab" aria-selected={subpage===page} key={page} onClick={()=>chooseSubpage(page)} className={`inline-flex min-h-10 shrink-0 items-center justify-center gap-1 rounded-lg px-2 text-xs font-bold transition md:px-3 md:text-sm ${subpage===page?'bg-accent text-white shadow-sm':'text-secondary hover:text-primary'}`}>{page==='overview'?<LayoutDashboard size={16}/>:page==='maintenance'?<Wrench size={16}/>:<PackageCheck size={16}/>} {subpageLabel(page)}</button>)}
+        {availableDashboardSubpages(selected.key).map(page=><button type="button" role="tab" aria-selected={visibleSubpage===page} key={page} onClick={()=>chooseSubpage(page)} className={`inline-flex min-h-10 shrink-0 items-center justify-center gap-1 rounded-lg px-2 text-xs font-bold transition md:px-3 md:text-sm ${visibleSubpage===page?'bg-accent text-white shadow-sm':'text-secondary hover:text-primary'}`}>{page==='overview'?<LayoutDashboard size={16}/>:page==='maintenance'?<Wrench size={16}/>:page==='receiving'?<PackageCheck size={16}/>:<Link2 size={16}/>} {subpageLabel(page)}</button>)}
         </nav>
         <div className="hidden shrink-0 text-right md:ml-auto md:block"><div className="font-semibold">{format(new Date(), 'M月d日 EEEE', { locale: zhTW })}</div><div className="mt-0.5 text-sm text-secondary">{currentUser?.name}</div></div>
       </div>
     </header>
-    <DashboardToolbox key={currentUser?.id} />
-    {subpage==='receiving'
+    {visibleSubpage==='toolbox'
+      ? <DashboardToolbox key={currentUser?.id} />
+      : visibleSubpage==='receiving'
       ? <div className="px-4 py-5 md:px-6 xl:px-8"><MaterialReceivingCenter/></div>
       : selected.key==='DESIGN'
         ? <DesignWorkbench/>
-        : <EngineeringDashboardPage key={selected.key} projectManagement={selected.key==='PROJECT_MANAGEMENT'} dashboardView={subpage==='maintenance'?'maintenance':'overview'}/>}
+        : <EngineeringDashboardPage key={selected.key} projectManagement={selected.key==='PROJECT_MANAGEMENT'} dashboardView={visibleSubpage==='maintenance'?'maintenance':'overview'}/>}
   </div>;
 }
 

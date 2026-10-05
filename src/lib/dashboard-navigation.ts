@@ -1,6 +1,6 @@
 import type { DashboardView, DashboardViewKey } from './dashboard-perspectives';
 
-export type DashboardSubpage = 'overview' | 'maintenance' | 'receiving';
+export type DashboardSubpage = 'overview' | 'maintenance' | 'receiving' | 'toolbox';
 
 export const dashboardPerspectiveStorageKey = (memberId: string) => (
   `north-engineering-dashboard-perspective:${memberId}`
@@ -12,7 +12,7 @@ export const dashboardSubpageStorageKey = (memberId: string, perspective: Dashbo
 
 export const availableDashboardSubpages = (perspective: DashboardViewKey): DashboardSubpage[] => (
   perspective === 'ENGINEERING'
-    ? ['overview', 'maintenance', 'receiving']
+    ? ['overview', 'maintenance', 'receiving', 'toolbox']
     : ['overview', 'receiving']
 );
 

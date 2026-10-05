@@ -19,8 +19,8 @@ const views = ['ENGINEERING', 'PROJECT_MANAGEMENT', 'DESIGN'].map((key, index) =
   sort_order: index,
 }));
 
-test('receiving is shared by every perspective while maintenance stays engineering-only', () => {
-  assert.deepEqual(availableDashboardSubpages('ENGINEERING'), ['overview', 'maintenance', 'receiving']);
+test('receiving is shared while maintenance and toolbox stay engineering-only', () => {
+  assert.deepEqual(availableDashboardSubpages('ENGINEERING'), ['overview', 'maintenance', 'receiving', 'toolbox']);
   assert.deepEqual(availableDashboardSubpages('PROJECT_MANAGEMENT'), ['overview', 'receiving']);
   assert.deepEqual(availableDashboardSubpages('DESIGN'), ['overview', 'receiving']);
 });
@@ -28,6 +28,8 @@ test('receiving is shared by every perspective while maintenance stays engineeri
 test('invalid or revoked saved locations fall back safely', () => {
   assert.equal(resolveSavedDashboardView(views.slice(1), views[1], 'ENGINEERING').key, 'PROJECT_MANAGEMENT');
   assert.equal(resolveDashboardSubpage('DESIGN', 'maintenance'), 'overview');
+  assert.equal(resolveDashboardSubpage('DESIGN', 'toolbox'), 'overview');
+  assert.equal(resolveDashboardSubpage('ENGINEERING', 'toolbox'), 'toolbox');
   assert.equal(resolveDashboardSubpage('ENGINEERING', 'receiving'), 'receiving');
 });
 
