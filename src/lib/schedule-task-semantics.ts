@@ -1,6 +1,7 @@
 import type { ScheduleTask } from './db/types';
 
 export type ScheduleTaskSemanticType = 'internal' | 'leave' | 'meeting' | 'other' | 'maintenance' | 'site-work';
+export const SCHEDULE_OFFICE_LOCATIONS = ['北部辦公室', '中部辦公室', '南部辦公室'] as const;
 
 const normalizeTaskType = (value: string | null | undefined) => (
   (value || '').replace(/\u3000/g, ' ').trim()

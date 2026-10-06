@@ -697,6 +697,12 @@ export default function SchedulePage() {
     setContextMenu({ taskId, x: e.clientX, y: e.clientY });
   };
 
+  const openTaskEditor = (task: ScheduleTask) => {
+    setEditingTask(task);
+    setEditingTaskMembers(members.filter(member => member.task_id === task.id).map(member => member.user_id));
+    setIsFormOpen(true);
+  };
+
   const handleContextAction = async (e: React.MouseEvent, action: 'RESCHEDULE_TASK' | 'COMPLETE_TASK' | 'DELETE_TASK') => {
     e.stopPropagation();
     if (!contextMenu) return;
@@ -708,9 +714,7 @@ export default function SchedulePage() {
 
     try {
       if (action === 'RESCHEDULE_TASK') {
-        setEditingTask(task);
-        setEditingTaskMembers(members.filter(member => member.task_id === task.id).map(member => member.user_id));
-        setIsFormOpen(true);
+        openTaskEditor(task);
         return;
       } else if (action === 'COMPLETE_TASK') {
         if (currentUser?.role === 'VIEWER') return;
@@ -874,11 +878,7 @@ export default function SchedulePage() {
                       if (currentUser?.role === 'VIEWER') return;
                       handleContextMenu(event, task.id);
                     }}
-                    onClick={presentationMode ? undefined : () => {
-                      setEditingTask(task);
-                      setEditingTaskMembers(members.filter(member => member.task_id === task.id).map(member => member.user_id));
-                      setIsFormOpen(true);
-                    }}
+                    onClick={presentationMode ? undefined : () => openTaskEditor(task)}
                     className={`shrink-0 rounded border shadow-sm ${presentationMode ? 'cursor-default rounded-[clamp(0.5rem,0.65vw,0.9rem)] p-[clamp(0.7rem,0.9vw,1.35rem)]' : 'cursor-pointer p-2 transition transform hover:scale-[1.02] active:scale-95'} ${
                       isDone ? 'bg-[var(--surface-secondary)] border-[var(--border)] opacity-50' :
                       isRescheduled ? 'bg-[var(--surface-secondary)] border-dashed border-[var(--text-muted)] opacity-60' :
@@ -1189,11 +1189,7 @@ export default function SchedulePage() {
                                           if (currentUser?.role === 'VIEWER') return;
                                           handleContextMenu(e, task.id);
                                         }}
-                                        onClick={() => {
-                                          setEditingTask(task);
-                                          setEditingTaskMembers(members.filter(m => m.task_id === task.id).map(m => m.user_id));
-                                          setIsFormOpen(true);
-                                        }}
+                                        onClick={() => openTaskEditor(task)}
                                         className={`${fontSizeClasses.month} shrink-0 min-w-0 px-1 py-0.5 rounded cursor-pointer ${
                                           isDone ? 'bg-[var(--surface-secondary)] text-[var(--text-muted)] opacity-50' :
                                           isRescheduled ? 'bg-[var(--surface-secondary)] text-[var(--text-muted)] border border-dashed border-[var(--text-muted)] opacity-60' :
@@ -1281,7 +1277,10 @@ export default function SchedulePage() {
                 const weatherDisplay = getTaskWeatherDisplay(task);
                 const primaryLabel = [projName, formatTaskTime(task)].filter(Boolean).join(' ');
                 return (
-                  <div key={task.id} className={`bg-[var(--surface-secondary)] border border-[var(--border)] rounded-lg p-4 ${task.status === '完成' ? 'opacity-50' : ''}`}>
+                  <div key={task.id} onContextMenu={event => {
+                    if (currentUser?.role === 'VIEWER') return;
+                    handleContextMenu(event, task.id);
+                  }} className={`bg-[var(--surface-secondary)] border border-[var(--border)] rounded-lg p-4 ${task.status === '完成' ? 'opacity-50' : ''}`}>
                     <div className="flex justify-end items-start mb-2">
                       <div className="flex items-center gap-2">
                         <button 
@@ -1291,12 +1290,11 @@ export default function SchedulePage() {
                         >
                           <ArrowLeft size={12}/> 退回待辦
                         </button>
-                        <button onClick={() => {
-                          setEditingTask(task);
-                          setEditingTaskMembers(members.filter(m => m.task_id === task.id).map(m => m.user_id));
-                          setIsFormOpen(true);
-                        }} disabled={currentUser?.role === 'VIEWER'} className="text-xs bg-[var(--surface)] hover:bg-[var(--surface-secondary)] text-[var(--text-primary)] px-3 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed">
+                        <button onClick={() => openTaskEditor(task)} disabled={currentUser?.role === 'VIEWER'} className="text-xs bg-[var(--surface)] hover:bg-[var(--surface-secondary)] text-[var(--text-primary)] px-3 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed">
                           編輯
+                        </button>
+                        <button onClick={event => handleContextMenu(event, task.id)} disabled={currentUser?.role === 'VIEWER'} aria-label={`${task.title} 更多操作`} className="text-xs bg-[var(--surface)] hover:bg-[var(--surface-secondary)] text-[var(--text-primary)] px-3 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed">
+                          更多操作
                         </button>
                       </div>
                     </div>

@@ -90,7 +90,12 @@ test('schedule presentation omits absent values and maps only valid locations', 
 
 test('formal project binding wins over no-site fallback', () => {
   const projects = [{ id: 'project-1', name: '正式案場', short_name: '案場簡稱', address: null }];
-  assert.equal(projectName(task({ task_type: '開會', project_id: 'project-1', project_name: '舊名稱' }), projects), '案場簡稱');
+  for (const taskType of ['施工', '維修', '開會', '其他', '休假', '內勤']) {
+    assert.equal(projectName(task({ task_type: taskType, project_id: 'project-1', project_name: '舊名稱' }), projects), '案場簡稱');
+  }
+  for (const office of ['北部辦公室', '中部辦公室', '南部辦公室']) {
+    assert.equal(projectName(task({ task_type: '內勤', project_id: null, project_name: office })), office);
+  }
 });
 
 test('maintenance perspectives filter the canonical schedule list and completion status', () => {
@@ -146,9 +151,8 @@ test('schedule input and presentation UI keep one canonical data flow', () => {
     filterProjectsForAutocomplete(autocompleteProjects, 'alph').map(project => project.name),
     ['Alpha Project'],
   );
-  assert.match(form, /onFocus=\{\(\) => setIsDropdownOpen\(Boolean\(projectNameInput\.trim\(\)\)\)\}/);
-  assert.match(form, /usesScheduleProjectBinding\(formData\.task_type\)/);
-  assert.match(form, /allowsScheduleTaskLocation\(formData\.task_type\)/);
+  assert.doesNotMatch(form, /\{taskUsesProjectBinding &&/);
+  assert.doesNotMatch(form, /\{taskAllowsLocation &&/);
   assert.doesNotMatch(form, /semanticTaskType !== 'leave'/);
   for (const source of [dashboard, schedule, detail]) {
     assert.doesNotMatch(source, /主要：未指定負責人/);

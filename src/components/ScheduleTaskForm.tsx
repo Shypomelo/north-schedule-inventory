@@ -11,9 +11,8 @@ import { useScheduleTaskTypes } from '@/hooks/useScheduleTaskTypes';
 import { selectActiveWorkGroups } from '@/lib/work-groups';
 import { selectSchedulePrimaryCandidates } from '@/lib/schedule-selectors';
 import {
-  allowsScheduleTaskLocation,
   getScheduleTaskSemanticType,
-  usesScheduleProjectBinding,
+  SCHEDULE_OFFICE_LOCATIONS,
 } from '@/lib/schedule-task-semantics';
 import { formatScheduleAuditValue, getScheduleHistoryEntries } from '@/lib/schedule-audit';
 import { ChevronLeft, ChevronRight, History, X } from 'lucide-react';
@@ -278,23 +277,8 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
   };
 
   const handleTaskTypeChange = (taskType: string) => {
-    const previousUsesProjectBinding = usesScheduleProjectBinding(formData.task_type);
-    const nextUsesProjectBinding = usesScheduleProjectBinding(taskType);
-    const nextAllowsLocation = allowsScheduleTaskLocation(taskType);
-    const keepLocation = nextAllowsLocation && allowsScheduleTaskLocation(formData.task_type);
-    const nextProjectName = (nextUsesProjectBinding && previousUsesProjectBinding) || keepLocation
-      ? projectNameInput
-      : '';
-
-    setProjectNameInput(nextProjectName);
     setIsDropdownOpen(false);
-    setFormData(prev => ({
-      ...prev,
-      task_type: taskType,
-      project_id: nextUsesProjectBinding && previousUsesProjectBinding ? prev.project_id : null,
-      project_name: nextProjectName || null,
-      address: nextUsesProjectBinding && previousUsesProjectBinding ? prev.address : null,
-    }));
+    setFormData(prev => ({ ...prev, task_type: taskType }));
   };
 
   const selectProject = (p: Project) => {
@@ -331,14 +315,12 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
       }
     }
 
-    const taskUsesProjectBinding = usesScheduleProjectBinding(formData.task_type);
-    const taskAllowsLocation = allowsScheduleTaskLocation(formData.task_type);
     const submittedLocation = projectNameInput.trim();
     await onSubmit({
       ...formData,
-      project_id: taskUsesProjectBinding && submittedLocation ? formData.project_id : null,
-      project_name: (taskUsesProjectBinding || taskAllowsLocation) && submittedLocation ? submittedLocation : null,
-      address: taskUsesProjectBinding ? formData.address : null,
+      project_id: submittedLocation ? formData.project_id : null,
+      project_name: submittedLocation || null,
+      address: submittedLocation ? formData.address : null,
       main_assignee_id: formData.main_assignee_id || null,
     }, memberIds);
   };
@@ -350,8 +332,6 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
     isEditingExistingTask ? formData.main_assignee_id : null,
   );
   const coworkerUsers = users;
-  const taskUsesProjectBinding = usesScheduleProjectBinding(formData.task_type);
-  const taskAllowsLocation = allowsScheduleTaskLocation(formData.task_type);
   const startTimeParts = splitTime(formData.start_time);
   const endTimeParts = splitTime(formData.end_time);
   const creatorName = formData.created_by_name?.trim() || '未知';
@@ -397,8 +377,7 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
         
-        {/* 第一列：只有工程工作使用案場綁定；開會／其他使用獨立地點。 */}
-        {taskUsesProjectBinding && <div className="flex flex-col gap-1 md:col-span-2 relative" ref={wrapperRef}>
+        <div className="flex flex-col gap-1 md:col-span-2 relative" ref={wrapperRef}>
           <span className="font-semibold text-[var(--modal-text)]">
             案場（選填，可快選既有案場或手動輸入）
           </span>
@@ -411,9 +390,14 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
             placeholder="請輸入或選擇案場名稱..."
             value={projectNameInput}
             onChange={e => handleProjectSearch(e.target.value)}
-            onFocus={() => setIsDropdownOpen(Boolean(projectNameInput.trim()))}
-            onClick={() => setIsDropdownOpen(Boolean(projectNameInput.trim()))}
           />
+          <div className="flex flex-wrap gap-2" aria-label="辦公室快選">
+            {SCHEDULE_OFFICE_LOCATIONS.map(office => <button key={office} type="button" onClick={() => {
+              setProjectNameInput(office);
+              setFormData(prev => ({ ...prev, project_id: null, project_name: office, address: null }));
+              setIsDropdownOpen(false);
+            }} className="rounded border border-[var(--border)] px-2 py-1 text-xs hover:bg-[var(--surface-secondary)]">{office}</button>)}
+          </div>
           {isDropdownOpen && projectNameInput.trim() !== '' && filteredProjects.length === 0 && (
             <div className="absolute top-[100%] left-0 z-[100] w-full mt-1 bg-[var(--modal-bg)] border border-[var(--border)] rounded-md shadow-2xl p-2 text-sm text-[var(--modal-muted)]">
               找不到既有案場，將直接使用「<span className="text-[var(--accent)] font-bold">{projectNameInput}</span>」作為案場名稱。
@@ -447,23 +431,7 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
               })}
             </div>
           )}
-        </div>}
-        {taskAllowsLocation && (
-          <label className="flex flex-col gap-1 md:col-span-2">
-            <span className="font-semibold text-[var(--modal-text)]">地點（選填）</span>
-            <input
-              type="text"
-              className="bg-[var(--input-bg)] text-[var(--input-text)] border border-[var(--input-border)] rounded p-1.5 focus:border-[var(--accent)] outline-none w-full placeholder:text-[var(--input-placeholder)]"
-              placeholder="輸入地點"
-              value={projectNameInput}
-              onChange={event => {
-                const location = event.target.value;
-                setProjectNameInput(location);
-                setFormData(prev => ({ ...prev, project_id: null, project_name: location, address: null }));
-              }}
-            />
-          </label>
-        )}
+        </div>
 
         {/* 第二列：任務類型 + 任務標題 */}
         <label className="flex flex-col gap-1 mt-1">
