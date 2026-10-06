@@ -35,6 +35,7 @@ import {
   toggleExpandedMonthWeek,
 } from '@/lib/schedule-month-expand';
 import { renderScheduleWeekPng } from '@/lib/schedule-week-image';
+import { isStandardAppRole } from '@/lib/procurement-access';
 
 type ViewMode = 'week' | 'month';
 type ScheduleFontSize = 'small' | 'medium' | 'large';
@@ -103,6 +104,11 @@ export default function SchedulePage() {
   const [viewMode, setViewMode] = useState<ViewMode>('week');
   const [scheduleFontSize, setScheduleFontSize] = useState<ScheduleFontSize>('medium');
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [isWeeklyEmailOpen, setIsWeeklyEmailOpen] = useState(false);
+  const [weeklyEmailRecipient, setWeeklyEmailRecipient] = useState('');
+  const [weeklyEmailSending, setWeeklyEmailSending] = useState(false);
+  const [weeklyEmailFeedback, setWeeklyEmailFeedback] = useState('');
+  const weeklyEmailInFlight = useRef(false);
   const weekCursorReady = useRef(false);
   useEffect(() => {
     const value = new URLSearchParams(window.location.search).get('week');
@@ -725,9 +731,7 @@ export default function SchedulePage() {
     };
   };
 
-  const downloadWeekImage = async () => {
-    try {
-      const days = weekDays.map(day => ({
+  const buildWeekImageDays = () => weekDays.map(day => ({
         date: format(day, 'yyyy/MM/dd'),
         tasks: sortTasks(groupTasks.filter(task => task.task_date === format(day, 'yyyy-MM-dd'))).map(task => {
           const display = getScheduleTaskPresentation(task, projects, users, members);
@@ -735,12 +739,57 @@ export default function SchedulePage() {
             detail: [display.cardDetail, display.assigneeDisplay].filter(Boolean).join(' · ') };
         }),
       }));
-      const blob = await renderScheduleWeekPng(days, new Date());
+
+  const downloadWeekImage = async () => {
+    try {
+      const blob = await renderScheduleWeekPng(buildWeekImageDays(), new Date());
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a'); anchor.href = url;
       anchor.download = `weekly-schedule-${format(weekStart, 'yyyy-MM-dd')}.png`;
       anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (cause) { alert(cause instanceof Error ? cause.message : '無法產生排程圖片。'); }
+  };
+
+  const sendWeeklyEmail = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (weeklyEmailInFlight.current || !activeWorkGroup || !isStandardAppRole(currentUser?.role)) return;
+    weeklyEmailInFlight.current = true;
+    setWeeklyEmailSending(true);
+    setWeeklyEmailFeedback('');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('UNAUTHORIZED');
+      const blob = await renderScheduleWeekPng(buildWeekImageDays(), new Date());
+      if (blob.type !== 'image/png') throw new Error('INVALID_IMAGE');
+      if (blob.size > 4 * 1024 * 1024) throw new Error('IMAGE_TOO_LARGE');
+      const form = new FormData();
+      form.set('recipient', weeklyEmailRecipient.trim());
+      form.set('weekStart', format(weekStart, 'yyyy-MM-dd'));
+      form.set('workGroupId', activeWorkGroup.id);
+      form.set('image', blob, 'weekly-schedule.png');
+      const response = await fetch('/api/schedule/weekly-email', {
+        method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` }, body: form,
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'EMAIL_PROVIDER_FAILED');
+      setWeeklyEmailFeedback(result.dryRun ? '預覽驗證成功，未寄出電子郵件。' : '寄送成功。');
+    } catch (cause) {
+      const code = cause instanceof Error ? cause.message : '';
+      const messages: Record<string, string> = {
+        INVALID_EMAIL: '請輸入單一有效的 Email。',
+        INVALID_IMAGE: '排程圖片格式無效。',
+        IMAGE_TOO_LARGE: '排程圖片超過 4 MB。',
+        UNAUTHORIZED: '登入已失效，請重新登入。',
+        FORBIDDEN: '沒有寄送此工作群組排程的權限。',
+        EMAIL_DISABLED: '寄送功能尚未啟用。',
+        EMAIL_NOT_CONFIGURED: '寄送功能尚未完成設定。',
+        EMAIL_PROVIDER_FAILED: '寄送失敗，請稍後重試。',
+      };
+      setWeeklyEmailFeedback(messages[code] || '寄送失敗，請稍後重試。');
+    } finally {
+      weeklyEmailInFlight.current = false;
+      setWeeklyEmailSending(false);
+    }
   };
 
   const renderWeeklySchedule = (days: Date[], includeTodoColumn: boolean, presentationMode = false) => {
@@ -1001,6 +1050,12 @@ export default function SchedulePage() {
             </button>
           </div>
 
+          {viewMode === 'week' ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={() => void downloadWeekImage()} className="min-h-11 rounded border border-[var(--border)] bg-[var(--surface)] px-4 py-2 font-semibold text-[var(--text-primary)] hover:bg-[var(--surface-secondary)]">下載週排程 PNG</button>
+              {isStandardAppRole(currentUser?.role) ? <button type="button" disabled={!activeWorkGroup || !workspace.ready} onClick={() => { setWeeklyEmailFeedback(''); setIsWeeklyEmailOpen(true); }} className="min-h-11 rounded border border-[var(--border)] bg-[var(--surface)] px-4 py-2 font-semibold text-[var(--text-primary)] hover:bg-[var(--surface-secondary)] disabled:opacity-50">寄送週排程</button> : null}
+            </div>
+          ) : null}
           {viewMode === 'week' ? (
             <button
               type="button"
@@ -1276,6 +1331,7 @@ export default function SchedulePage() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button type="button" onClick={() => void downloadWeekImage()} className="min-h-10 rounded-lg border border-[var(--border)] px-3 font-semibold hover:bg-[var(--surface-secondary)]">下載本週排程 PNG</button>
+              {isStandardAppRole(currentUser?.role) ? <button type="button" disabled={!activeWorkGroup || !workspace.ready} onClick={() => { setWeeklyEmailFeedback(''); setIsWeeklyEmailOpen(true); }} className="min-h-10 rounded-lg border border-[var(--border)] px-3 font-semibold hover:bg-[var(--surface-secondary)] disabled:opacity-50">寄送週排程</button> : null}
               <button type="button" onClick={() => setCurrentDate(subDays(currentDate, 7))} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-[var(--border)] px-3 font-semibold hover:bg-[var(--surface-secondary)]" aria-label="上一週">
                 <ChevronLeft size={20} />上一週
               </button>
@@ -1371,6 +1427,22 @@ export default function SchedulePage() {
           loading={isDeletedAuditLoading}
           onClose={() => setIsDeletedAuditOpen(false)}
         />
+      ) : null}
+
+      {isWeeklyEmailOpen ? (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/60 p-4" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !weeklyEmailSending) setIsWeeklyEmailOpen(false); }}>
+          <form onSubmit={event => void sendWeeklyEmail(event)} role="dialog" aria-modal="true" aria-labelledby="weekly-email-title" className="w-full max-w-sm rounded-2xl border border-[var(--border)] bg-[var(--modal-bg)] p-5 text-[var(--modal-text)] shadow-2xl">
+            <h2 id="weekly-email-title" className="text-xl font-bold">寄送週排程</h2>
+            <p className="mt-2 text-sm text-[var(--text-secondary)]">{format(weekStart, 'yyyy/MM/dd')} - {format(addDays(weekStart, 5), 'yyyy/MM/dd')}</p>
+            <label htmlFor="weekly-email-recipient" className="mt-5 block text-sm font-semibold">收件 Email</label>
+            <input id="weekly-email-recipient" type="email" required autoFocus value={weeklyEmailRecipient} onChange={event => setWeeklyEmailRecipient(event.target.value)} disabled={weeklyEmailSending} className="mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[var(--text-primary)]" />
+            {weeklyEmailFeedback ? <p role="status" className="mt-3 text-sm">{weeklyEmailFeedback}</p> : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={() => setIsWeeklyEmailOpen(false)} disabled={weeklyEmailSending} className="rounded-lg border border-[var(--border)] px-4 py-2 disabled:opacity-50">關閉</button>
+              <button type="submit" disabled={weeklyEmailSending} className="rounded-lg bg-[var(--accent)] px-4 py-2 font-bold text-[var(--accent-text)] disabled:opacity-50">{weeklyEmailSending ? '寄送中…' : '寄送'}</button>
+            </div>
+          </form>
+        </div>
       ) : null}
 
       {isTodoFormOpen && (
