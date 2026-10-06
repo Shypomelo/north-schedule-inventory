@@ -1,12 +1,14 @@
 import type { Todo, User } from './db/types';
 
 export function canEditTodoText(todo: Todo, actor: User | null): boolean {
+  return canDeleteTodo(todo, actor) && !(todo.scope === 'PRIVATE' && todo.status === '已收納');
+}
+
+export function canDeleteTodo(todo: Todo, actor: User | null): boolean {
   return Boolean(actor?.is_active && actor.role !== 'VIEWER' && (todo.scope === 'TEAM' || todo.created_by === actor.id));
 }
 
-export const canDeleteTodo = canEditTodoText;
-
-export async function saveTodoText(adapter: { updateTodo: (id: string, data: any) => Promise<any>; updatePrivateTodo: (id: string, data: any) => Promise<any> }, todo: Todo, actor: User | null, input: { title: string; content: string | null }) {
+export async function saveTodoText(adapter: { updateTodo: (id: string, data: any) => Promise<any>; updatePrivateTodo: (id: string, data: any) => Promise<any> }, todo: Todo, actor: User | null, input: { title: string; content: string | null; projectId?: string | null }) {
   if (!canEditTodoText(todo, actor)) throw new Error('沒有編輯此待辦的權限');
   const payload = { title: input.title.trim(), content: input.content?.trim() || null };
   if (!payload.title) throw new Error('標題為必填');
@@ -14,5 +16,5 @@ export async function saveTodoText(adapter: { updateTodo: (id: string, data: any
   // Do not synchronize a converted Schedule or accept any metadata from the form.
   return todo.scope === 'PRIVATE'
     ? adapter.updatePrivateTodo(todo.id, payload)
-    : adapter.updateTodo(todo.id, payload);
+    : adapter.updateTodo(todo.id, input.projectId === undefined ? payload : { ...payload, project_id: input.projectId });
 }

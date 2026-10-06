@@ -4,8 +4,8 @@ import { useId, useState } from 'react';
 import type { Project } from '@/lib/db/types';
 import { filterProjectsForAutocomplete, getProjectLocationLabel } from '@/lib/project-location';
 
-export function ReceivingProjectCombobox({ projects, value, onChange, disabled, required = false }: {
-  projects: Project[]; value: string; onChange: (id: string) => void; disabled?: boolean; required?: boolean;
+export function ReceivingProjectCombobox({ projects, value, onChange, disabled, required = false, label = '案件' }: {
+  projects: Project[]; value: string; onChange: (id: string) => void; disabled?: boolean; required?: boolean; label?: string;
 }) {
   const id = useId();
   const [query, setQuery] = useState('');
@@ -17,7 +17,7 @@ export function ReceivingProjectCombobox({ projects, value, onChange, disabled, 
   const choose = (project: Project) => { onChange(project.id); setQuery(''); setOpen(false); };
   const close = () => { setOpen(false); setQuery(''); };
   return <div className="relative" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) close(); }}>
-    <label htmlFor={id} className="block text-sm">{required ? '案件' : '案件（選填）'}</label>
+    <label htmlFor={id} className="block text-sm">{label}{required ? '' : '（選填）'}</label>
     <div className="flex items-center gap-2">
       <input id={id} role="combobox" aria-expanded={open} aria-autocomplete="list" aria-controls={id + '-list'}
         aria-activedescendant={open && candidates[active] ? id + '-' + active : undefined}
@@ -31,7 +31,7 @@ export function ReceivingProjectCombobox({ projects, value, onChange, disabled, 
           if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); setOpen(true); setActive(index => Math.max(0, Math.min(candidates.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)))); }
           if (event.key === 'Enter') { event.preventDefault(); if (open && candidates[active]) choose(candidates[active]); }
         }} />
-      {(value || query) && <button type="button" disabled={disabled} className="min-h-11 px-2 text-sm text-secondary" onClick={() => { onChange(''); close(); }}>清除案件</button>}
+      {(value || query) && <button type="button" disabled={disabled} className="min-h-11 px-2 text-sm text-secondary" onClick={() => { onChange(''); close(); }}>清除{label}</button>}
     </div>
     {open && query.trim() && <ul id={id + '-list'} role="listbox" className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-theme-border bg-card shadow-xl">
       {candidates.map((project, index) => <li key={project.id} id={id + '-' + index} role="option" aria-selected={value === project.id} className={index === active ? 'bg-accent/10' : ''}>

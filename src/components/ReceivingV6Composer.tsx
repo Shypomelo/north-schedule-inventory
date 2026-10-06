@@ -35,7 +35,7 @@ export function ReceivingV6Composer({ data: initialData, api, preferred, onClose
   const { data, createItem } = useReceivingItems(initialData, api);
   const pending = pendingRows(data);
   const initialItem = data.items.find(i => i.id === preferred?.itemId);
-  const [phase, setPhase] = useState<'choose' | 'scan' | 'review' | 'plain'>('choose');
+  const [phase, setPhase] = useState<'scan' | 'review' | 'plain'>('scan');
   const [batchKind, setBatchKind] = useState<'BOX' | 'LOOSE'>('BOX');
   const [scannedBoxes, setScannedBoxes] = useState<ScanBox[]>([]);
   const [extraLines, setExtraLines] = useState<Record<number, { key: string; itemId: string; quantity: string }[]>>({});
@@ -84,12 +84,9 @@ export function ReceivingV6Composer({ data: initialData, api, preferred, onClose
   const suggestions = pending.filter(p => !p.legacy && p.itemId === item?.id && p.fulfilment.active && p.fulfilment.remaining >= Number(quantity));
   const model = scannedModels.current.size === 1 ? data.items.find(i => i.id === Array.from(scannedModels.current)[0])
     || resolvedItems.current.get(Array.from(scannedModels.current)[0]) : undefined;
-  if (phase === 'choose') return <div className="space-y-3"><h3 className="text-sm font-semibold">實際到貨</h3><p className="text-xs text-secondary">先收貨，再依品項或序號決定去向。</p>
-    <button type="button" className={v5Primary + ' w-full'} onClick={() => { setBatchKind('BOX'); setPhase('scan'); }}>開始一箱</button>
-    <button type="button" className={v5Primary + ' w-full'} onClick={() => { setBatchKind('LOOSE'); setPhase('plain'); }}>散料</button></div>;
   if (phase === 'scan') return <BarcodeScanner mode="continuous" items={data.items} initialBoxes={boxSnapshot}
     onBoxesFinish={acceptBoxes} onResolveModel={resolveModel} onDetected={() => { /* Box session owns capture until final confirmation. */ }}
-    onCancel={onClose} onNoBarcode={() => setPhase('plain')} />;
+    onCancel={onClose} onNoBarcode={() => { setBatchKind('LOOSE'); setPhase('plain'); }} />;
   return <form aria-label="實際到貨" className="min-w-0 space-y-4" onSubmit={event => {
     event.preventDefault();
     if (submitted) return;
@@ -153,6 +150,6 @@ export function ReceivingV6Composer({ data: initialData, api, preferred, onClose
     </fieldset>
     <ActionError message={action.error} />
     <button className={v5Primary + ' w-full'} disabled={submitted || action.busy || Boolean(resolving) || drafts.some(d => d.choiceRequired || d.state === 'conflict') || (phase === 'review' ? !drafts.length : !item)}>{submitted ? '已完成實際到貨' : action.busy ? '儲存中…' : '完成實際到貨'}</button>
-    <div className="flex justify-between text-sm"><button type="button" className="min-h-11 px-2 text-accent" disabled={submitted || action.busy || Boolean(resolving)} onClick={() => setPhase(phase === 'plain' ? 'choose' : 'scan')}>{phase === 'plain' ? '返回' : '返回掃描'}</button><button type="button" className="min-h-11 px-2 text-secondary" disabled={submitted || action.busy || Boolean(resolving)} onClick={onClose}>取消</button></div>
+    <div className="flex justify-between text-sm"><button type="button" className="min-h-11 px-2 text-accent" disabled={submitted || action.busy || Boolean(resolving)} onClick={() => setPhase('scan')}>返回掃描</button><button type="button" className="min-h-11 px-2 text-secondary" disabled={submitted || action.busy || Boolean(resolving)} onClick={onClose}>取消</button></div>
   </form>;
 }

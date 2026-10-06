@@ -224,6 +224,32 @@ test('private editor blocks other creator, inactive user and VIEWER', async () =
     await assert.rejects(saveTodoText({}, todo('PRIVATE'), user, { title: 'x', content: null }));
   }
 });
+test('TEAM edit changes and clears project without changing workspace or Schedule link', async () => {
+  const source = todo('TEAM');
+  const f = fixture('ADMIN', { todos: [source] });
+  const adapter = load('db/poc-supabase.ts', { './supabaseClient': { supabase: f.client } }).pocSupabaseAdapter;
+  const changed = await saveTodoText(adapter, source, actor, { title: 'new', content: 'edited', projectId: 'other-project' });
+  assert.equal(changed.project_id, 'other-project');
+  assert.equal(changed.work_group_id, source.work_group_id);
+  assert.equal(changed.converted_task_id, source.converted_task_id);
+  assert.deepEqual(Object.keys(f.writes[0].payload).sort(), ['content', 'project_id', 'scope', 'title']);
+  const cleared = await saveTodoText(adapter, changed, actor, { title: 'new', content: 'edited', projectId: null });
+  assert.equal(cleared.project_id, null);
+  assert.equal(cleared.work_group_id, source.work_group_id);
+  assert.equal(cleared.converted_task_id, source.converted_task_id);
+});
+test('text-only edit preserves the existing project and archived PRIVATE edit is blocked', async () => {
+  const source = todo('TEAM');
+  const f = fixture('ADMIN', { todos: [source] });
+  const adapter = load('db/poc-supabase.ts', { './supabaseClient': { supabase: f.client } }).pocSupabaseAdapter;
+  const saved = await saveTodoText(adapter, source, actor, { title: 'new', content: 'edited' });
+  assert.equal(saved.project_id, source.project_id);
+  assert.equal(Object.hasOwn(f.writes[0].payload, 'project_id'), false);
+  const archived = { ...todo('PRIVATE'), status: '已收納' };
+  assert.equal(canEditTodoText(archived, actor), false);
+  await assert.rejects(saveTodoText(adapter, archived, actor, { title: 'blocked', content: null }));
+  assert.equal(f.writes.length, 1);
+});
 for (const action of ['CREATE', 'UPDATE', 'DELETE']) test('PROJECT server ' + action + ' skips Google and failed-sync writes', async () => {
   let googleCalls = 0, dbWrites = 0;
   const eligibility = load('server/schedule-google-eligibility.ts').getScheduleGoogleEligibility;

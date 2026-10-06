@@ -59,11 +59,10 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
     notes: initialData?.notes || '',
   });
 
-  const [inSerialInputs, setInSerialInputs] = useState<string[]>(
-    initialData?.transaction_type === 'IN' && initialSerials.length > 0
-      ? (initialSerials.length >= 2 ? initialSerials : [...initialSerials, ...Array(2 - initialSerials.length).fill('')])
-      : ['', '']
-  );
+  const [inSerialInputs, setInSerialInputs] = useState<string[]>(initialData?.transaction_type === 'IN' ? initialSerials.map(value => value.trim()).filter(Boolean) : []);
+  const [inSerialInput, setInSerialInput] = useState('');
+  const [inSerialMessage, setInSerialMessage] = useState('');
+  const inSerialInputRef = React.useRef<HTMLInputElement>(null);
   const [isPendingSerial, setIsPendingSerial] = useState(initialData?.pending_serial_count ? initialData.pending_serial_count > 0 : false);
   const [selectedSerials, setSelectedSerials] = useState<string[]>(initialData?.transaction_type !== 'IN' ? initialSerials : []);
   const [serialLookupInput, setSerialLookupInput] = useState('');
@@ -132,11 +131,28 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
       category: item?.category || '',
       source: item?.source_type || ''
     });
-    setInSerialInputs(['', '']);
+    setInSerialInputs([]);
+    setInSerialInput('');
+    setInSerialMessage('');
     setSelectedSerials([]);
     setSerialLookupInput('');
     setSerialLookupMsg(null);
     setIsPendingSerial(false);
+  };
+
+  const addInSerial = () => {
+    const serial = inSerialInput.trim();
+    if (!serial) return;
+    if (inSerialInputs.some(value => normalizeSerialInput(value) === normalizeSerialInput(serial))) {
+      setInSerialMessage(`序號重複：${serial}`);
+    } else if (inSerialInputs.length >= formData.quantity) {
+      setInSerialMessage(`已掃滿 ${formData.quantity} 筆序號，請先調整數量或移除序號。`);
+    } else {
+      setInSerialInputs(previous => [...previous, serial]);
+      setInSerialMessage('');
+    }
+    setInSerialInput('');
+    inSerialInputRef.current?.focus();
   };
 
   const addSelectedSerial = (serialNumber: string) => {
@@ -225,6 +241,7 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
 
     if (selectedItem?.requires_serial) {
       if (formData.transaction_type === 'IN') {
+        if (inSerialInput.trim()) return setErrorMsg('請先按 Enter 或 Tab 加入目前輸入的序號');
         const inSerials = inSerialInputs.map(s => s.trim()).filter(Boolean);
         if (inSerials.length > formData.quantity) {
           return setErrorMsg(`輸入的序號數量 (${inSerials.length}) 超過入庫數量 (${formData.quantity})，請檢查！`);
@@ -510,49 +527,43 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
               <div className="flex flex-col gap-3">
                 <div className="flex justify-between items-center text-sm bg-card p-3 rounded-lg border border-theme-border">
                   <div className="text-secondary">入庫數量：<span className="text-primary font-bold">{formData.quantity}</span></div>
-                  <div className="text-secondary">已輸入序號：<span className="text-success font-bold">{inSerialInputs.filter(s => s.trim()).length}</span></div>
+                  <div className="text-secondary">已掃 <span className="text-success font-bold">{inSerialInputs.length}</span> / {formData.quantity}</div>
                   <div className="text-secondary">待補序號：<span className="text-warning font-bold">{Math.max(0, formData.quantity - inSerialInputs.filter(s => s.trim()).length)}</span></div>
                 </div>
                 
                 <div className="flex flex-col gap-2">
-                  <div className="flex justify-between items-end">
-                    <span className="text-sm font-semibold text-secondary">掃描或輸入序號 (每格一組)</span>
-                    <button 
-                      type="button" 
-                      onClick={() => setInSerialInputs(prev => [...prev, ''])}
-                      className="text-xs flex items-center gap-1 bg-accent/30 text-accent hover:bg-accent/50 hover:text-primary px-2 py-1 rounded transition"
-                    >
-                      + 新增格子
-                    </button>
+                  <label htmlFor="inventory-in-serial" className="text-sm font-semibold text-secondary">掃描或輸入序號</label>
+                  <div className="flex gap-2">
+                    <input
+                      ref={inSerialInputRef}
+                      id="inventory-in-serial"
+                      type="text"
+                      autoComplete="off"
+                      autoCapitalize="characters"
+                      spellCheck={false}
+                      placeholder="掃描序號後按 Enter 或 Tab"
+                      className="min-w-0 flex-1 rounded border border-accent/50 bg-page p-2 text-primary outline-none focus:border-accent"
+                      value={inSerialInput}
+                      onChange={event => setInSerialInput(event.target.value)}
+                      onKeyDown={event => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          if (!event.nativeEvent.isComposing) addInSerial();
+                        } else if (event.key === 'Tab' && !event.shiftKey && !event.nativeEvent.isComposing && inSerialInput.trim()) {
+                          event.preventDefault();
+                          addInSerial();
+                        }
+                      }}
+                    />
+                    <button type="button" onClick={addInSerial} disabled={!inSerialInput.trim()} className="rounded bg-accent px-3 text-white disabled:opacity-50">加入</button>
                   </div>
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    {inSerialInputs.map((val, idx) => (
-                      <input 
-                        key={idx}
-                        type="text"
-                        placeholder={`第 ${idx + 1} 個序號...`}
-                        className="serial-input bg-page border border-accent/50 rounded p-2 focus:border-accent outline-none text-primary w-full"
-                        value={val}
-                        onChange={e => {
-                          const newInputs = [...inSerialInputs];
-                          newInputs[idx] = e.target.value;
-                          setInSerialInputs(newInputs);
-                        }}
-                        onKeyDown={e => {
-                          if (e.key === 'Tab' && !e.shiftKey && idx === inSerialInputs.length - 1 && val.trim() !== '') {
-                            e.preventDefault();
-                            setInSerialInputs(prev => [...prev, '']);
-                            setTimeout(() => {
-                              const inputs = document.querySelectorAll('.serial-input');
-                              if (inputs.length > idx + 1) {
-                                (inputs[idx + 1] as HTMLInputElement).focus();
-                              }
-                            }, 10);
-                          }
-                        }}
-                      />
-                    ))}
-                  </div>
+                  {inSerialMessage && <p role="alert" className="text-sm text-danger">{inSerialMessage}</p>}
+                  {inSerialInputs.length > 0 && <ul aria-label="已掃序號" className="flex flex-col gap-1">
+                    {inSerialInputs.map((serial, index) => <li key={`${serial}-${index}`} className="flex items-center justify-between gap-2 rounded border border-theme-border bg-card px-3 py-1 text-sm">
+                      <span className="min-w-0 break-all font-mono">{serial}</span>
+                      <button type="button" onClick={() => { setInSerialInputs(previous => previous.filter((_, position) => position !== index)); setInSerialMessage(''); inSerialInputRef.current?.focus(); }} className="min-h-9 shrink-0 text-danger">移除</button>
+                    </li>)}
+                  </ul>}
                 </div>
                 
                 <label className="flex items-center gap-2 mt-1 cursor-pointer">

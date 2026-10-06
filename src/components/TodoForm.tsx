@@ -5,6 +5,7 @@ import { Todo, Project } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { useUser } from './UserContext';
 import { useScheduleTaskTypes } from '@/hooks/useScheduleTaskTypes';
+import { ReceivingProjectCombobox } from './ReceivingProjectCombobox';
 
 interface TodoFormProps {
   initialData?: Partial<Todo>;
@@ -49,8 +50,8 @@ export function TodoForm({ initialData, onSubmit, onCancel, isSubmitting }: Todo
   });
 
   useEffect(() => {
-    dbAdapter.getProjects().then(data => setProjects(data.filter(p => p.is_active)));
-  }, []);
+    dbAdapter.getProjects().then(data => setProjects(data.filter(p => p.is_active || p.id === initialData?.project_id)));
+  }, [initialData?.project_id]);
 
   useEffect(() => {
     if (taskTypesLoading || isEditingExistingTodo || !formData.task_type) return;
@@ -101,16 +102,13 @@ export function TodoForm({ initialData, onSubmit, onCancel, isSubmitting }: Todo
           />
         </label>
         
-        <label className="flex flex-col gap-1">
-          <span className="text-sm font-semibold text-primary">關聯案場</span>
-          <select 
-            className="bg-[var(--input-bg)] border border-[var(--input-border)] rounded p-2 focus:border-accent outline-none"
-            value={formData.project_id || ''} onChange={e => setFormData({...formData, project_id: e.target.value || null})} 
-          >
-            <option value="">(無)</option>
-            {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        </label>
+        <ReceivingProjectCombobox
+          label="關聯案場"
+          projects={projects}
+          value={formData.project_id || ''}
+          onChange={projectId => setFormData(prev => ({ ...prev, project_id: projectId || null }))}
+          disabled={isSubmitting || isViewer}
+        />
         
         <label className="flex flex-col gap-1">
           <span className="text-sm font-semibold text-primary">任務類型</span>

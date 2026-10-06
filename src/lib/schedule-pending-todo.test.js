@@ -4,10 +4,9 @@ const fs=require('node:fs');
 const path=require('node:path');
 const source=fs.readFileSync(path.join(__dirname,'../app/schedule/page.tsx'),'utf8');
 
-test('pending Todo left click and mobile tap use the canonical inline editor without a modal',()=>{
+test('pending Todo left click and mobile tap keep the canonical inline editor',()=>{
  assert.match(source,/<TodoInlineText todo=\{todo\}/);
  assert.match(source,/display=\{<>[\s\S]{0,500}\{todo\.title\}/);
- assert.doesNotMatch(source,/TodoTextEditDialog|setEditingTodo|editingTodo/);
 });
 
 test('desktop pending Todo context menu uses shared pointer positioning',()=>{
@@ -15,11 +14,11 @@ test('desktop pending Todo context menu uses shared pointer positioning',()=>{
  assert.match(source,/<TodoContextMenu/);
 });
 
-test('right click offers schedule conversion and deletion without editing',()=>{
+test('right click offers shared edit, schedule conversion and deletion',()=>{
+ assert.match(source,/label: '編輯待辦'[\s\S]{0,180}setTodoToEdit/);
+ assert.match(source,/<TodoTextEditDialog todo=\{todoToEdit\}/);
  assert.match(source,/label: '加入排程'[\s\S]{0,180}openTodoConvertForm/);
  assert.match(source,/label: '刪除待辦'[\s\S]{0,180}handleDeleteTodo/);
- const menu = source.slice(source.indexOf("label: '加入排程'"), source.indexOf(')()}'));
- assert.doesNotMatch(menu,/TodoInlineText|editingTodo/);
 });
 
 test('mobile TodoRow affordance exposes schedule and delete actions',()=>{

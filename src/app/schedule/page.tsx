@@ -6,6 +6,7 @@ import { dbAdapter } from '@/lib/db';
 import { ScheduleTaskFormDialog } from '@/components/ScheduleTaskFormDialog';
 import { ScheduleDeletedAuditDialog } from '@/components/ScheduleDeletedAuditDialog';
 import { TodoForm } from '@/components/TodoForm';
+import { TodoTextEditDialog } from '@/components/TodoTextEditDialog';
 import { TodoInlineText } from '@/components/TodoInlineText';
 import { TodoContextMenu } from '@/components/TodoContextMenu';
 import { TodoRow } from '@/components/TodoRow';
@@ -21,7 +22,7 @@ import { selectActiveTeamTodos } from '@/lib/todo-selectors';
 import { type MemberWorkGroup, selectActiveWorkGroups } from '@/lib/work-groups';
 import { getScheduleTaskPresentation } from '@/lib/schedule-presentation';
 import { useScheduleWeather } from '@/hooks/useScheduleWeather';
-import { canDeleteTodo } from '@/lib/todo-text-actions';
+import { canDeleteTodo, canEditTodoText } from '@/lib/todo-text-actions';
 import {
   completeScheduleTaskWithActivity,
   confirmScheduleTaskDeletion,
@@ -187,6 +188,7 @@ export default function SchedulePage() {
 
   // Todo creation modal; existing Todo text stays inline.
   const [isTodoFormOpen, setIsTodoFormOpen] = useState(false);
+  const [todoToEdit, setTodoToEdit] = useState<Todo | null>(null);
 
   // Context Menu
   const [contextMenu, setContextMenu] = useState<{taskId: string, x: number, y: number} | null>(null);
@@ -1423,12 +1425,15 @@ export default function SchedulePage() {
             const todo = todos.find(item => item.id === todoContextMenu.todoId);
             if (!todo) return [];
             return [
+              { label: '編輯待辦', tone: 'accent' as const, onSelect: () => setTodoToEdit(todo), disabled: !canEditTodoText(todo, currentUser) },
               { label: '加入排程', tone: 'accent' as const, onSelect: () => openTodoConvertForm(todo, format(new Date(), 'yyyy-MM-dd')) },
               { label: '刪除待辦', tone: 'danger' as const, onSelect: () => void handleDeleteTodo(todo) },
             ];
           })()}
         />
       ) : null}
+
+      {todoToEdit && <TodoTextEditDialog todo={todoToEdit} onClose={() => setTodoToEdit(null)} onSaved={async () => { await fetchData(false); }} />}
 
       {isFormOpen && (
         <ScheduleTaskFormDialog

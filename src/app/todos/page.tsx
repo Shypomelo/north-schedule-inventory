@@ -12,6 +12,7 @@ import { requireTodoWorkGroup, selectActiveWorkGroups } from '@/lib/work-groups'
 import { TodoTextEditDialog } from '@/components/TodoTextEditDialog';
 import { TodoInlineText } from '@/components/TodoInlineText';
 import { selectActiveTeamTodos } from '@/lib/todo-selectors';
+import { canEditTodoText } from '@/lib/todo-text-actions';
 
 export default function TodosPage() {
   const { currentUser } = useUser();
@@ -158,7 +159,7 @@ export default function TodosPage() {
                       排入排程
                     </button>
                   )}
-                  <button onClick={() => setTextTodo(todo)} disabled={currentUser?.role === 'VIEWER'} className="min-h-11 p-2 text-secondary hover:text-primary hover:bg-page rounded transition disabled:opacity-50 disabled:cursor-not-allowed" title="編輯文字" aria-label={`編輯 ${todo.title}`}>
+                  <button onClick={() => setTextTodo(todo)} disabled={!canEditTodoText(todo, currentUser)} className="min-h-11 p-2 text-secondary hover:text-primary hover:bg-page rounded transition disabled:opacity-50 disabled:cursor-not-allowed" title="編輯待辦" aria-label={`編輯 ${todo.title}`}>
                     <Edit2 size={16} />
                   </button>
                   <button onClick={() => handleDelete(todo.id)} disabled={currentUser?.role === 'VIEWER'} className="p-2 text-secondary hover:text-danger hover:bg-danger/10 rounded transition disabled:opacity-50 disabled:cursor-not-allowed" title="刪除">
