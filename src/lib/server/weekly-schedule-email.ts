@@ -12,6 +12,16 @@ type Dependencies = {
   env?: Environment;
 };
 
+export async function handleWeeklyScheduleEmailConfig(req: Request, deps: Pick<Dependencies, 'requireMember' | 'env'> = {}): Promise<Response> {
+  const { context, error } = await (deps.requireMember ?? requireActiveTeamMember)(req);
+  if (error) return failure(error.status === 401 ? 'UNAUTHORIZED' : error.status === 403 ? 'FORBIDDEN' : 'AUTH_CHECK_FAILED', error.status);
+  if (!context || !['ADMIN', 'ENGINEER', 'VIEWER'].includes(context.member.role?.toUpperCase() || '')) return failure('FORBIDDEN', 403);
+
+  const defaultRecipient = (deps.env ?? process.env).WEEKLY_EMAIL_DEFAULT_TO?.trim() || '';
+  if (defaultRecipient && !isValidWeeklyRecipient(defaultRecipient)) return failure('INVALID_DEFAULT_RECIPIENT', 503);
+  return Response.json({ defaultRecipient });
+}
+
 const failure = (code: string, status: number) => Response.json({ success: false, error: code }, { status });
 
 export function isValidWeeklyRecipient(value: string): boolean {
@@ -65,7 +75,8 @@ export async function handleWeeklyScheduleEmail(req: Request, deps: Dependencies
   const weekStartValue = form.get('weekStart');
   const workGroupValue = form.get('workGroupId');
   const image = form.get('image');
-  const recipient = typeof recipientValue === 'string' ? recipientValue.trim() : '';
+  const env = deps.env ?? process.env;
+  const recipient = typeof recipientValue === 'string' ? recipientValue.trim() : (env.WEEKLY_EMAIL_DEFAULT_TO?.trim() || '');
   const weekStart = typeof weekStartValue === 'string' ? parseWeekStart(weekStartValue) : null;
   if (!isValidWeeklyRecipient(recipient)) return failure('INVALID_EMAIL', 400);
   if (!weekStart) return failure('INVALID_WEEK_START', 400);
@@ -91,7 +102,6 @@ export async function handleWeeklyScheduleEmail(req: Request, deps: Dependencies
     }
   }
 
-  const env = deps.env ?? process.env;
   const content = weeklyEmailContent(weekStart);
   const payload = {
     from: env.WEEKLY_EMAIL_FROM || '',

@@ -3,7 +3,7 @@ const path = require('node:path');
 const test = require('node:test');
 const load = require('./test-load-ts.cjs');
 
-const { handleWeeklyScheduleEmail, weeklyEmailContent, parseWeekStart, MAX_WEEKLY_PNG_BYTES } = load(
+const { handleWeeklyScheduleEmail, handleWeeklyScheduleEmailConfig, weeklyEmailContent, parseWeekStart, MAX_WEEKLY_PNG_BYTES } = load(
   path.join(__dirname, 'server/weekly-schedule-email.ts'),
   { '@/lib/server/supabase-auth': { requireActiveTeamMember: async () => ({ context: null, error: Response.json({}, { status: 401 }) }) } },
 );
@@ -15,7 +15,8 @@ const PNG = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
 
 function request(overrides = {}) {
   const form = new FormData();
-  form.set('recipient', overrides.recipient ?? 'one@example.com');
+  if (overrides.recipient !== null) form.set('recipient', overrides.recipient ?? 'one@example.com');
+  if (overrides.from) form.set('from', overrides.from);
   form.set('weekStart', overrides.weekStart ?? '2026-10-05');
   form.set('workGroupId', overrides.workGroupId ?? GROUP_ID);
   form.set('image', overrides.image ?? new File([PNG], 'schedule.png', { type: 'image/png' }));
@@ -110,6 +111,41 @@ test('H: Preview completes validation and payload assembly without provider call
   assert.equal(result.status, 200);
   assert.equal(result.body.dryRun, true);
   assert.equal(result.calls.length, 0);
+});
+
+test('config exposes only a validated default recipient', async () => {
+  const req = new Request('http://localhost/api/schedule/weekly-email/config');
+  const response = await handleWeeklyScheduleEmailConfig(req, {
+    requireMember: member(),
+    env: { WEEKLY_EMAIL_DEFAULT_TO: ' default@example.com ', WEEKLY_EMAIL_FROM: 'private@example.com', RESEND_API_KEY: 'secret-key' },
+  });
+  assert.deepEqual(await response.json(), { defaultRecipient: 'default@example.com' });
+  const empty = await handleWeeklyScheduleEmailConfig(req, { requireMember: member(), env: {} });
+  assert.equal((await empty.json()).defaultRecipient, '');
+  const denied = await handleWeeklyScheduleEmailConfig(req, { requireMember: member('PROCUREMENT'), env: {} });
+  assert.equal(denied.status, 403);
+});
+
+test('invalid configured default is blocked by config and by POST fallback', async () => {
+  const env = { ...preview, WEEKLY_EMAIL_DEFAULT_TO: 'invalid' };
+  const config = await handleWeeklyScheduleEmailConfig(new Request('http://localhost/api/schedule/weekly-email/config'), { requireMember: member(), env });
+  assert.equal(config.status, 503);
+  assert.equal((await config.json()).error, 'INVALID_DEFAULT_RECIPIENT');
+  const result = await execute({ recipient: null }, { env });
+  assert.equal(result.status, 400);
+  assert.equal(result.body.error, 'INVALID_EMAIL');
+  assert.equal(result.calls.length, 0);
+});
+
+test('POST uses editable recipient or validated default and ignores client From', async () => {
+  const env = { ...production, WEEKLY_EMAIL_ENABLED: 'true', RESEND_API_KEY: 'test-key', WEEKLY_EMAIL_FROM: 'server@example.com', WEEKLY_EMAIL_DEFAULT_TO: 'default@example.com' };
+  for (const [recipient, expected] of [['edited@example.com', 'edited@example.com'], [null, 'default@example.com']]) {
+    const result = await execute({ recipient, from: 'attacker@example.com' }, { env });
+    assert.equal(result.status, 200);
+    const payload = JSON.parse(result.calls[0][1].body);
+    assert.equal(payload.to, expected);
+    assert.equal(payload.from, 'server@example.com');
+  }
 });
 
 test('candidate project or explicit external-side-effect guard never calls provider', async () => {

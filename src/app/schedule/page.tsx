@@ -106,9 +106,35 @@ export default function SchedulePage() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isWeeklyEmailOpen, setIsWeeklyEmailOpen] = useState(false);
   const [weeklyEmailRecipient, setWeeklyEmailRecipient] = useState('');
+  const [weeklyEmailConfigReady, setWeeklyEmailConfigReady] = useState(false);
   const [weeklyEmailSending, setWeeklyEmailSending] = useState(false);
   const [weeklyEmailFeedback, setWeeklyEmailFeedback] = useState('');
   const weeklyEmailInFlight = useRef(false);
+  useEffect(() => {
+    if (!isWeeklyEmailOpen) return;
+    let cancelled = false;
+    setWeeklyEmailRecipient('');
+    setWeeklyEmailConfigReady(false);
+    void (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) throw new Error('UNAUTHORIZED');
+        const response = await fetch('/api/schedule/weekly-email/config', {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        const config = await response.json();
+        if (!response.ok) throw new Error(config.error || 'EMAIL_NOT_CONFIGURED');
+        if (!cancelled) {
+          setWeeklyEmailRecipient(config.defaultRecipient);
+          setWeeklyEmailConfigReady(true);
+        }
+      } catch (cause) {
+        if (!cancelled) setWeeklyEmailFeedback(cause instanceof Error && cause.message === 'INVALID_DEFAULT_RECIPIENT'
+          ? '預設收件 Email 設定無效。' : '無法讀取寄送設定，請稍後重試。');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isWeeklyEmailOpen]);
   const weekCursorReady = useRef(false);
   useEffect(() => {
     const value = new URLSearchParams(window.location.search).get('week');
@@ -752,7 +778,7 @@ export default function SchedulePage() {
 
   const sendWeeklyEmail = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (weeklyEmailInFlight.current || !activeWorkGroup || !isStandardAppRole(currentUser?.role)) return;
+    if (weeklyEmailInFlight.current || !weeklyEmailConfigReady || !activeWorkGroup || !isStandardAppRole(currentUser?.role)) return;
     weeklyEmailInFlight.current = true;
     setWeeklyEmailSending(true);
     setWeeklyEmailFeedback('');
@@ -1051,12 +1077,6 @@ export default function SchedulePage() {
           </div>
 
           {viewMode === 'week' ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <button type="button" onClick={() => void downloadWeekImage()} className="min-h-11 rounded border border-[var(--border)] bg-[var(--surface)] px-4 py-2 font-semibold text-[var(--text-primary)] hover:bg-[var(--surface-secondary)]">下載週排程 PNG</button>
-              {isStandardAppRole(currentUser?.role) ? <button type="button" disabled={!activeWorkGroup || !workspace.ready} onClick={() => { setWeeklyEmailFeedback(''); setIsWeeklyEmailOpen(true); }} className="min-h-11 rounded border border-[var(--border)] bg-[var(--surface)] px-4 py-2 font-semibold text-[var(--text-primary)] hover:bg-[var(--surface-secondary)] disabled:opacity-50">寄送週排程</button> : null}
-            </div>
-          ) : null}
-          {viewMode === 'week' ? (
             <button
               type="button"
               onClick={() => setIsPresentationMode(true)}
@@ -1330,8 +1350,10 @@ export default function SchedulePage() {
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button type="button" onClick={() => void downloadWeekImage()} className="min-h-10 rounded-lg border border-[var(--border)] px-3 font-semibold hover:bg-[var(--surface-secondary)]">下載本週排程 PNG</button>
-              {isStandardAppRole(currentUser?.role) ? <button type="button" disabled={!activeWorkGroup || !workspace.ready} onClick={() => { setWeeklyEmailFeedback(''); setIsWeeklyEmailOpen(true); }} className="min-h-10 rounded-lg border border-[var(--border)] px-3 font-semibold hover:bg-[var(--surface-secondary)] disabled:opacity-50">寄送週排程</button> : null}
+              <div className="flex flex-wrap items-center gap-2" aria-label="週排程輸出操作">
+                <button type="button" onClick={() => void downloadWeekImage()} className="min-h-10 rounded-lg border border-[var(--border)] px-3 font-semibold hover:bg-[var(--surface-secondary)]">下載週排程 PNG</button>
+                {isStandardAppRole(currentUser?.role) ? <button type="button" disabled={!activeWorkGroup || !workspace.ready} onClick={() => { setWeeklyEmailFeedback(''); setIsWeeklyEmailOpen(true); }} className="min-h-10 rounded-lg border border-[var(--border)] px-3 font-semibold hover:bg-[var(--surface-secondary)] disabled:opacity-50">寄送週排程</button> : null}
+              </div>
               <button type="button" onClick={() => setCurrentDate(subDays(currentDate, 7))} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-[var(--border)] px-3 font-semibold hover:bg-[var(--surface-secondary)]" aria-label="上一週">
                 <ChevronLeft size={20} />上一週
               </button>
@@ -1433,13 +1455,16 @@ export default function SchedulePage() {
         <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/60 p-4" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !weeklyEmailSending) setIsWeeklyEmailOpen(false); }}>
           <form onSubmit={event => void sendWeeklyEmail(event)} role="dialog" aria-modal="true" aria-labelledby="weekly-email-title" className="w-full max-w-sm rounded-2xl border border-[var(--border)] bg-[var(--modal-bg)] p-5 text-[var(--modal-text)] shadow-2xl">
             <h2 id="weekly-email-title" className="text-xl font-bold">寄送週排程</h2>
-            <p className="mt-2 text-sm text-[var(--text-secondary)]">{format(weekStart, 'yyyy/MM/dd')} - {format(addDays(weekStart, 5), 'yyyy/MM/dd')}</p>
-            <label htmlFor="weekly-email-recipient" className="mt-5 block text-sm font-semibold">收件 Email</label>
-            <input id="weekly-email-recipient" type="email" required autoFocus value={weeklyEmailRecipient} onChange={event => setWeeklyEmailRecipient(event.target.value)} disabled={weeklyEmailSending} className="mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[var(--text-primary)]" />
+            <p className="mt-2 text-sm text-[var(--text-secondary)]">週次：{format(weekStart, 'yyyy/MM/dd')} - {format(addDays(weekStart, 5), 'yyyy/MM/dd')}</p>
+            <p className="mt-5 text-sm font-semibold">寄件人</p>
+            <p className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--surface-secondary)] px-3 py-2 text-[var(--text-primary)]">系統排程信箱</p>
+            <label htmlFor="weekly-email-recipient" className="mt-5 block text-sm font-semibold">收件人</label>
+            <input id="weekly-email-recipient" type="email" required autoFocus value={weeklyEmailRecipient} onChange={event => setWeeklyEmailRecipient(event.target.value)} disabled={weeklyEmailSending || !weeklyEmailConfigReady} className="mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[var(--text-primary)] disabled:opacity-50" />
+            {!weeklyEmailConfigReady && !weeklyEmailFeedback ? <p role="status" className="mt-3 text-sm">讀取寄送設定中…</p> : null}
             {weeklyEmailFeedback ? <p role="status" className="mt-3 text-sm">{weeklyEmailFeedback}</p> : null}
             <div className="mt-5 flex justify-end gap-2">
               <button type="button" onClick={() => setIsWeeklyEmailOpen(false)} disabled={weeklyEmailSending} className="rounded-lg border border-[var(--border)] px-4 py-2 disabled:opacity-50">關閉</button>
-              <button type="submit" disabled={weeklyEmailSending} className="rounded-lg bg-[var(--accent)] px-4 py-2 font-bold text-[var(--accent-text)] disabled:opacity-50">{weeklyEmailSending ? '寄送中…' : '寄送'}</button>
+              <button type="submit" disabled={weeklyEmailSending || !weeklyEmailConfigReady} className="rounded-lg bg-[var(--accent)] px-4 py-2 font-bold text-[var(--accent-text)] disabled:opacity-50">{weeklyEmailSending ? '寄送中…' : '寄送'}</button>
             </div>
           </form>
         </div>
