@@ -74,14 +74,24 @@ test('scanner locates exact pending, model candidates, received SN and Mock trac
   for (const id of ['S1', 'S2']) data.fulfilment[`SE_SUPPLY:${id}`] = { expected: 2, fulfilled: 0, remaining: 2, active: true, remaining_status: 'ACTIVE', cancellation: null };
   data.observations.push({ id: 'E', se_supply_record_id: 'S1', normalized_serial: 'MOCK-SN-01', raw_serial: 'MOCK-SN-01', retired_at: null, active_receipt_id: null });
   const before = JSON.stringify(data);
-  const views = seOrderViews(seOrderMockResponse);
+  const views = seOrderViews(seOrderMockResponse).map(view => ({ ...view,
+    scopeState: 'UNREVIEWED', projectId: null, items: [] }));
+  views[0].scopeState = 'NORTH';
+  views[0].items = [{ id: 'SE-I', name: 'RSESU-RW0S0NNN4', quantity: 3, active: true,
+    serials: [], links: [{ id: 'SE-L', sourceType: 'SE_SUPPLY', sourceId: 'S1', projectId: 'P', quantity: 2 }] }];
   assert.deepEqual(locateReceivingScan('MOCK-SN-01', data, views).keys, ['SE_SUPPLY:S1']);
   const model = locateReceivingScan('RSESU-RW0S0NNN4', data, views);
   assert.equal(model.kind, 'PENDING'); assert.equal(model.exact, false); assert.equal(model.keys.length, 2);
   data.observations.push({ id: 'A1', arrival_line_id: 'L', normalized_serial: 'MOCK-SN-01', raw_serial: 'MOCK-SN-01', retired_at: null });
   assert.equal(locateReceivingScan('MOCK-SN-01', data, views).kind, 'HISTORY');
   assert.deepEqual(locateReceivingScan('12345678901', data, views).orderNos, ['SO-20261002-153000']);
+  assert.deepEqual(locateReceivingScan('12345678901', data, views).pendingKeys, ['SE_SUPPLY:S1']);
+  assert.equal(locateReceivingScan('12345678901', data, views).exact, true);
   assert.deepEqual(locateReceivingScan('12345678902', data, views).orderNos, ['SO-20261002-153000']);
+  const ambiguous = [...views, { ...views[0], orderNo: 'SECOND', items: [{ ...views[0].items[0],
+    links: [{ id: 'SE-L2', sourceType: 'SE_SUPPLY', sourceId: 'S2', projectId: 'P', quantity: 1 }] }] }];
+  assert.equal(locateReceivingScan('12345678901', data, ambiguous).exact, false);
+  assert.equal(locateReceivingScan('12345678901', data, ambiguous).pendingKeys.length, 2);
   assert.equal(locateReceivingScan('UNKNOWN', data, views).kind, 'UNMATCHED');
   assert.equal(JSON.parse(before).receipts.length, data.receipts.length);
 });

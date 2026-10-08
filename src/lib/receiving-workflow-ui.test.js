@@ -38,21 +38,29 @@ test('receiving defaults to five tabs in the agreed order with pending selected'
   assert.match(tabs, /aria-selected="true"[^>]*>待收貨/);
 });
 
-test('SE supply tab renders Partner API fields, duplicate model rows and removed notices as Mock only', () => {
+test('SE supply tab renders snapshot fields, duplicate raw rows and removed notices', () => {
   const { seOrderMockResponse, seOrderViews } = load(path.resolve(__dirname, 'se-order-mock.ts'));
   const { ReceivingSEOrders } = load(path.resolve(__dirname, '../components/ReceivingSEOrders.tsx'));
+  const orders = seOrderViews(seOrderMockResponse).map((view, index) => ({ ...view,
+    scopeState: index === 0 ? 'NORTH' : 'UNREVIEWED', projectId: index === 0 ? 'P' : null,
+    items: index === 0 ? [{ id: 'item-1', name: 'RSESU-RW0S0NNN4', quantity: 3,
+      active: true, links: [], serials: [] }] : [],
+  }));
   const html = renderToStaticMarkup(React.createElement(ReceivingSEOrders, {
-    orders: seOrderViews(seOrderMockResponse), projects: [{ id: 'P', name: '範例北部案場 A' }],
-    pending: [], query: '', focusOrderNo: null,
+    orders, projects: [{ id: 'P', name: '範例北部案場 A' }],
+    pending: [], query: '', focusOrderNo: null, canReview: false, rules: [],
+    onConfirmScope: async () => {}, onSetCaseRule: async () => {}, onLink: async () => {}, onUnlink: async () => {},
   }));
   assert.match(html, /7000001、7000001-2/);
   assert.match(html, /12345678901、12345678902/);
-  assert.equal((html.match(/<strong>RSESU-RW0S0NNN4<\/strong>/g) || []).length, 2);
+  assert.match(html, /1\. RSESU-RW0S0NNN4 × 1/);
+  assert.match(html, /2\. RSESU-RW0S0NNN4 × 2/);
   assert.match(html, /待人工確認（partner_review）/);
   assert.match(html, /已失效（deleted）/);
   assert.match(html, /已失效（reassigned）/);
-  assert.match(html, /SN 預留（UI 衍生欄位；API 不提供 SN）/);
-  assert.match(html, /Mock 同名候選，待權威確認/);
+  assert.match(html, /SN 預留（非 API 欄位）：尚無/);
+  assert.match(html, /已確認北部/);
+  assert.doesNotMatch(html, /Mock/);
   assert.doesNotMatch(html, /實際出貨日期|自動納入待收貨/);
 });
 

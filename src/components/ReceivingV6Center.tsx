@@ -24,7 +24,8 @@ import { ReceivingPendingBatchForm } from './ReceivingPendingBatchForm';
 import { receivingReminderBucket, type ReminderBucket } from '@/lib/receiving-reminders';
 import { receivingLedger } from '@/lib/receiving-history-ledger';
 import { locateReceivingScan, type ReceivingScanLocation } from '@/lib/receiving-scan-locator';
-import { seOrderMockResponse, seOrderViews } from '@/lib/se-order-mock';
+import { createSEPartnerSnapshotApi, type SECaseRule } from '@/lib/db/se-partner';
+import type { SEOrderView, SEScopeState, SEItemLink } from '@/lib/se-partner-view';
 import { BarcodeScanner } from './BarcodeScanner';
 import { ReceivingSEOrders } from './ReceivingSEOrders';
 import { ReceivingHistoryLedger } from './ReceivingHistoryLedger';
@@ -53,8 +54,14 @@ const receivedMenuTarget = (group: ReceivedGroup, canEdit: boolean): ReceivingAc
 export function ReceivingV6Center() {
   const { currentUser } = useUser();
   const api = useMemo(() => createReceivingV6Api(supabase, currentUser?.role === 'PROCUREMENT'), [currentUser?.role]);
+  const seApi = useMemo(() => createSEPartnerSnapshotApi(supabase), []);
   const canEdit = currentUser?.role === 'ADMIN' || currentUser?.role === 'ENGINEER';
+  const canReviewSE = currentUser?.role === 'ADMIN';
+  const seMemberId = currentUser?.id;
   const [data, setData] = useState<ReceivingV6Snapshot | null>(null);
+  const [seOrders, setSEOrders] = useState<SEOrderView[]>([]);
+  const [seRules, setSERules] = useState<SECaseRule[]>([]);
+  const [seLoading, setSELoading] = useState(true), [seError, setSEError] = useState('');
   const [loading, setLoading] = useState(true), [error, setError] = useState(''), [notice, setNotice] = useState('');
   const [query, setQuery] = useState(''), [tab, setTab] = useState<Tab>('pending');
   const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
@@ -77,6 +84,16 @@ export function ReceivingV6Center() {
     else if (action === 'view' && target.type === 'pending') setDialog({ kind: 'work', key: target.key });
   });
   const generation = useRef(0);
+  const seGeneration = useRef(0);
+  const loadSE = useCallback(async () => {
+    const ticket = ++seGeneration.current; setSELoading(true); setSEError('');
+    if (!seMemberId) { setSEOrders([]); setSERules([]); setSELoading(false); return; }
+    try {
+      const [orders, rules] = await Promise.all([seApi.load(), canReviewSE ? seApi.rules() : Promise.resolve([])]);
+      if (ticket === seGeneration.current) { setSEOrders(orders); setSERules(rules); }
+    } catch (cause) { if (ticket === seGeneration.current) setSEError(receivingError(cause)); }
+    finally { if (ticket === seGeneration.current) setSELoading(false); }
+  }, [seApi, canReviewSE, seMemberId]);
   const load = useCallback(async () => {
     const ticket = ++generation.current; setLoading(true); setError('');
     try {
@@ -88,6 +105,7 @@ export function ReceivingV6Center() {
     finally { if (ticket === generation.current) setLoading(false); }
   }, [api]);
   useEffect(() => { const requestGeneration = generation; void load(); return () => { requestGeneration.current++; }; }, [load]);
+  useEffect(() => { const requestGeneration = seGeneration; void loadSE(); return () => { requestGeneration.current++; }; }, [loadSE]);
 
   const pending = useMemo(() => data ? receivingPendingList(data) : [], [data]);
   const reminders = pending.map(row => ({ row, bucket: data ? receivingReminderBucket(row, data, new Date()) : null }))
@@ -126,17 +144,20 @@ export function ReceivingV6Center() {
   };
   const onScan = (raw: string) => {
     if (!data) return;
-    const result = locateReceivingScan(raw, data, seOrderViews(seOrderMockResponse));
+    const result = locateReceivingScan(raw, data, seOrders);
     setScanning(false); setScanResult(result);
     if (result.kind === 'PENDING' && result.exact && result.keys.length === 1) {
       setTab('pending'); setQuery(''); setDialog({ kind: 'work', key: result.keys[0] }); setScanResult(null);
     } else if (result.kind === 'HISTORY') { setTab('history'); setQuery(raw); }
-    else if (result.kind === 'SE_ORDER') { setTab('se'); setQuery(raw); setFocusOrderNo(result.orderNos.length === 1 ? result.orderNos[0] : null); }
+    else if (result.kind === 'SE_ORDER') {
+      if (result.exact) { setTab('pending'); setQuery(''); setDialog({ kind: 'work', key: result.pendingKeys[0] }); setScanResult(null); }
+      else { setTab('se'); setQuery(raw); setFocusOrderNo(result.orderNos.length === 1 ? result.orderNos[0] : null); }
+    }
   };
   const tabs: { key: Tab; label: string; count: number }[] = [
     { key: 'pending', label: '待收貨', count: pending.length },
     { key: 'received', label: '已收到', count: recentBatches.length },
-    { key: 'se', label: 'SE 供貨', count: seOrderMockResponse.orders.length + seOrderMockResponse.removed.length },
+    { key: 'se', label: 'SE 供貨', count: seOrders.length },
     { key: 'history', label: '收貨紀錄', count: ledger.length },
     { key: 'reminders', label: '提醒', count: reminders.length },
   ];
@@ -145,17 +166,23 @@ export function ReceivingV6Center() {
   return <section aria-label="物料收貨" className="min-w-0 rounded-xl border border-theme-border bg-card/60">
     <header className="border-b border-theme-border px-3 pt-3 sm:px-4">
       <div className="flex items-center justify-between gap-3"><h1 className="text-lg font-bold">物料收貨</h1><div className="hidden gap-2 sm:flex">{createButtons}</div><details className="relative sm:hidden"><summary className="cursor-pointer rounded-md px-2 py-1 text-sm text-accent">新增</summary><div className="absolute right-0 z-10 flex w-36 flex-col gap-2 rounded-lg border border-theme-border bg-card p-2 shadow-lg">{createButtons}</div></details></div>
-      <div className="mt-3 flex min-w-0 items-center gap-2"><label className="relative min-w-0 flex-1"><span className="sr-only">搜尋品項、案件、序號或託運單號</span><Search size={16} className="pointer-events-none absolute left-3 top-3 text-secondary" /><input type="search" className="h-10 w-full min-w-0 rounded-lg border border-theme-border bg-page pl-9 pr-3 text-sm" placeholder="搜尋品項 / 案件 / 序號 / 託運單號" value={query} onChange={event => setQuery(event.target.value)} /></label><button type="button" title="掃碼定位" aria-label="掃碼定位" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-theme-border" disabled={!data} onClick={() => { setScanResult(null); setScanning(true); }}><ScanLine size={18} /></button><button type="button" title="重新整理" aria-label="重新整理" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-theme-border" disabled={loading} onClick={() => void load()}><RefreshCw size={17} className={loading ? 'animate-spin' : ''} /></button></div>
+      <div className="mt-3 flex min-w-0 items-center gap-2"><label className="relative min-w-0 flex-1"><span className="sr-only">搜尋品項、案件、序號或託運單號</span><Search size={16} className="pointer-events-none absolute left-3 top-3 text-secondary" /><input type="search" className="h-10 w-full min-w-0 rounded-lg border border-theme-border bg-page pl-9 pr-3 text-sm" placeholder="搜尋品項 / 案件 / 序號 / 託運單號" value={query} onChange={event => setQuery(event.target.value)} /></label><button type="button" title="掃碼定位" aria-label="掃碼定位" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-theme-border" disabled={!data} onClick={() => { setScanResult(null); setScanning(true); }}><ScanLine size={18} /></button><button type="button" title="重新整理" aria-label="重新整理" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-theme-border" disabled={loading || seLoading} onClick={() => { void load(); void loadSE(); }}><RefreshCw size={17} className={loading || seLoading ? 'animate-spin' : ''} /></button></div>
       <div role="tablist" aria-label="收貨分類" className="mt-3 flex gap-4 overflow-x-auto">{tabs.map(value => <button type="button" role="tab" key={value.key} aria-selected={tab === value.key} className={'shrink-0 border-b-2 pb-2 text-sm font-semibold ' + (tab === value.key ? 'border-accent text-accent' : 'border-transparent text-secondary hover:text-primary')} onClick={() => setTab(value.key)}>{value.label}<span className="ml-1.5 tabular-nums font-normal">{value.count}</span></button>)}</div>
     </header>
     <div className="min-w-0 px-3 sm:px-4"><ActionError message={error} />{notice && <p role="status" className="py-2 text-sm text-accent">{notice}</p>}{loading && !data && <p role="status" className="py-8 text-sm text-secondary">載入物料收貨…</p>}
       {scanResult && <div role="status" className="my-2 rounded-lg border border-theme-border bg-page p-3 text-sm">
         {scanResult.kind === 'PENDING' ? <><p>{scanResult.exact ? '唯一待收貨候選' : '請選擇待收貨候選；型號掃碼仍需人工確認。'}</p><div className="mt-2 flex flex-wrap gap-2">{scanResult.keys.map(key => { const row = pending.find(value => value.key === key); return <button key={key} type="button" className="min-h-10 rounded-md border border-theme-border px-3" onClick={() => { setTab('pending'); setQuery(''); setDialog({ kind: 'work', key }); setScanResult(null); }}>{row?.label || key} · {row?.projectLabel || '案場未定'}</button>; })}</div></>
           : scanResult.kind === 'HISTORY' ? <p>此 SN 已有實際到貨紀錄，已定位到收貨紀錄；不會再次收貨。</p>
-            : scanResult.kind === 'SE_ORDER' ? <p>已依託運單號定位 Mock SE 訂單；不會建立收貨。</p>
+            : scanResult.kind === 'SE_ORDER' ? <><p>已依託運單號定位 SE 訂單；不會建立收貨。{scanResult.exact ? '已定位唯一明確關聯的待收貨。' : '請確認候選訂單與待收貨。'}</p>{scanResult.pendingKeys.length > 1 && <div className="mt-2 flex flex-wrap gap-2">{scanResult.pendingKeys.map(key => <button key={key} type="button" className="min-h-10 rounded-md border border-theme-border px-3" onClick={() => { setTab('pending'); setQuery(''); setDialog({ kind: 'work', key }); setScanResult(null); }}>{pending.find(row => row.key === key)?.label || key}</button>)}</div>}</>
               : <><p>未找到精準對應。可保留未對應的實際到貨流程，確認資料後再收貨。</p><button type="button" className="mt-2 min-h-10 rounded-md border border-theme-border px-3" disabled={!editable} onClick={() => { setScanResult(null); setDialog({ kind: 'actual' }); }}>開啟實際到貨</button></>}
       </div>}
-      {tab === 'se' && data && <ReceivingSEOrders orders={seOrderViews(seOrderMockResponse)} projects={data.projects} pending={pending} query={query} focusOrderNo={focusOrderNo} />}
+      {tab === 'se' && <>{seLoading && <p role="status" className="py-3 text-sm text-secondary">載入 SE 訂單快照…</p>}{seError && <ActionError message={seError} />}
+        {!seLoading && !seError && <ReceivingSEOrders orders={seOrders} projects={data?.projects || []} pending={pending} query={query} focusOrderNo={focusOrderNo}
+          canReview={canReviewSE} rules={seRules}
+          onConfirmScope={async (orderNo: string, scope: SEScopeState, projectId: string | null) => { await seApi.confirmScope(orderNo, scope, projectId); await loadSE(); }}
+          onSetCaseRule={async (caseNumber: string, scope: 'NORTH' | 'NOT_NORTH', projectId: string | null) => { await seApi.setCaseRule(caseNumber, scope, projectId); await loadSE(); }}
+          onLink={async (itemId: string, type: SEItemLink['sourceType'], sourceId: string, quantity: number) => { await seApi.link(itemId, type, sourceId, quantity); await loadSE(); }}
+          onUnlink={async (linkId: string) => { await seApi.unlink(linkId); await loadSE(); }} />}</>}
       {tab === 'reminders' && <div role="tabpanel" aria-label="到貨提醒" className="space-y-4 py-4">{([['overdue', '已逾期'], ['today', '今日到貨'], ['upcoming', '即將到貨']] as const).map(([bucket, label]) => <section key={bucket} className="rounded-lg border border-theme-border p-3"><h2 className="mb-2 font-semibold text-primary">{label} · {reminders.filter(entry => entry.bucket === bucket).length}</h2><div className="divide-y divide-theme-border">{reminders.filter(entry => entry.bucket === bucket).map(({ row }) => <button type="button" key={row.key} onClick={() => setDialog({ kind: 'work', key: row.key })} className="flex w-full flex-wrap justify-between gap-2 py-3 text-left text-sm text-primary"><span>{row.label} · {row.projectLabel}</span><span className="text-secondary">{row.expectedAt ? shortTime(row.expectedAt) : ''} · 待收 {formatReceivingQuantity(row.fulfilment.remaining)} {row.unit}</span></button>)}</div></section>)}</div>}
       {tab === 'pending' && <div role="tabpanel" aria-label="待收貨" className="divide-y divide-theme-border">{shownPending.map(row => {
         const target = pendingMenuTarget(row, editable);
