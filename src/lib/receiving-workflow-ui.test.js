@@ -21,7 +21,7 @@ function hooks() {
   };
 }
 
-test('receiving defaults to three tabs with pending selected', () => {
+test('receiving defaults to five tabs in the agreed order with pending selected', () => {
   const { ReceivingV6Center } = load(path.resolve(__dirname, '../components/ReceivingV6Center.tsx'), {
     './UserContext': { useUser: () => ({ currentUser: { id: 'u', role: 'ADMIN' } }) },
     '@/lib/db/supabaseClient': { supabase: {} },
@@ -33,11 +33,27 @@ test('receiving defaults to three tabs with pending selected', () => {
   });
   const html = renderToStaticMarkup(React.createElement(ReceivingV6Center));
   const tabs = html.match(/<div role="tablist" aria-label="收貨分類".*?<\/div>/)?.[0] || '';
-  assert.match(tabs, /待收貨/);
-  assert.match(tabs, /已收到/);
-  assert.match(tabs, /收貨紀錄/);
-  assert.equal((tabs.match(/<button /g) || []).length, 3);
+  assert.match(tabs, /待收貨[\s\S]*已收到[\s\S]*SE 供貨[\s\S]*收貨紀錄[\s\S]*提醒/);
+  assert.equal((tabs.match(/<button /g) || []).length, 5);
   assert.match(tabs, /aria-selected="true"[^>]*>待收貨/);
+});
+
+test('SE supply tab renders Partner API fields, duplicate model rows and removed notices as Mock only', () => {
+  const { seOrderMockResponse, seOrderViews } = load(path.resolve(__dirname, 'se-order-mock.ts'));
+  const { ReceivingSEOrders } = load(path.resolve(__dirname, '../components/ReceivingSEOrders.tsx'));
+  const html = renderToStaticMarkup(React.createElement(ReceivingSEOrders, {
+    orders: seOrderViews(seOrderMockResponse), projects: [{ id: 'P', name: '範例北部案場 A' }],
+    pending: [], query: '', focusOrderNo: null,
+  }));
+  assert.match(html, /7000001、7000001-2/);
+  assert.match(html, /12345678901、12345678902/);
+  assert.equal((html.match(/<strong>RSESU-RW0S0NNN4<\/strong>/g) || []).length, 2);
+  assert.match(html, /待人工確認（partner_review）/);
+  assert.match(html, /已失效（deleted）/);
+  assert.match(html, /已失效（reassigned）/);
+  assert.match(html, /SN 預留（UI 衍生欄位；API 不提供 SN）/);
+  assert.match(html, /Mock 同名候選，待權威確認/);
+  assert.doesNotMatch(html, /實際出貨日期|自動納入待收貨/);
 });
 
 test('outbound serial input is scanner friendly and project choices are hidden initially', () => {
