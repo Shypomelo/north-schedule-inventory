@@ -45,7 +45,7 @@ import {
 } from './types';
 import { throwMissingCoreTablesErrorIfNeeded } from './supabase-errors';
 import { getInventoryTransactionQuantityDelta } from './inventory-stock';
-import { getConstructionEndDate, getConstructionToday, validateActualCompletionDate } from '../construction-progress';
+import { getConstructionEndDate, getConstructionToday, normalizeConstructionDateInput, validateActualCompletionDate } from '../construction-progress';
 import { getMissingWorkflowTemplateSteps, getProjectOuterWorkflowFields } from '../project-workflow';
 import { isContractorType, validateContractorCapabilities, validateContractorCapabilityValues } from '../contractors';
 import {
@@ -804,51 +804,38 @@ const createMonthlyClosingInSupabase = async (
   return mapInventoryMonthlyClosing(data);
 };
 
-const fetchActivityLogsFromSupabase = async (): Promise<ActivityLog[]> => {
-  const { data, error } = await supabase
-    .from('activity_logs')
-    .select('*')
-    .order('created_at', { ascending: false });
+const readScopedActivityLogs = async (kind: string, targetId: string | null = null): Promise<ActivityLog[]> => {
+  const { data, error } = await supabase.rpc('read_activity_logs', {
+    p_kind: kind, p_target_id: targetId, p_limit: 500,
+  });
 
   if (error) {
-    console.error('Error fetching activity_logs:', error);
+    console.error('Error fetching scoped activity logs:', error);
     throw error;
   }
 
   return (data || []).map(mapActivityLog);
 };
 
-const fetchScheduleDeletedActivityLogsFromSupabase = async (): Promise<ActivityLog[]> => {
-  const { data, error } = await supabase
-    .from('activity_logs')
-    .select('*')
-    .eq('target_type', 'ScheduleTask')
-    .eq('action', 'DELETE_TASK')
-    .order('created_at', { ascending: false });
-
-  if (error) {
-    console.error('Error fetching Schedule deletion activity_logs:', error);
-    throw error;
-  }
-
-  return (data || []).map(mapActivityLog);
-};
+const fetchActivityLogsFromSupabase = () => readScopedActivityLogs('SELF');
+const fetchScheduleDeletedActivityLogsFromSupabase = () => readScopedActivityLogs('SCHEDULE_DELETED');
+const fetchScheduleTaskActivityLogsFromSupabase = (taskId: string) => readScopedActivityLogs('SCHEDULE', taskId);
+const fetchInventoryTransactionActivityLogsFromSupabase = (transactionId: string) => readScopedActivityLogs('INVENTORY_TRANSACTION', transactionId);
 
 const logActivityInSupabase = async (
   log: Omit<ActivityLog, 'id' | 'created_at'>,
 ): Promise<ActivityLog> => {
-  const { data, error } = await supabase
-    .from('activity_logs')
-    .insert(buildActivityLogPayload(log))
-    .select()
-    .single();
+  const id = crypto.randomUUID();
+  const created_at = new Date().toISOString();
+  const payload = { ...buildActivityLogPayload(log), id, created_at };
+  const { error } = await supabase.from('activity_logs').insert(payload);
 
   if (error) {
     console.error('Error creating activity_log:', error);
     throw error;
   }
 
-  return mapActivityLog(data);
+  return mapActivityLog(payload);
 };
 
 const calculateInventoryBalancesFromSupabase = async (): Promise<{ item_id: string; balance: number }[]> => {
@@ -880,21 +867,25 @@ const calculateInventoryBalancesFromSupabase = async (): Promise<{ item_id: stri
   });
 };
 
-const syncProjectProgress = async (projectId: string, p: Partial<Project>) => {
+type AtomicProgressOperation = {
+  kind: 'update' | 'create'; work_type: string; id?: string;
+  sort_order?: number; values: ConstructionUpdate;
+};
+type SavedProjectRow = {
+  id: string; project_name: string; status: string;
+  created_at: string; updated_at: string;
+};
+
+const buildProjectProgressOperations = async (projectId: string | null, p: Partial<Project>): Promise<AtomicProgressOperation[]> => {
   const workTypes = ['racking', 'electrical', 'steel', 'roof_cover', 'civil', 'other'] as const;
   const relevant = workTypes.some(type => [
     `${type}_contractor_id`, `${type}_expected_start_date`, `${type}_completion_date`,
     `${type}_is_completed`, `${type}_status`, `${type}_notes`,
   ].some(key => p[key as keyof Project] !== undefined));
-  if (!relevant) return;
+  if (!relevant) return [];
 
-  // The modal and the outer editor share this adapter and its active-row contract.
-  const [existingProgress, contractorResult] = await Promise.all([
-    constructionProgressAdapter.list(projectId),
-    supabase.from('contractors').select('id,name'),
-  ]);
-  if (contractorResult.error) throw contractorResult.error;
-  const contractorsMap = new Map((contractorResult.data ?? []).map(contractor => [contractor.id, contractor.name]));
+  const existingProgress = projectId ? await constructionProgressAdapter.list(projectId) : [];
+  const operations: AtomicProgressOperation[] = [];
   for (const type of workTypes) {
     const contractorId = p[`${type}_contractor_id` as keyof Project] as string | null | undefined;
     const start = p[`${type}_expected_start_date` as keyof Project] as string | null | undefined;
@@ -910,7 +901,6 @@ const syncProjectProgress = async (projectId: string, p: Partial<Project>) => {
     const values: ConstructionUpdate = {};
     if (contractorId !== undefined) {
       values.contractor_id = contractorId || null;
-      values.contractor_name = contractorId ? contractorsMap.get(contractorId) ?? existing?.contractor_name ?? null : null;
     }
     if (start !== undefined) values.planned_start_date = start || null;
     if (status !== undefined) values.status_override = status || null;
@@ -928,13 +918,17 @@ const syncProjectProgress = async (projectId: string, p: Partial<Project>) => {
       values.is_completed = false;
       values.actual_completed_date = null;
     }
+    for (const key of ['planned_start_date', 'planned_end_date', 'actual_completed_date'] as const) {
+      if (key in values) values[key] = normalizeConstructionDateInput(values[key], getConstructionToday());
+    }
     if (existing) {
-      await constructionProgressAdapter.update(projectId, existing.id, values);
+      operations.push({ kind: 'update', work_type: type, id: existing.id, values });
     } else if (contractorId || start || end || completed || status || notes) {
       if (type === 'other') throw new Error('其他施工工項請在案場彈窗新增');
-      await constructionProgressAdapter.create(projectId, { work_type: type, sort_order: existingProgress.length * 10, ...values });
+      operations.push({ kind: 'create', work_type: type, sort_order: (existingProgress.length + operations.length) * 10, values });
     }
   }
+  return operations;
 };
 
 const validateProjectConstructionCompletionUpdates = (p: Partial<Project>) => {
@@ -1777,7 +1771,7 @@ export const pocSupabaseAdapter = {
       supabase
         .from('project_milestones')
         .select('id,project_id,milestone_key,status,planned_date,actual_date,deleted_at,archived_at,is_applicable')
-        .in('milestone_key', ['INTERNAL_ACCEPTANCE', 'METER_INSTALLATION']),
+        .in('milestone_key', ['INTERNAL_ACCEPTANCE', 'METER_INSTALLATION', 'EQUIPMENT_REGISTRATION']),
     ]);
 
     if (error || milestoneError) {
@@ -1845,6 +1839,10 @@ export const pocSupabaseAdapter = {
         inspection_completion_date: workflowFields.inspection_completion_date,
         meter_milestone_id: workflowFields.meter_milestone_id,
         meter_status: workflowFields.meter_status, meter_completion_date: workflowFields.meter_completion_date,
+        equipment_milestone_id: workflowFields.equipment_milestone_id,
+        equipment_status: workflowFields.equipment_status,
+        equipment_expected_date: workflowFields.equipment_expected_date,
+        equipment_completion_date: workflowFields.equipment_completion_date,
         roof_status: null, start_date: null,
         
         racking_contractor_id: pData.racking_contractor_id || null,
@@ -1920,27 +1918,25 @@ export const pocSupabaseAdapter = {
       dbData.completed_at = new Date().toISOString();
     }
 
-    const { data, error } = await supabase
-      .from('projects')
-      .insert(dbData)
-      .select()
-      .single();
+    const progress = await buildProjectProgressOperations(null, p);
+    const { data, error } = await supabase.rpc('save_project_with_progress', {
+      p_project_id: null, p_create: true, p_project: dbData, p_progress: progress,
+    }).single();
 
     if (error) {
       console.error('Error creating project:', error);
       throwMissingCoreTablesErrorIfNeeded(error);
       throw error;
     }
+    const saved = data as SavedProjectRow;
     
-    await syncProjectProgress(data.id, p);
-
     return {
       ...p,
-      id: data.id,
-      name: data.project_name,
-      status: data.status,
-      created_at: data.created_at,
-      updated_at: data.updated_at,
+      id: saved.id,
+      name: saved.project_name,
+      status: saved.status,
+      created_at: saved.created_at,
+      updated_at: saved.updated_at,
     } as Project;
   },
 
@@ -1967,27 +1963,24 @@ export const pocSupabaseAdapter = {
     // handled by trigger
     dbUpdates.updated_at = new Date().toISOString();
 
-    const { data, error } = await supabase
-      .from('projects')
-      .update(dbUpdates)
-      .eq('id', id)
-      .select()
-      .single();
+    const progress = await buildProjectProgressOperations(id, p);
+    const { data, error } = await supabase.rpc('save_project_with_progress', {
+      p_project_id: id, p_create: false, p_project: dbUpdates, p_progress: progress,
+    }).single();
 
     if (error) {
       console.error('Error updating project:', error);
       throwMissingCoreTablesErrorIfNeeded(error);
       throw error;
     }
-
-    await syncProjectProgress(id, p);
+    const saved = data as SavedProjectRow;
 
     return {
       ...p,
-      id: data.id,
-      name: data.project_name,
-      status: data.status,
-      updated_at: data.updated_at,
+      id: saved.id,
+      name: saved.project_name,
+      status: saved.status,
+      updated_at: saved.updated_at,
     } as Project;
   },
 
@@ -2111,7 +2104,7 @@ export const pocSupabaseAdapter = {
     if (readError) throw readError;
 
     const commonFields: (keyof ProjectMilestoneUpdate)[] = [
-      'is_applicable', 'status', 'planned_date', 'actual_date', 'notes', 'sort_order',
+      'is_applicable', 'status', 'planned_date', 'actual_date', 'notes', 'sort_order', 'contractor_id',
     ];
     const customFields: (keyof ProjectMilestoneUpdate)[] = [
       'label', 'source_phase_id', 'source_type_id',
@@ -2407,6 +2400,8 @@ export const pocSupabaseAdapter = {
   getInventoryMonthlyClosingItems: fetchInventoryMonthlyClosingItemsFromSupabase,
   getActivityLogs: fetchActivityLogsFromSupabase,
   getScheduleDeletedActivityLogs: fetchScheduleDeletedActivityLogsFromSupabase,
+  getScheduleTaskActivityLogs: fetchScheduleTaskActivityLogsFromSupabase,
+  getInventoryTransactionActivityLogs: fetchInventoryTransactionActivityLogsFromSupabase,
   logActivity: logActivityInSupabase,
   getSESupplyRecords: fetchSESupplyRecordsFromSupabase,
   createSESupplyRecord: createSESupplyRecordInSupabase,

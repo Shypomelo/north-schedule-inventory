@@ -30,6 +30,15 @@ export const getInventoryMonthlyInitializationBaselines = async (): Promise<Inve
   }
 };
 
+export const getInventoryInitializationBaselineDate = async (): Promise<string | null> => {
+  const { data, error } = await supabase.from('inventory_initialization_items')
+    .select('inventory_initializations!inner(baseline_date)').limit(1).maybeSingle();
+  if (error) throw error;
+  const header = data?.inventory_initializations;
+  const row = Array.isArray(header) ? header[0] : header;
+  return row?.baseline_date ?? null;
+};
+
 export interface InitializationItemInput {
   id: string;
   new_opening_quantity: number;

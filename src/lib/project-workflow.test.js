@@ -66,10 +66,11 @@ test('reopening a completed milestone clears actual date', () => {
   });
 });
 
-test('acceptance and meter outer fields use active authoritative milestones', () => {
+test('acceptance, meter, and equipment use independent active authoritative milestones', () => {
   const fields = getProjectOuterWorkflowFields([
     milestone('acceptance', 100, 'IN_PROGRESS', { milestone_key: 'INTERNAL_ACCEPTANCE', planned_date: '2026-10-15', actual_date: null }),
     milestone('meter', 110, 'COMPLETED', { milestone_key: 'METER_INSTALLATION', planned_date: '2026-10-20', actual_date: '2026-10-21' }),
+    milestone('equipment', 120, 'NOT_STARTED', { milestone_key: 'EQUIPMENT_REGISTRATION', planned_date: '2026-10-30', actual_date: null }),
   ], '2026-09-01');
   assert.deepEqual(fields, {
     inspection_milestone_id: 'acceptance',
@@ -80,6 +81,10 @@ test('acceptance and meter outer fields use active authoritative milestones', ()
     meter_status: 'COMPLETED',
     meter_expected_date: '2026-10-20',
     meter_completion_date: '2026-10-21',
+    equipment_milestone_id: 'equipment',
+    equipment_status: 'NOT_STARTED',
+    equipment_expected_date: '2026-10-30',
+    equipment_completion_date: null,
   });
   assert.deepEqual(getWorkflowOuterDisplay('ACCEPTANCE', fields.inspection_status, fields.inspection_expected_date, fields.inspection_completion_date, '2026-10-09'), {
     label: '驗收 · 預計 2026/10/15', date: '2026-10-15', isCompleted: false,
@@ -89,6 +94,9 @@ test('acceptance and meter outer fields use active authoritative milestones', ()
   });
   assert.deepEqual(getWorkflowOuterDisplay('METER', fields.meter_status, fields.meter_expected_date, fields.meter_completion_date, '2026-10-21'), {
     label: '掛表 · 預計 2026/10/21', date: '2026-10-21', isCompleted: false,
+  });
+  assert.deepEqual(getWorkflowOuterDisplay('EQUIPMENT', fields.equipment_status, fields.equipment_expected_date, fields.equipment_completion_date, '2026-10-09'), {
+    label: '設備登記 · 預計 2026/10/30', date: '2026-10-30', isCompleted: false,
   });
 });
 
@@ -298,7 +306,7 @@ test('workflow autosave keeps the active row in place without replaying target s
     workflowComponent,
     /scrollIntoView\([\s\S]*?\}, \[isLoading, targetMilestoneId, visibleMilestones\]\);/,
   );
-  assert.match(workflowComponent, /disabled=\{!canEdit\} aria-label=\{[^\n]*實際日期/);
+  assert.match(workflowComponent, /disabled=\{!canEdit \|\| \(milestone\.milestone_key === 'EQUIPMENT_REGISTRATION' && milestone\.status !== 'COMPLETED'\)\} aria-label=\{[^\n]*實際日期/);
 });
 
 test('workflow quick complete uses one canonical update with the Taiwan business date', () => {

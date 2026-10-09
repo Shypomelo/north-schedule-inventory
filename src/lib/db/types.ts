@@ -34,6 +34,7 @@ export type ActivityActionType =
   | 'WORKFLOW_INITIALIZED'
   | 'WORKFLOW_STATUS_CHANGED'
   | 'WORKFLOW_PLANNED_DATE_CHANGED'
+  | 'WORKFLOW_CONTRACTOR_CHANGED'
   | 'WORKFLOW_ACTUAL_DATE_CHANGED'
   | 'WORKFLOW_NOTES_CHANGED'
   | 'WORKFLOW_APPLICABILITY_CHANGED'
@@ -179,6 +180,10 @@ export interface Project {
   meter_milestone_id?: string | null;
   meter_expected_date?: string | null;
   meter_completion_date?: string | null;
+  equipment_milestone_id?: string | null;
+  equipment_status?: string | null;
+  equipment_expected_date?: string | null;
+  equipment_completion_date?: string | null;
   roof_status?: string | null;
   start_date?: string | null;
   
@@ -755,6 +760,8 @@ export interface ProjectMilestone {
   planned_date: string | null;
   actual_date: string | null;
   notes: string | null;
+  contractor_id: string | null;
+  contractor_name: string | null;
   responsible_position_id: string | null;
   created_at: string;
   updated_at: string;
@@ -778,6 +785,7 @@ export interface ProjectMilestoneUpdate {
   planned_date?: string | null;
   actual_date?: string | null;
   notes?: string | null;
+  contractor_id?: string | null;
   label?: string;
   source_phase_id?: string;
   source_type_id?: string;

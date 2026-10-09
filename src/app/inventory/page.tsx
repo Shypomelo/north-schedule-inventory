@@ -6,6 +6,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { InventoryItem, InventoryTransaction, Project, InventorySerial, TransactionType, isActiveFormalTransaction } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { useUser } from '@/components/UserContext';
+import { useSystemOwner } from '@/components/useSystemOwner';
 import { isInventoryEditor } from '@/lib/procurement-access';
 import { getProcurementProjectLabels } from '@/lib/db/procurement-labels';
 import { Package, AlertTriangle, ArrowRightLeft, Plus, MousePointerClick, MoreVertical } from 'lucide-react';
@@ -36,6 +37,7 @@ interface BalanceDisplay {
 
 export default function InventoryBalancePage() {
   const { currentUser } = useUser();
+  const isSystemOwner = useSystemOwner();
   const canEdit = isInventoryEditor(currentUser?.role);
   const [balances, setBalances] = useState<BalanceDisplay[]>([]);
   const [items, setItems] = useState<InventoryItem[]>([]);
@@ -209,7 +211,7 @@ export default function InventoryBalancePage() {
             />
             顯示 0 庫存品項
           </label>
-          {currentUser?.role === 'ADMIN' && (
+          {isSystemOwner && (
             <button
               onClick={() => setIsInitModalOpen(true)}
               className="flex items-center gap-2 bg-warning hover:bg-warning/80 text-white px-4 py-2 rounded shadow transition"

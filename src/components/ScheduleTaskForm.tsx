@@ -160,10 +160,10 @@ export function ScheduleTaskForm({ initialData, initialMemberIds, onSubmit, onCa
 
     let active = true;
     setHistoryLoading(true);
-    dbAdapter.getActivityLogs()
+    dbAdapter.getScheduleTaskActivityLogs(taskId)
       .then(logs => {
         if (!active) return;
-        setActivityLogs(logs.filter(log => log.target_type === 'ScheduleTask' && log.target_id === taskId));
+        setActivityLogs(logs);
       })
       .catch(historyError => {
         console.error('讀取排程歷程失敗', historyError);

@@ -1,11 +1,12 @@
 "use client";
 
-import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, CircleAlert, GripVertical, ListChecks, MoreHorizontal, Play, Plus, RefreshCw, X } from 'lucide-react';
 import { dbAdapter } from '@/lib/db';
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
 import type {
   ActivityActionType,
+  Contractor,
   ProjectMilestone,
   ProjectMilestoneStatus,
   ProjectMilestoneUpdate,
@@ -19,9 +20,7 @@ import {
   getCurrentAndNextMilestones,
   getCustomInsertSortOrder,
   getMilestoneCapabilities,
-  getVisibleWorkflowMilestones,
   normalizeMilestoneCompletion,
-  reorderWorkflowMilestones,
   sortWorkflowMilestones,
   validateWorkflowActualDate,
 } from '@/lib/project-workflow';
@@ -30,6 +29,10 @@ import { getConstructionToday } from '@/lib/construction-progress';
 import { WORKFLOW_GRID_CLASS } from '@/lib/workflow-table';
 import { WorkflowRebuild } from './WorkflowRebuild';
 import { presentBusinessDate } from '@/lib/date-presentation';
+import type { ConstructionProgressModel } from './useConstructionProgress';
+import { ConstructionProgressSection, ConstructionRow } from './ConstructionProgressSection';
+import { getProjectWorkItemPositions, reorderProjectWorkItems } from '@/lib/db/project-work-item-order';
+import { mergeProjectWorkItems, moveProjectWorkItem } from '@/lib/project-work-item-order';
 
 const STATUS_OPTIONS: { value: ProjectMilestoneStatus; label: string }[] = [
   { value: 'NOT_STARTED', label: '未開始' },
@@ -49,17 +52,19 @@ interface ProjectWorkflowProps {
   canEdit: boolean;
   canRefresh: boolean;
   actor: { id: string; name: string } | null;
-  construction?: ReactNode;
+  constructionModel?: ConstructionProgressModel;
   onUpdate?: () => Promise<void>;
   onMilestoneUpdated?: (milestone: ProjectMilestone) => void;
 }
 
 type WorkflowMutationAction = Extract<ActivityActionType, `WORKFLOW_${string}`>;
 
-export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, canEdit, canRefresh, actor, construction, onUpdate, onMilestoneUpdated }: ProjectWorkflowProps) {
+export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, canEdit, canRefresh, actor, constructionModel, onUpdate, onMilestoneUpdated }: ProjectWorkflowProps) {
   const [workflow, setWorkflow] = useState<ProjectWorkflowData>({ instance: null, milestones: [] });
+  const [positions, setPositions] = useState<Record<string,number>>({});
   const [phases, setPhases] = useState<WorkflowPhase[]>([]);
   const [types, setTypes] = useState<WorkflowType[]>([]);
+  const [contractors, setContractors] = useState<Contractor[]>([]);
   const [notesDrafts, setNotesDrafts] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isInitializing, setIsInitializing] = useState(false);
@@ -82,15 +87,19 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
     setIsLoading(true);
     setError(null);
     try {
-      const [workflowResult, phaseResult, typeResult] = await Promise.all([
+      const [workflowResult, phaseResult, typeResult, contractorRows, positionRows] = await Promise.all([
         dbAdapter.getProjectWorkflow(projectId),
         dbAdapter.getWorkflowPhases(),
         dbAdapter.getWorkflowTypes(),
+        dbAdapter.getContractors(),
+        getProjectWorkItemPositions(projectId),
       ]);
       const nextWorkflow = workflowResult as ProjectWorkflowData;
       setWorkflow(nextWorkflow);
       setPhases(phaseResult as WorkflowPhase[]);
       setTypes(typeResult as WorkflowType[]);
+      setContractors(contractorRows as Contractor[]);
+      setPositions(positionRows);
       setNotesDrafts(Object.fromEntries(
         nextWorkflow.milestones.map(milestone => [milestone.id, milestone.notes ?? '']),
       ));
@@ -102,6 +111,11 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
   }, [projectId]);
 
   useEffect(() => { void loadWorkflow(); }, [loadWorkflow]);
+  const constructionIds = constructionModel?.rows.map(row => row.id).join(',') ?? '';
+  useEffect(() => {
+    if (!constructionIds) return;
+    void getProjectWorkItemPositions(projectId).then(setPositions).catch(() => undefined);
+  }, [projectId,constructionIds]);
 
   useEffect(() => {
     if (!menuId) return;
@@ -127,11 +141,13 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
     () => sortWorkflowMilestones(workflow.milestones.filter(m=>!m.archived_at&&!m.deleted_at)),
     [workflow.milestones],
   );
-  const visibleMilestones = useMemo(
-    () => getVisibleWorkflowMilestones(orderedMilestones, hideCompleted)
-      .filter(milestone => milestone.milestone_key !== 'SITE_ENTRY'),
-    [hideCompleted, orderedMilestones],
-  );
+  const allItems = useMemo(() => mergeProjectWorkItems(
+    orderedMilestones,constructionModel?.rows ?? [],positions,
+  ), [orderedMilestones,constructionModel?.rows,positions]);
+  const visibleItems = hideCompleted ? allItems.filter(item => item.kind === 'MILESTONE'
+    ? item.milestone.status !== 'COMPLETED' : !item.construction.is_completed) : allItems;
+  const construction = constructionModel
+    ? <ConstructionProgressSection model={constructionModel} embedded controlsOnly={Boolean(workflow.instance)} /> : null;
   const summary = useMemo(
     () => getCurrentAndNextMilestones(orderedMilestones.filter(milestone => milestone.milestone_key !== 'SITE_ENTRY')),
     [orderedMilestones],
@@ -361,17 +377,17 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
     }
   };
 
-  const dropMilestone = async (targetId: string) => {
-    if (!draggedId || draggedId === targetId || isReordering) {
+  const dropItem = async (targetId: string) => {
+    if (!draggedId || draggedId === targetId || isReordering || hideCompleted) {
       setDraggedId(null);
       setDragOverId(null);
       return;
     }
 
-    const beforeOrder = orderedMilestones.map(milestone => milestone.id);
-    let reordered: ProjectMilestone[];
+    const beforeOrder = allItems.map(item => `${item.kind}:${item.id}`);
+    let reordered: typeof allItems;
     try {
-      reordered = reorderWorkflowMilestones(orderedMilestones, draggedId, targetId);
+      reordered = moveProjectWorkItem(allItems, draggedId, targetId);
     } catch (dragError) {
       setError(dragError instanceof Error ? dragError.message : '流程排序失敗');
       setDraggedId(null);
@@ -379,24 +395,19 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
       return;
     }
 
-    const changed = reordered.filter(milestone => (
-      milestone.sort_order !== orderedMilestones.find(row => row.id === milestone.id)?.sort_order
-    ));
-    setWorkflow(current => ({ ...current, milestones: reordered }));
+    setPositions(Object.fromEntries(reordered.map((item,index) => [`${item.kind}:${item.id}`,(index+1)*100])));
     setDraggedId(null);
     setDragOverId(null);
     setIsReordering(true);
     setError(null);
 
     try {
-      await dbAdapter.reorderProjectMilestones(
-        changed.map(milestone => ({ id: milestone.id, sort_order: milestone.sort_order })),
-      );
+      await reorderProjectWorkItems(projectId,reordered,positions);
       setNotice('流程順序已調整。');
       if (workflow.instance) {
         void logWorkflowActivitySafely(activityLog(
           'WORKFLOW_REORDERED', 'PROJECT_WORKFLOW', workflow.instance.id, '專案流程',
-          { order: beforeOrder }, { order: reordered.map(milestone => milestone.id) },
+          { order: beforeOrder }, { order: reordered.map(item => `${item.kind}:${item.id}`) },
         ));
       }
     } catch (reorderError) {
@@ -455,21 +466,28 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
 
       {error ? <div className="flex items-start gap-2 rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger"><CircleAlert size={17} className="mt-0.5 shrink-0" />{error}</div> : null}
       {notice ? <div className="rounded-lg border border-success/30 bg-success/10 p-3 text-sm text-success">{notice}</div> : null}
+      {construction}
 
       <div className="overflow-x-auto rounded-xl border border-theme-border bg-card/40">
           <div className="min-w-[80rem]">
             <div className={`${WORKFLOW_GRID_CLASS} border-b border-theme-border bg-card px-3 py-2 text-xs font-semibold text-secondary`}>
               <span /><span>工項</span><span>類型</span><span>狀態</span><span>包商</span><span>預計日期</span><span>實際日期</span><span>備註</span><span>操作</span>
             </div>
-            {visibleMilestones.length === 0 && <div className="px-3 py-4 text-sm text-secondary">目前篩選下沒有一般流程項目。</div>}
-            {visibleMilestones.map((milestone, index) => {
+            {visibleItems.length === 0 && <div className="px-3 py-4 text-sm text-secondary">目前篩選下沒有工項。</div>}
+            {visibleItems.map(item => {
+              const targetKey = `${item.kind}:${item.id}`;
+              if (item.kind === 'CONSTRUCTION') {
+                return <div key={targetKey} onDragOver={event => { if (draggedId && !hideCompleted) { event.preventDefault(); event.dataTransfer.dropEffect='move'; setDragOverId(targetKey); } }} onDragLeave={() => setDragOverId(current => current===targetKey ? null : current)} onDrop={event => { event.preventDefault(); void dropItem(targetKey); }} className={dragOverId===targetKey ? 'bg-accent/10' : ''}>
+                  <ConstructionRow row={item.construction} model={constructionModel!} today={getConstructionToday()} dragHandle={<button type="button" draggable={canEdit && !hideCompleted && !isReordering} onDragStart={event => { event.dataTransfer.effectAllowed='move'; setDraggedId(targetKey); }} onDragEnd={() => { setDraggedId(null); setDragOverId(null); }} disabled={!canEdit || hideCompleted || isReordering} aria-label={`拖曳排序：${item.construction.work_name || item.construction.work_type}`} className="cursor-grab rounded p-1 text-secondary disabled:opacity-40"><GripVertical size={17}/></button>} />
+                </div>;
+              }
+              const milestone = item.milestone;
               const isSaving = savingId === milestone.id;
               const capabilities = getMilestoneCapabilities(milestone.origin);
-              const dragged = orderedMilestones.find(row => row.id === draggedId);
-              const canDrop = dragged?.phase_key_snapshot === milestone.phase_key_snapshot;
+              const canDrop = !!draggedId && !hideCompleted && !isReordering;
               return (
                 <div
-                  key={milestone.id}
+                  key={targetKey}
                   id={`workflow-milestone-${milestone.id}`}
                   className={targetMilestoneId === milestone.id ? 'relative z-[1] ring-2 ring-inset ring-accent/70' : ''}
                 >
@@ -478,26 +496,26 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
                       if (canDrop) {
                         event.preventDefault();
                         event.dataTransfer.dropEffect = 'move';
-                        setDragOverId(milestone.id);
+                        setDragOverId(targetKey);
                       }
                     }}
-                    onDragLeave={() => setDragOverId(current => current === milestone.id ? null : current)}
-                    onDrop={event => { event.preventDefault(); void dropMilestone(milestone.id); }}
-                    className={`${milestone.is_applicable ? '' : 'opacity-55'} ${dragOverId === milestone.id && canDrop ? 'bg-accent/10' : ''} ${WORKFLOW_GRID_CLASS} border-b border-theme-border/60 px-3 py-2 last:border-b-0`}
+                    onDragLeave={() => setDragOverId(current => current === targetKey ? null : current)}
+                    onDrop={event => { event.preventDefault(); void dropItem(targetKey); }}
+                    className={`${milestone.is_applicable ? '' : 'opacity-55'} ${dragOverId === targetKey && canDrop ? 'bg-accent/10' : ''} ${WORKFLOW_GRID_CLASS} border-b border-theme-border/60 px-3 py-2 last:border-b-0`}
                   >
                     <button
                       type="button"
-                      draggable={canEdit && !isReordering}
+                      draggable={canEdit && !hideCompleted && !isReordering}
                       onDragStart={event => {
                         event.dataTransfer.effectAllowed = 'move';
-                        setDraggedId(milestone.id);
+                        setDraggedId(targetKey);
                         setNotice(null);
                         setError(null);
                       }}
                       onDragEnd={() => { setDraggedId(null); setDragOverId(null); }}
-                      disabled={!canEdit || isReordering}
+                      disabled={!canEdit || hideCompleted || isReordering}
                       aria-label={`拖曳排序：${milestone.label}`}
-                      title="只可在同一階段內拖曳排序"
+                      title="拖曳至任一工項調整順序"
                       className="cursor-grab rounded p-1 text-secondary hover:bg-page hover:text-primary disabled:cursor-default disabled:opacity-40 active:cursor-grabbing"
                     >
                       <GripVertical size={17} />
@@ -513,9 +531,9 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
                       ) : null}
                       {milestone.status !== 'COMPLETED' ? <button type="button" onClick={() => void quickComplete(milestone)} disabled={!canEdit || isSaving} aria-label={`快速完成${milestone.label}`} title="完成並填入今天" className="rounded-md border border-success/30 p-1.5 text-success hover:bg-success/10 disabled:opacity-50"><Check size={14} /></button> : <span role="img" aria-label={`${milestone.label}已完成`} title="已完成" className="rounded-md border border-success/30 bg-success/10 p-1.5 text-success"><Check size={14} /></span>}
                     </div>
-                    <span className="text-xs text-secondary">—</span>
+                    <select value={milestone.contractor_id ?? ''} onChange={event => void persistMilestone(milestone, { contractor_id: event.target.value || null }, 'WORKFLOW_CONTRACTOR_CHANGED')} disabled={!canEdit} aria-label={`${milestone.label}包商`} className="w-full rounded-md border border-theme-border bg-page px-2 py-1.5 text-xs text-primary disabled:opacity-50"><option value="">未指定</option>{milestone.contractor_id && !contractors.some(contractor => contractor.id === milestone.contractor_id) && <option value={milestone.contractor_id}>{milestone.contractor_name || '既有包商'}</option>}{contractors.filter(contractor => contractor.is_active).map(contractor => <option key={contractor.id} value={contractor.id}>{contractor.name}</option>)}</select>
                     <input type="date" value={milestone.planned_date ?? ''} onChange={event => void persistMilestone(milestone, { planned_date: event.target.value || null }, 'WORKFLOW_PLANNED_DATE_CHANGED')} disabled={!canEdit} aria-label={`${milestone.label}預計日期`} className="w-full rounded-md border border-theme-border bg-page px-2 py-1.5 text-xs text-primary outline-none focus:border-accent disabled:opacity-50" />
-                    <input type="date" value={milestone.actual_date ?? ''} onChange={event => void changeActualDate(milestone, event.target.value || null)} disabled={!canEdit} aria-label={`${milestone.label}實際日期`} className="w-full rounded-md border border-theme-border bg-page px-2 py-1.5 text-xs text-primary outline-none focus:border-accent disabled:opacity-50" />
+                    <input type="date" value={milestone.actual_date ?? ''} onChange={event => void changeActualDate(milestone, event.target.value || null)} disabled={!canEdit || (milestone.milestone_key === 'EQUIPMENT_REGISTRATION' && milestone.status !== 'COMPLETED')} aria-label={`${milestone.label}實際日期`} title={milestone.milestone_key === 'EQUIPMENT_REGISTRATION' && milestone.status !== 'COMPLETED' ? '先手動確認完成，再調整實際日期' : undefined} className="w-full rounded-md border border-theme-border bg-page px-2 py-1.5 text-xs text-primary outline-none focus:border-accent disabled:opacity-50" />
                     <input type="text" value={notesDrafts[milestone.id] ?? ''} onChange={event => setNotesDrafts(current => ({ ...current, [milestone.id]: event.target.value }))} onBlur={() => void saveNotes(milestone)} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} disabled={!canEdit} aria-label={`${milestone.label}備註`} placeholder="輸入備註" className="w-full rounded-md border border-theme-border bg-page px-2 py-1.5 text-xs text-primary outline-none focus:border-accent disabled:opacity-50" />
                     <div ref={menuId === milestone.id ? menuRef : undefined} className="relative flex justify-end">
                       {canEdit ? <button type="button" onClick={() => setMenuId(current => current === milestone.id ? null : milestone.id)} aria-label={`${milestone.label}操作`} aria-haspopup="menu" aria-expanded={menuId === milestone.id} className="rounded-md p-1.5 text-secondary hover:bg-page hover:text-primary"><MoreHorizontal size={17} /></button> : null}
@@ -531,7 +549,6 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
                 </div>
               );
             })}
-            {construction}
           </div>
       </div>
 

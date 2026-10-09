@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import type { Contractor, ConstructionWorkType, ProjectConstructionProgress } from '@/lib/db/types';
 import type { ConstructionProgressModel } from './useConstructionProgress';
 import type { ConstructionUpdate } from '@/lib/db/construction-progress';
@@ -70,7 +70,7 @@ function ConstructionCompletionDateInput({ value, today, isCompleted, disabled, 
   </div>;
 }
 
-export function ConstructionProgressSection({ model, embedded = false }: { model: ConstructionProgressModel; embedded?: boolean }) {
+export function ConstructionProgressSection({ model, embedded = false, controlsOnly = false }: { model: ConstructionProgressModel; embedded?: boolean; controlsOnly?: boolean }) {
   const [adding, setAdding] = useState(false);
   const activeRows = model.rows.filter(row => !row.deleted_at && row.status_override !== 'disabled');
   const newRoof = activeRows.some(row => row.work_type === 'steel' || row.work_type === 'roof_cover');
@@ -102,7 +102,7 @@ export function ConstructionProgressSection({ model, embedded = false }: { model
     {model.loading ? <p className="text-sm text-secondary">施工資料載入中...</p> : <>
       {model.canEdit && <ConstructionWorkTypeControls model={model} />}
       {adding && <NewConstructionRow model={model} nextOrder={nextOrder} onCreated={() => setAdding(false)} />}
-      {renderGroup(sorted)}
+      {!controlsOnly && renderGroup(sorted)}
     </>}
     {model.busy && <p role="status" className="text-xs text-secondary">儲存中...</p>}
   </section>;
@@ -139,7 +139,7 @@ function ContractorSelect({ contractors, workType, workName, value, savedName, d
   </div>;
 }
 
-function ConstructionRow({ row, model, today }: { row: ProjectConstructionProgress; model: ConstructionProgressModel; today: string }) {
+export function ConstructionRow({ row, model, today, dragHandle }: { row: ProjectConstructionProgress; model: ConstructionProgressModel; today: string; dragHandle?: ReactNode }) {
   const [notes, setNotes] = useState(row.notes ?? '');
   const [name, setName] = useState(row.work_name ?? '');
   const [nameError, setNameError] = useState<string | null>(null);
@@ -151,7 +151,7 @@ function ConstructionRow({ row, model, today }: { row: ProjectConstructionProgre
   const conflict = getConstructionConflict(row, model.conflicts);
   const save = (patch: ConstructionUpdate) => model.save(row, patch);
   return <div className="border-b border-theme-border/50 last:border-b-0"><div className={gridClass}>
-    <span aria-hidden="true" />
+    <span>{dragHandle}</span>
     <div>
       {row.work_type === 'other' ? <input aria-label="其他工項名稱" placeholder="其他" className={inputClass} value={name} disabled={disabled} onChange={event => setName(event.target.value)} onBlur={() => {
         if (name === (row.work_name ?? '')) return;

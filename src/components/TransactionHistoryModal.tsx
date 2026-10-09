@@ -20,8 +20,7 @@ export function TransactionHistoryModal({ transactionId, transaction, originalTr
   useEffect(() => {
     const fetchLogs = async () => {
       try {
-        const allLogs = await dbAdapter.getActivityLogs();
-        const txLogs = allLogs.filter(log => log.target_id === transactionId && log.target_type === 'INVENTORY_TRANSACTION');
+        const txLogs = await dbAdapter.getInventoryTransactionActivityLogs(transactionId);
         // Sort descending by created_at
         setLogs(txLogs.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
       } catch (error) {

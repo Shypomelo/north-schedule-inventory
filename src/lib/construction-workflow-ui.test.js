@@ -298,7 +298,7 @@ test('Project Detail defaults to Workflow with embedded construction and no stan
     '@/lib/db': { dbAdapter: {} },
     './UserContext': { useUser: () => ({ currentUser: { role: 'EDITOR', id: 'user', name: 'user' } }) },
     './DateDualInput': { DateDualInput: () => null },
-    './ProjectWorkflow': { ProjectWorkflow: props => props.construction },
+    './ProjectWorkflow': { ProjectWorkflow: props => React.createElement(ConstructionProgressSection, { model: props.constructionModel, embedded: true }) },
     './ProjectPositionAssignments': { ProjectPositionAssignments: () => null },
     './ProjectDifficultyAssessments': { ProjectDifficultyAssessments: () => null },
     './ProjectMaterials': { ProjectMaterials: () => null },
@@ -314,8 +314,8 @@ test('Project Detail defaults to Workflow with embedded construction and no stan
 
 test('construction and milestones share the workflow list without phase separators or duplicate SITE_ENTRY', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'components', 'ProjectWorkflow.tsx'), 'utf8');
-  const constructionInsertion = source.indexOf('{construction}', source.indexOf('visibleMilestones.map'));
-  const milestoneMap = source.indexOf('visibleMilestones.map');
+  const constructionInsertion = source.indexOf("item.kind === 'CONSTRUCTION'", source.indexOf('visibleItems.map'));
+  const milestoneMap = source.indexOf('visibleItems.map');
   const createDialog = source.indexOf('{showCreate ?');
 
   assert.ok(milestoneMap >= 0 && constructionInsertion > milestoneMap && constructionInsertion < createDialog);
@@ -328,7 +328,8 @@ test('construction phase integration reuses the supplied section without milesto
   const detailSource = fs.readFileSync(path.join(__dirname, '..', 'components', 'ProjectDetailModal.tsx'), 'utf8');
 
   assert.equal((detailSource.match(/useConstructionProgress\(/g) || []).length, 1);
-  assert.equal((detailSource.match(/<ConstructionProgressSection model=\{construction\} embedded \/>/g) || []).length, 1);
+  assert.match(detailSource, /constructionModel=\{construction\}/);
+  assert.match(workflowSource, /<ConstructionProgressSection model=\{constructionModel\} embedded controlsOnly=/);
   assert.doesNotMatch(workflowSource, /planned_start_date|planned_end_date|actual_completed_date/);
 });
 

@@ -741,7 +741,7 @@ export default function ProjectsPage() {
                 <td className="p-3"><button type="button" className="text-left font-medium text-accent" onClick={() => setViewingProject(project)}>{project.name}</button></td>
                 <td className="p-3">{project.manager || '未指派'}</td><td className="p-3">{project.capacity || '—'}</td>
                 <td className="p-3"><WorkflowMilestoneQuickEditor projectId={project.id} milestoneId={project.meter_milestone_id ?? null} milestoneKey="METER_INSTALLATION" kind="METER" status={project.meter_status ?? null} plannedDate={project.meter_expected_date ?? null} actualDate={project.meter_completion_date ?? null} disabled={currentUser?.role === 'VIEWER'} onUpdated={milestone => patchProjectState(project.id, getWorkflowMilestoneProjectPatch(milestone))}/></td>
-                <td className="p-3 text-secondary">—</td>
+                <td className="p-3"><WorkflowMilestoneQuickEditor projectId={project.id} milestoneId={project.equipment_milestone_id ?? null} milestoneKey="EQUIPMENT_REGISTRATION" kind="EQUIPMENT" status={project.equipment_status ?? null} plannedDate={project.equipment_expected_date ?? null} actualDate={project.equipment_completion_date ?? null} disabled={currentUser?.role === 'VIEWER'} onUpdated={milestone => patchProjectState(project.id, getWorkflowMilestoneProjectPatch(milestone))}/></td>
               </tr>)}{meteredProjects.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-secondary">目前沒有已掛表案場</td></tr>}</tbody>
             </table>
           </div>

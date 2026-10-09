@@ -19,7 +19,14 @@ export const toolLinkScopeLabels: Record<ToolLinkScope, string> = {
 };
 
 export function creatableToolLinkScopes(role: string | undefined): ToolLinkScope[] {
-  return role === 'ADMIN' ? ['PERSONAL', 'DEPARTMENT', 'GLOBAL'] : ['PERSONAL'];
+  return ['ADMIN', 'ENGINEER', 'VIEWER'].includes(role || '')
+    ? ['PERSONAL', 'DEPARTMENT', 'GLOBAL'] : [];
+}
+
+export function sortPersonalToolLinks<T extends ToolLink>(links: T[], positions: Record<string, number>): T[] {
+  return [...links].sort((a, b) => (positions[a.id] ?? Number.MAX_SAFE_INTEGER)
+    - (positions[b.id] ?? Number.MAX_SAFE_INTEGER)
+    || a.sort_order - b.sort_order || a.name.localeCompare(b.name, 'zh-TW'));
 }
 
 export function newToolLinkValues(input: {

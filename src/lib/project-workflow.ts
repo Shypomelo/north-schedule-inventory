@@ -33,7 +33,7 @@ type OuterMilestoneFields = Pick<
   'id' | 'milestone_key' | 'status' | 'planned_date' | 'actual_date' | 'deleted_at' | 'is_applicable'
 >;
 
-export type WorkflowOuterKind = 'ACCEPTANCE' | 'METER';
+export type WorkflowOuterKind = 'ACCEPTANCE' | 'METER' | 'EQUIPMENT';
 
 export interface WorkflowOuterDisplay {
   label: string;
@@ -50,6 +50,10 @@ export interface ProjectOuterWorkflowFields {
   meter_status: ProjectMilestoneStatus | null;
   meter_expected_date: string | null;
   meter_completion_date: string | null;
+  equipment_milestone_id: string | null;
+  equipment_status: ProjectMilestoneStatus | null;
+  equipment_expected_date: string | null;
+  equipment_completion_date: string | null;
 }
 
 export function getWorkflowOuterDisplay(
@@ -59,8 +63,8 @@ export function getWorkflowOuterDisplay(
   actualDate: string | null | undefined,
   today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()),
 ): WorkflowOuterDisplay {
-  const noun = kind === 'ACCEPTANCE' ? '驗收' : '掛表';
-  const completed = status === 'COMPLETED' && !!actualDate && actualDate < today;
+  const noun = kind === 'ACCEPTANCE' ? '驗收' : kind === 'METER' ? '掛表' : '設備登記';
+  const completed = status === 'COMPLETED' && !!actualDate && (kind === 'EQUIPMENT' || actualDate < today);
   const presentation=presentBusinessDate({planned:completed ? plannedDate : actualDate || plannedDate,actual:completed ? actualDate : null,completed,today});
   if (completed) {
     return {
@@ -83,6 +87,7 @@ export function getProjectOuterWorkflowFields(
   const active = milestones.filter(milestone => milestone.deleted_at === null && !(milestone as OuterMilestoneFields & {archived_at?:string|null}).archived_at && milestone.is_applicable);
   const acceptance = active.find(milestone => milestone.milestone_key === 'INTERNAL_ACCEPTANCE');
   const meter = active.find(milestone => milestone.milestone_key === 'METER_INSTALLATION');
+  const equipment = active.find(milestone => milestone.milestone_key === 'EQUIPMENT_REGISTRATION');
   const hasAnyMeterMilestone = milestones.some(milestone => milestone.milestone_key === 'METER_INSTALLATION');
 
   return {
@@ -94,6 +99,10 @@ export function getProjectOuterWorkflowFields(
     meter_status: meter?.status ?? null,
     meter_expected_date: meter ? meter.planned_date : hasAnyMeterMilestone ? null : legacyMeterDate,
     meter_completion_date: meter?.actual_date ?? null,
+    equipment_milestone_id: equipment?.id ?? null,
+    equipment_status: equipment?.status ?? null,
+    equipment_expected_date: equipment?.planned_date ?? null,
+    equipment_completion_date: equipment?.actual_date ?? null,
   };
 }
 
@@ -103,9 +112,8 @@ export function validateWorkflowActualDate(
   today: string,
 ): string | null {
   if (!actualDate || actualDate <= today) return null;
-  return kind === 'ACCEPTANCE'
-    ? '實際驗收日期不可晚於今天'
-    : '實際掛表日期不可晚於今天';
+  return kind === 'ACCEPTANCE' ? '實際驗收日期不可晚於今天'
+    : kind === 'METER' ? '實際掛表日期不可晚於今天' : '實際設備登記日期不可晚於今天';
 }
 
 export function getWorkflowMilestoneProjectPatch(
@@ -125,6 +133,14 @@ export function getWorkflowMilestoneProjectPatch(
       meter_status: milestone.status,
       meter_expected_date: milestone.planned_date,
       meter_completion_date: milestone.actual_date,
+    };
+  }
+  if (milestone.milestone_key === 'EQUIPMENT_REGISTRATION') {
+    return {
+      equipment_milestone_id: milestone.id,
+      equipment_status: milestone.status,
+      equipment_expected_date: milestone.planned_date,
+      equipment_completion_date: milestone.actual_date,
     };
   }
   return {};
@@ -258,6 +274,8 @@ export function getWorkflowActivityMessage(
     }
     case 'WORKFLOW_PLANNED_DATE_CHANGED':
       return `${label}預計日期改為 ${formatActivityValue(after?.planned_date)}`;
+    case 'WORKFLOW_CONTRACTOR_CHANGED':
+      return `${label}包商已更新`;
     case 'WORKFLOW_ACTUAL_DATE_CHANGED':
       return `${label}實際日期改為 ${formatActivityValue(after?.actual_date)}`;
     case 'WORKFLOW_NOTES_CHANGED': return `${label}備註已更新`;

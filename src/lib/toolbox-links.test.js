@@ -7,7 +7,7 @@ const source = readFileSync(require.resolve('./toolbox-links.ts'), 'utf8');
 const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } });
 const moduleCopy = { exports: {} };
 new Function('module', 'exports', outputText)(moduleCopy, moduleCopy.exports);
-const { creatableToolLinkScopes, newToolLinkValues } = moduleCopy.exports;
+const { creatableToolLinkScopes, newToolLinkValues, sortPersonalToolLinks } = moduleCopy.exports;
 
 test('blank name uses URL hostname and optional fields use compact defaults', () => {
   const values = newToolLinkValues({
@@ -39,10 +39,22 @@ test('department link uses its group and appends within that group', () => {
   assert.equal(values.work_group_id, 'engineering');
 });
 
-test('scope choices match the existing Admin boundary', () => {
+test('all active ordinary roles can create every toolbox scope', () => {
   assert.deepEqual(creatableToolLinkScopes('ADMIN'), ['PERSONAL', 'DEPARTMENT', 'GLOBAL']);
-  assert.deepEqual(creatableToolLinkScopes('ENGINEER'), ['PERSONAL']);
-  assert.deepEqual(creatableToolLinkScopes('VIEWER'), ['PERSONAL']);
+  assert.deepEqual(creatableToolLinkScopes('ENGINEER'), ['PERSONAL', 'DEPARTMENT', 'GLOBAL']);
+  assert.deepEqual(creatableToolLinkScopes('VIEWER'), ['PERSONAL', 'DEPARTMENT', 'GLOBAL']);
+  assert.deepEqual(creatableToolLinkScopes('PROCUREMENT'), []);
+});
+
+test('personal positions mix scopes and never change shared global order', () => {
+  const links = [
+    { id: 'a', name: 'A', sort_order: 1, scope: 'GLOBAL' },
+    { id: 'b', name: 'B', sort_order: 2, scope: 'PERSONAL' },
+    { id: 'c', name: 'C', sort_order: 3, scope: 'DEPARTMENT' },
+  ];
+  assert.deepEqual(sortPersonalToolLinks(links, { c: 1, a: 2, b: 3 }).map(link => link.id), ['c', 'a', 'b']);
+  assert.deepEqual(sortPersonalToolLinks(links, { b: 1, c: 2, a: 3 }).map(link => link.id), ['b', 'c', 'a']);
+  assert.deepEqual(links.map(link => link.sort_order), [1, 2, 3]);
 });
 
 test('invalid URL and missing department are rejected before insert', () => {

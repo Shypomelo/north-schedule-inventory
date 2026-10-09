@@ -11,6 +11,7 @@ const dependencyFiles = {
   './supabase-errors': 'db/supabase-errors.ts',
   './inventory-stock': 'db/inventory-stock.ts',
   '../construction-progress': 'construction-progress.ts',
+  './construction-progress': 'db/construction-progress.ts',
   '../project-workflow': 'project-workflow.ts',
   '../contractors': 'contractors.ts',
   '../engineering-responsibilities': 'engineering-responsibilities.ts',

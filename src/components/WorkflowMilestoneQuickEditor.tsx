@@ -37,7 +37,7 @@ export function WorkflowMilestoneQuickEditor({
   const today = getConstructionToday();
   const isCompleted = Boolean(actualDate || status === 'COMPLETED');
   const display = getWorkflowOuterDisplay(kind, status, plannedDate, actualDate);
-  const noun = kind === 'ACCEPTANCE' ? '驗收' : '掛表';
+  const noun = kind === 'ACCEPTANCE' ? '驗收' : kind === 'METER' ? '掛表' : '設備登記';
 
   const save = async (updates: Parameters<typeof updateAuthoritativeMilestone>[1]['updates']) => {
     if (disabled || saving) return;
@@ -61,7 +61,8 @@ export function WorkflowMilestoneQuickEditor({
   };
 
   const saveEditor = (nextPlannedDate: string | null, nextActualDate: string | null, completed?: boolean) => {
-    const nextCompleted = nextPlannedDate && nextPlannedDate >= today ? false : completed ?? isCompleted;
+    const nextCompleted = kind !== 'EQUIPMENT' && nextPlannedDate && nextPlannedDate >= today
+      ? false : completed ?? isCompleted;
     const updates: Parameters<typeof save>[0] = { planned_date: nextPlannedDate };
     if (nextCompleted) {
       Object.assign(updates, normalizeMilestoneCompletion('COMPLETED', nextActualDate, today));

@@ -9,6 +9,7 @@ import { getScheduleCreationSourceLabel, getScheduleTaskPresentation } from '@/l
 import { formatScheduleAuditValue, getScheduleAuditPresentation, getScheduleHistoryEntries } from '@/lib/schedule-audit';
 import { isMaintenanceScheduleTask } from '@/lib/schedule-task-semantics';
 import { MaintenanceEquipmentRecords } from '@/components/MaintenanceUsage';
+import { dbAdapter } from '@/lib/db';
 
 export function ScheduleTaskDetail({
   task,
@@ -16,7 +17,6 @@ export function ScheduleTaskDetail({
   users,
   members,
   workGroups = [],
-  activityLogs = [],
   weather,
   canMutate = false,
   actionPending = false,
@@ -30,7 +30,6 @@ export function ScheduleTaskDetail({
   users: User[];
   members: ScheduleTaskMember[];
   workGroups?: WorkGroup[];
-  activityLogs?: ActivityLog[];
   weather: WeatherDisplay | null;
   canMutate?: boolean;
   actionPending?: boolean;
@@ -39,6 +38,15 @@ export function ScheduleTaskDetail({
   onDelete?: () => void;
   onClose: () => void;
 }) {
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+  useEffect(() => {
+    let live = true;
+    setActivityLogs([]);
+    void dbAdapter.getScheduleTaskActivityLogs(task.id)
+      .then(rows => { if (live) setActivityLogs(rows); })
+      .catch(() => { if (live) setActivityLogs([]); });
+    return () => { live = false; };
+  }, [task.id]);
   const display = getScheduleTaskPresentation(task, projects, users, members, workGroups);
   const formattedTime = formatScheduleTaskTime(task);
   const detailHeading = display.projectName || display.cardDetail;

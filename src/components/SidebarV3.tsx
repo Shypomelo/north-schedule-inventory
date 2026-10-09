@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { useUser } from '@/components/UserContext';
+import { useSystemOwner } from '@/components/useSystemOwner';
 import { useTheme } from '@/components/ThemeContext';
 import { UserSelector } from '@/components/UserSelector';
 import { Building2, Calendar, ChevronLeft, ChevronRight, Home, ListChecks, LogOut, Menu, Package, Palette, Settings, Truck, UserRound, Users, Wrench, X } from 'lucide-react';
@@ -25,6 +26,7 @@ export function Sidebar() {
   const [showTheme, setShowTheme] = useState(false);
   const [showAccount, setShowAccount] = useState(false);
   const { currentUser, allUsers, logout } = useUser();
+  const isSystemOwner = useSystemOwner();
   const { theme, setTheme } = useTheme();
   const [positions, setPositions] = useState<Position[]>([]);
   const [memberPositions, setMemberPositions] = useState<MemberPosition[]>([]);
@@ -138,6 +140,7 @@ export function Sidebar() {
               {navItem('/admin/task-types', '任務類型管理', ListChecks, false, true)}
               {navItem('/admin/workflow-settings', '專案流程設定', ListChecks, false, true)}
               {navItem('/admin/materials', '常用物料管理', Package, false, true)}
+              {isSystemOwner && navItem('/admin/activity', '操作流水', ListChecks, false, true)}
             </div>}
           </details>
         )}

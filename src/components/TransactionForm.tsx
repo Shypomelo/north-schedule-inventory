@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { InventoryTransaction, InventoryItem, Project, TransactionType, InventorySerial, InventoryBatch, User, InventorySerialLookupCandidate } from '@/lib/db/types';
 import { isActiveSEReservation } from '@/lib/db/receiving-routing';
 import { dbAdapter } from '@/lib/db';
-import { previewInventoryInitialization } from '@/lib/db/inventory-initialization';
+import { getInventoryInitializationBaselineDate } from '@/lib/db/inventory-initialization';
 import { classifySerialFormat, normalizeSerialInput } from '@/lib/inventory-serial-normalization';
 import { filterAvailableSerials, findExactAvailableSerial, getAvailableSerialsFIFO, getNoAvailableSerialMatchMessage } from '@/lib/inventory-serial-selector';
 import { useUser } from './UserContext';
@@ -86,12 +86,12 @@ export function TransactionForm({ items, projects, balances, allSerials, batches
   const dropdownRef = React.useRef<HTMLLabelElement>(null);
 
   React.useEffect(() => {
-    previewInventoryInitialization([]).then(status => {
-      if (status.already_initialized && status.baseline_date) {
-        const dateObj = new Date(status.baseline_date);
+    getInventoryInitializationBaselineDate().then(baselineDate => {
+      if (baselineDate) {
+        const dateObj = new Date(baselineDate);
         dateObj.setDate(dateObj.getDate() + 1);
         setMinDate(format(dateObj, 'yyyy-MM-dd'));
-        setInitDateMsg(`正式庫存自 ${format(dateObj, 'yyyy/MM/dd')} 起計算，${format(new Date(status.baseline_date), 'M/d')} 以前異動已包含於初始庫存`);
+        setInitDateMsg(`正式庫存自 ${format(dateObj, 'yyyy/MM/dd')} 起計算，${format(new Date(baselineDate), 'M/d')} 以前異動已包含於初始庫存`);
       }
     }).catch(e => console.error(e));
   }, []);

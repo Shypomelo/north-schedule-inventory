@@ -4,7 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 're
 import { CalendarDays, FileText, Folder, Globe2, Link2, Package, Plus, Wrench, X } from 'lucide-react';
 import { useUser } from '@/components/UserContext';
 import { supabase } from '@/lib/db/supabaseClient';
-import { creatableToolLinkScopes, newToolLinkValues, toolLinkScopeLabels, type ToolLink, type ToolLinkScope } from '@/lib/toolbox-links';
+import { creatableToolLinkScopes, newToolLinkValues, sortPersonalToolLinks, toolLinkScopeLabels, type ToolLink, type ToolLinkScope } from '@/lib/toolbox-links';
 
 type Group = { id: string; name: string };
 const iconMap = { calendar: CalendarDays, file: FileText, folder: Folder, globe: Globe2, link: Link2, package: Package, wrench: Wrench };
@@ -17,6 +17,7 @@ function LinkIcon({ iconKey }: { iconKey: string }) {
 export function DashboardToolbox() {
   const { currentUser } = useUser();
   const [links, setLinks] = useState<ToolLink[]>([]);
+  const [positions, setPositions] = useState<Record<string, number>>({});
   const [groups, setGroups] = useState<Group[]>([]);
   const [open, setOpen] = useState(false);
   const [url, setUrl] = useState('');
@@ -29,10 +30,18 @@ export function DashboardToolbox() {
   const allowedScopes = creatableToolLinkScopes(currentUser?.role);
 
   const loadLinks = useCallback(async () => {
-    const result = await supabase.from('tool_links').select('id,name,url,category,icon_key,sort_order,scope,owner_member_id,work_group_id');
-    if (result.error) setError(result.error.message);
-    else { setLinks((result.data || []) as ToolLink[]); setError(''); }
-  }, []);
+    if (!currentUser?.id) return;
+    const [result, order] = await Promise.all([
+      supabase.from('tool_links').select('id,name,url,category,icon_key,sort_order,scope,owner_member_id,work_group_id'),
+      supabase.from('tool_link_personal_order').select('tool_link_id,position').eq('member_id',currentUser.id),
+    ]);
+    if (result.error || order.error) setError(result.error?.message || order.error?.message || '讀取工具箱失敗');
+    else {
+      setLinks((result.data || []) as ToolLink[]);
+      setPositions(Object.fromEntries((order.data || []).map(row => [row.tool_link_id,row.position])));
+      setError('');
+    }
+  }, [currentUser?.id]);
 
   useEffect(() => { if (currentUser?.id) void loadLinks(); }, [currentUser?.id, loadLinks]);
   useEffect(() => {
@@ -43,15 +52,21 @@ export function DashboardToolbox() {
     return () => window.removeEventListener('keydown', onEscape);
   }, [open, saving]);
 
-  const sortedLinks = useMemo(() => [...links].sort((a, b) =>
-    a.sort_order - b.sort_order || a.name.localeCompare(b.name, 'zh-TW')), [links]);
+  const sortedLinks = useMemo(() => sortPersonalToolLinks(links,positions), [links,positions]);
 
   const openNew = async () => {
     setUrl(''); setName(''); setScope('PERSONAL'); setWorkGroupId(null); setError(''); setOpen(true);
-    if (currentUser?.role !== 'ADMIN') return;
-    const result = await supabase.from('work_groups').select('id,name').eq('is_active', true).order('sort_order');
-    if (result.error) setError(result.error.message);
-    else { setGroups(result.data || []); setWorkGroupId(result.data?.[0]?.id || null); }
+    if (!currentUser?.id) return;
+    const [result,memberships] = await Promise.all([
+      supabase.from('work_groups').select('id,name').eq('is_active', true).order('sort_order'),
+      supabase.from('member_work_groups').select('work_group_id').eq('member_id',currentUser.id),
+    ]);
+    if (result.error || memberships.error) setError(result.error?.message || memberships.error?.message || '讀取部門失敗');
+    else {
+      const ids=new Set((memberships.data || []).map(row=>row.work_group_id));
+      const available=(result.data || []).filter(group=>currentUser.role==='ADMIN'||ids.has(group.id));
+      setGroups(available); setWorkGroupId(available[0]?.id || null);
+    }
   };
 
   const save = async (event: FormEvent<HTMLFormElement>) => {

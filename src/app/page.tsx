@@ -21,7 +21,7 @@ import { ProjectOverviewCards } from '@/components/ProjectOverviewCards';
 import { workbenchAdapter } from '@/lib/db/workbench-adapter';
 import type { ProjectMilestone } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
-import type { ActivityLog, MemberProjectResponsibility, Project, ProjectMaterial, ProjectMaterialBatch, ScheduleTask, ScheduleTaskMember, Todo, User, WorkGroup } from '@/lib/db/types';
+import type { MemberProjectResponsibility, Project, ProjectMaterial, ProjectMaterialBatch, ScheduleTask, ScheduleTaskMember, Todo, User, WorkGroup } from '@/lib/db/types';
 import { buildDashboardProjectCards } from '@/lib/engineering-dashboard';
 import {
   buildReceiptScheduleTask,
@@ -127,7 +127,6 @@ function EngineeringDashboardPage({projectManagement=false,dashboardView}:{proje
   const [projects, setProjects] = useState<Project[]>([]);
   const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]);
   const [groupMemberships, setGroupMemberships] = useState<MemberWorkGroup[]>([]);
-  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [responsibilities, setResponsibilities] = useState<MemberProjectResponsibility[]>([]);
   const [receiptBatches, setReceiptBatches] = useState<ProjectMaterialBatch[]>([]);
   const [receiptMaterials, setReceiptMaterials] = useState<ProjectMaterial[]>([]);
@@ -160,7 +159,7 @@ function EngineeringDashboardPage({projectManagement=false,dashboardView}:{proje
       const groups = await dbAdapter.getWorkGroups();
       const engineeringGroup = groups.find(group => group.is_active && group.key === todoGroupKey);
       if (!engineeringGroup) throw new Error('找不到工程工作群組');
-      const [taskRows, memberRows, projectRows, responsibilityRows, privateRows, teamRows, workGroupRows, activityRows, workItemRows, membershipRows] = await Promise.all([
+      const [taskRows, memberRows, projectRows, responsibilityRows, privateRows, teamRows, workGroupRows, workItemRows, membershipRows] = await Promise.all([
         dbAdapter.getScheduleTasks(),
         dbAdapter.getScheduleTaskMembers(),
         dbAdapter.getProjects(),
@@ -168,7 +167,6 @@ function EngineeringDashboardPage({projectManagement=false,dashboardView}:{proje
         dbAdapter.getPrivateTodos(),
         dbAdapter.getTodos(engineeringGroup.id),
         Promise.resolve(groups),
-        dbAdapter.getActivityLogs(),
         workbenchAdapter.getItems(currentUser.id),
         dbAdapter.getMemberWorkGroups(),
       ]);
@@ -198,7 +196,6 @@ function EngineeringDashboardPage({projectManagement=false,dashboardView}:{proje
       setTeamTodos(teamRows);
       setWorkGroups(workGroupRows.filter(group => group.is_active));
       setGroupMemberships(membershipRows);
-      setActivityLogs(activityRows);
       setWorkItems(workItemRows);
     } catch (loadError) {
       console.error('Dashboard load failed:', loadError);
@@ -649,7 +646,6 @@ function EngineeringDashboardPage({projectManagement=false,dashboardView}:{proje
           users={allUsers}
           members={taskMembers}
           workGroups={workGroups}
-          activityLogs={activityLogs}
           weather={getTaskWeatherDisplay(selectedTask)}
           canMutate={canMutateTodos}
           actionPending={taskActionPending}

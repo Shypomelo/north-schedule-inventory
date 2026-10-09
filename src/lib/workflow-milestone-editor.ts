@@ -7,7 +7,7 @@ import type {
 import type { WorkflowOuterKind } from '@/lib/project-workflow';
 import { validateWorkflowActualDate } from '@/lib/project-workflow';
 
-export type AuthoritativeMilestoneKey = 'INTERNAL_ACCEPTANCE' | 'METER_INSTALLATION';
+export type AuthoritativeMilestoneKey = 'INTERNAL_ACCEPTANCE' | 'METER_INSTALLATION' | 'EQUIPMENT_REGISTRATION';
 
 interface WorkflowMilestoneGateway {
   initializeProjectWorkflow(projectId: string): Promise<WorkflowSnapshotResult>;

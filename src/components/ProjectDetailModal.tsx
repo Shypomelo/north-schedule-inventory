@@ -6,7 +6,7 @@ import { dbAdapter } from '@/lib/db';
 import { X, Building2, FileText, ListChecks, Package } from 'lucide-react';
 import { useUser } from './UserContext';
 import { ProjectWorkflow } from './ProjectWorkflow';
-import { ConstructionProgressSection, ConstructionWorkTypeControls } from './ConstructionProgressSection';
+import { ConstructionWorkTypeControls } from './ConstructionProgressSection';
 import { useConstructionProgress, type ConstructionMutationResult } from './useConstructionProgress';
 import type { ProjectMilestone } from '@/lib/db/types';
 import { ProjectDifficultyAssessments } from './ProjectDifficultyAssessments';
@@ -203,7 +203,7 @@ export function ProjectDetailModal({ project, initialMilestoneId, initialTab, on
 
           <div className="min-w-0 flex-1 overflow-y-auto bg-page/30 p-3 sm:p-6">
             {activeTab === 'basic' && renderBasicInfo()}
-            {activeTab === 'workflow' && <ProjectWorkflow projectId={project.id} projectName={editedProject.name} targetMilestoneId={initialMilestoneId} actor={currentUser ? { id: currentUser.id, name: currentUser.name } : null} canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')} canRefresh={currentUser?.role === 'ADMIN'} construction={<ConstructionProgressSection model={construction} embedded />} onUpdate={onUpdate} onMilestoneUpdated={onMilestoneUpdated} />}
+            {activeTab === 'workflow' && <ProjectWorkflow projectId={project.id} projectName={editedProject.name} targetMilestoneId={initialMilestoneId} actor={currentUser ? { id: currentUser.id, name: currentUser.name } : null} canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')} canRefresh={currentUser?.role === 'ADMIN'} constructionModel={construction} onUpdate={onUpdate} onMilestoneUpdated={onMilestoneUpdated} />}
             {activeTab === 'materials' && <ProjectMaterials projectId={project.id} projectName={editedProject.name} canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')} />}
             {activeTab === 'notes' && renderNotes()}
           </div>
