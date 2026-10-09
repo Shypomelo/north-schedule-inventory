@@ -15,3 +15,12 @@ test('2026/09/11 TEST fixture with PROJECT ownership and ENGINEERING assistant a
  assert.deepEqual(selectScheduleTasksByWorkGroup([task,task],'project',context).map(row=>row.id),['test-task']);
  assert.equal(task.work_group_id,'project');
 });
+test('dual-department primary assignee does not duplicate a task without an explicit collaborator',()=>{
+ const groups=[{id:'engineering',key:'ENGINEERING',is_active:true,sort_order:10},{id:'project',key:'PROJECT',is_active:true,sort_order:20}];
+ const users=[{id:'dual',category:'ENGINEERING'}];
+ const memberships=[{member_id:'dual',work_group_id:'engineering',is_default:true},{member_id:'dual',work_group_id:'project',is_default:false}];
+ const task={id:'task',work_group_id:'project',main_assignee_id:'dual'};
+ const context={groups,users,members:[],memberships};
+ assert.deepEqual(selectScheduleTasksByWorkGroup([task],'project',context).map(row=>row.id),['task']);
+ assert.deepEqual(selectScheduleTasksByWorkGroup([task],'engineering',context).map(row=>row.id),[]);
+});

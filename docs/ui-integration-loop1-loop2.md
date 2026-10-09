@@ -1,0 +1,11 @@
+# UI Integration LOOP 1: LOOP 2 dependencies
+
+LOOP 1 uses the existing tables, RPCs and RLS policies. These items need a separate database and product integration before the UI can safely claim them as complete.
+
+1. **One persistent order across workflow and construction rows.** The modal currently reads `project_milestones` and `project_construction_progress` separately. Their `sort_order` values have no shared ordering contract. The workflow template refresh can also replace milestone order. Define a shared order key or ordering table, update the template sync RPC to preserve manual moves, then enable cross-category and cross-table drag and drop. The current UI keeps existing supported ordering only.
+2. **Contractor on general workflow items.** Construction rows have contractor fields; `project_milestones` does not have an equivalent canonical contractor field. Add the relationship and permission rules before enabling contractor editing for general milestones. The aligned column currently displays `—` for those rows.
+3. **Meter status and date invariant.** LOOP 1 reads and writes the existing `METER_INSTALLATION` milestone and counts a project as metered only when its status is `COMPLETED` and its actual date is before the current Taiwan date. Define a database invariant or RPC for status/date transitions and legacy data repair so other clients cannot create contradictory values. The equipment registration column also needs its canonical data source.
+4. **Toolbox access and personal order.** Define RLS for PERSONAL (owner), DEPARTMENT (member), and GLOBAL (company) visibility and for creator or ADMIN editing of department/global tools. Add per-user persistent ordering. Then enable ordinary employee creation for all scopes and independent drag ordering. LOOP 1 only adds dense views and edit gestures under existing permissions.
+5. **Atomic project and progress writes.** The existing `updateProject`/`createProject` path performs separate project, construction, and workflow writes. An RPC or transaction boundary is needed if all parts must commit or roll back together. LOOP 1 surfaces write errors and preserves active construction history, but separate writes may partially succeed on a later failure.
+
+LOOP 1 has no migration, RLS change, Production write, or deployment.

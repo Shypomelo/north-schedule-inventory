@@ -21,8 +21,8 @@ export function getConstructionWorkLabel(row: Pick<ProjectConstructionProgress, 
   return row.work_type === 'other' ? row.work_name?.trim() || '其他' : CONSTRUCTION_WORK_LABELS[row.work_type];
 }
 
-export function isConstructionPrework(row: ConstructionProgressForDerivation, entry: string | null): boolean {
-  return !row.deleted_at && !MAIN_CONSTRUCTION_WORK_TYPES.has(row.work_type)
+export function isConstructionPrework(row: ConstructionProgressForDerivation, entry: string | null, newRoof = false): boolean {
+  return !row.deleted_at && !entryWorkTypes(newRoof).has(row.work_type)
     && isValidIsoDate(row.planned_start_date) && isValidIsoDate(entry)
     && row.planned_start_date < entry;
 }
@@ -114,10 +114,6 @@ export function getConstructionOuterDisplay(
     return { status: 'EXPECTED_START', label: `預計進場 ${formatConstructionDisplayDate(row.planned_start_date)}`, date: row.planned_start_date };
   }
 
-  if (isValidIsoDate(row.planned_end_date)) {
-    return { status: 'EXPECTED_END', label: `預計完工 ${formatConstructionDisplayDate(row.planned_end_date)}`, date: row.planned_end_date };
-  }
-
   return { status: 'IN_PROGRESS', label: '施工中', date: null };
 }
 
@@ -130,8 +126,8 @@ export function validateConstructionWorkName(name: string | null): string | null
   return name?.trim() ? null : '請輸入其他工項名稱';
 }
 
-export function getConstructionToday(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+export function getConstructionToday(at = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).format(at);
 }
 
 export interface ConstructionConflictRow {
@@ -153,6 +149,8 @@ const MAIN_CONSTRUCTION_WORK_TYPES = new Set<ConstructionWorkType>([
   'racking',
   'electrical',
 ]);
+const NEW_ROOF_ENTRY_WORK_TYPES = new Set<ConstructionWorkType>(['steel', 'roof_cover', 'racking', 'electrical']);
+const entryWorkTypes = (newRoof: boolean) => newRoof ? NEW_ROOF_ENTRY_WORK_TYPES : MAIN_CONSTRUCTION_WORK_TYPES;
 
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -169,10 +167,11 @@ function isValidIsoDate(value: string | null): value is string {
 
 export function getProjectEntryDate(
   progressRows: readonly ConstructionProgressForDerivation[],
+  newRoof = false,
 ): string | null {
   const entryDates = progressRows
     .filter(row => row.deleted_at === null)
-    .filter(row => MAIN_CONSTRUCTION_WORK_TYPES.has(row.work_type))
+    .filter(row => entryWorkTypes(newRoof).has(row.work_type))
     .map(row => row.planned_start_date)
     .filter(isValidIsoDate)
     .sort();
@@ -202,5 +201,5 @@ export function classifyConstructionItem(
     throw new Error('today must be a valid YYYY-MM-DD date');
   }
 
-  return plannedStartDate >= today ? 'SCHEDULED' : 'IN_PROGRESS';
+  return plannedStartDate > today ? 'SCHEDULED' : 'IN_PROGRESS';
 }

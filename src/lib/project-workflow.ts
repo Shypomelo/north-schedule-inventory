@@ -57,12 +57,12 @@ export function getWorkflowOuterDisplay(
   status: string | null | undefined,
   plannedDate: string | null | undefined,
   actualDate: string | null | undefined,
+  today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()),
 ): WorkflowOuterDisplay {
   const noun = kind === 'ACCEPTANCE' ? '驗收' : '掛表';
-  const now=new Date();
-  const today=[now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-');
-  const presentation=presentBusinessDate({planned:plannedDate,actual:actualDate,completed:status==='COMPLETED',today});
-  if (actualDate || status === 'COMPLETED') {
+  const completed = status === 'COMPLETED' && !!actualDate && actualDate < today;
+  const presentation=presentBusinessDate({planned:completed ? plannedDate : actualDate || plannedDate,actual:completed ? actualDate : null,completed,today});
+  if (completed) {
     return {
       label: `${noun} · ${presentation.label}`,
       date: actualDate ?? null,
@@ -70,8 +70,8 @@ export function getWorkflowOuterDisplay(
     };
   }
   return {
-    label: plannedDate ? `${noun} · ${presentation.label}` : '未排程',
-    date: plannedDate ?? null,
+    label: plannedDate || actualDate ? `${noun} · ${presentation.label}` : '未排程',
+    date: actualDate ?? plannedDate ?? null,
     isCompleted: false,
   };
 }

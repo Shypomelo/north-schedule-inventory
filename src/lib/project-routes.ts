@@ -1,5 +1,5 @@
 export type ProjectsRoute =
-  | { kind: 'all'; memberId: null; isLegacy: false }
+  | { kind: 'all' | 'closed' | 'metered' | 'contractor-schedule' | 'weekly-report'; memberId: null; isLegacy: false }
   | { kind: 'active'; memberId: null; isLegacy: false }
   | { kind: 'member'; memberId: string; isLegacy: boolean }
   | { kind: 'invalid'; memberId: null; isLegacy: false };
@@ -15,6 +15,9 @@ export function parseProjectsRoute(filter: string | string[] | undefined): Proje
 
   if (segments.length === 0 || (segments.length === 1 && segments[0] === 'all')) {
     return { kind: 'all', memberId: null, isLegacy: false };
+  }
+  if (segments.length === 1 && ['closed', 'metered', 'contractor-schedule', 'weekly-report'].includes(segments[0])) {
+    return { kind: segments[0] as 'closed' | 'metered' | 'contractor-schedule' | 'weekly-report', memberId: null, isLegacy: false };
   }
   if (segments.length === 1 && segments[0] === 'active') {
     return { kind: 'active', memberId: null, isLegacy: false };

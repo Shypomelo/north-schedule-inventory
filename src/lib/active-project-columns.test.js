@@ -21,8 +21,8 @@ test('the first three active project sections render one shared cross-section ge
   assert.match(source, /usesSharedActiveGeometry \? ACTIVE_PROJECT_SECTION_COLUMNS/);
   assert.match(source, /data-column-geometry=\{usesSharedActiveGeometry \? 'active-projects-v1'/);
   assert.match(source, /usesSharedActiveGeometry && <th[\s\S]{0,160}>新設頂蓋<\/th>/);
-  assert.match(source, /usesSharedActiveGeometry && <td className="p-1">[\s\S]{0,80}\{showRoof && <DateDualInput/);
-  assert.match(source, /usesSharedActiveGeometry && <td className="p-1">[\s\S]{0,80}\{showStartDate && <SmartDateInput/);
+  assert.match(source, /usesSharedActiveGeometry && <td className="p-1">[\s\S]{0,80}\{showRoof && renderConstructionInput/);
+  assert.match(source, /usesSharedActiveGeometry && <td className="p-1">[\s\S]{0,80}\{showStartDate && <span/);
 });
 
 test('active project route contract remains catch-all compatible', () => {

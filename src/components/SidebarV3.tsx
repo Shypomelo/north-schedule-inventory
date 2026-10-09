@@ -117,9 +117,12 @@ export function Sidebar() {
             <span className="flex items-center"><Building2 size={18} className={collapsed ? '' : 'hidden'} /><span className={collapsed ? 'hidden' : ''}>案場管理</span></span>{!collapsed && <span>▾</span>}
           </summary>
           {!collapsed && <div className="mt-1 flex flex-col gap-1 pl-2">
-            <a href="/projects/active" className={`min-h-11 rounded p-2 text-sm text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] ${isActive('/projects/active', true) ? 'bg-[var(--sidebar-active)]' : ''}`}>進行中案場</a>
+            <a href="/projects" className={`min-h-11 rounded p-2 text-sm text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] ${isActive('/projects') || isActive('/projects/active') ? 'bg-[var(--sidebar-active)]' : ''}`}>全部案場</a>
+            <a href="/projects/metered" className={`min-h-11 rounded p-2 text-sm text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] ${isActive('/projects/metered') ? 'bg-[var(--sidebar-active)]' : ''}`}>已掛表</a>
+            <a href="/projects/contractor-schedule" className={`min-h-11 rounded p-2 text-sm text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] ${isActive('/projects/contractor-schedule') ? 'bg-[var(--sidebar-active)]' : ''}`}>包商排工</a>
+            <a href="/projects/weekly-report" className={`min-h-11 rounded p-2 text-sm text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] ${isActive('/projects/weekly-report') ? 'bg-[var(--sidebar-active)]' : ''}`}>週回報表</a>
             {engineeringUsers.map(user => { const href = buildMemberProjectsHref(user.id); return <a key={user.id} href={href} className={`min-h-11 rounded p-2 text-sm text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] ${isActive(href, true) ? 'bg-[var(--sidebar-active)]' : ''}`}>{user.name}案場</a>; })}
-            <a href="/projects" className={`min-h-11 rounded p-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--sidebar-hover)] ${isActive('/projects') ? 'bg-[var(--sidebar-active)]' : ''}`}>所有案場</a>
+            <a href="/projects/closed" className={`min-h-11 rounded p-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--sidebar-hover)] ${isActive('/projects/closed') ? 'bg-[var(--sidebar-active)]' : ''}`}>結案／作廢清單</a>
           </div>}
         </details>
         {navItem('/inventory', '庫存管理', Package, collapsed, true)}

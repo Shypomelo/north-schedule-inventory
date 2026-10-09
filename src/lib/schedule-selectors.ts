@@ -50,12 +50,19 @@ export function selectScheduleTasksByWorkGroup(
   if (!workGroupId) return [];
   const participantIds=new Set((participants?.users||[]).filter(user=>{
     const resolution=resolveParticipantWorkGroups(user,participants!.memberships,participants!.groups);
-    return resolution.activeGroups.some(group=>group.id===workGroupId);
+    return resolution.activeGroup?.id===workGroupId;
   }).map(user=>user.id));
-  const sharedTaskIds=new Set((participants?.members||[]).filter(member=>participantIds.has(member.user_id)).map(member=>member.task_id));
+  const sharedTaskMembers=new Map<string, Set<string>>();
+  for (const member of participants?.members || []) {
+    if (!participantIds.has(member.user_id)) continue;
+    const ids=sharedTaskMembers.get(member.task_id) || new Set<string>();
+    ids.add(member.user_id);
+    sharedTaskMembers.set(member.task_id,ids);
+  }
   const seen=new Set<string>();
   return tasks.filter(task=>{
-    const visible=task.work_group_id===workGroupId||participantIds.has(task.main_assignee_id||'')||sharedTaskIds.has(task.id);
+    const visible=task.work_group_id===workGroupId
+      || Array.from(sharedTaskMembers.get(task.id) || []).some(id=>id!==task.main_assignee_id);
     if(!visible||seen.has(task.id))return false;seen.add(task.id);return true;
   });
 }

@@ -6,22 +6,22 @@ import { dbAdapter } from '@/lib/db';
 import { ProjectForm } from '@/components/ProjectForm';
 import { ProjectDetailModal } from '@/components/ProjectDetailModal';
 import { GanttChart } from '@/components/GanttChart';
-import { parseDateField } from '@/lib/utils/date-utils';
-import { SmartDateInput } from '@/components/SmartDateInput';
 import { DateDualInput } from '@/components/DateDualInput';
 import { WorkflowMilestoneQuickEditor } from '@/components/WorkflowMilestoneQuickEditor';
 import { useUser } from '@/components/UserContext';
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
 import { parseTaiwanProjectLocation, projectMatchesSearchQuery } from '@/lib/project-location';
-import { isActiveProject } from '@/lib/project-selectors';
+import { classifyProjectManagement, getFormalEntryDate, isManagedProject } from '@/lib/project-management';
 import { buildWorkflowActivityLog, getWorkflowMilestoneProjectPatch } from '@/lib/project-workflow';
 import { logWorkflowActivitySafely } from '@/lib/workflow-activity';
 import { supabase } from '@/lib/db/supabaseClient';
 import { getConstructionOuterDisplay, getConstructionProjectPatch, getConstructionToday, validateActualCompletionDate } from '@/lib/construction-progress';
+import { constructionProgressAdapter, type ConstructionUpdate } from '@/lib/db/construction-progress';
+import { createKeyedWriteQueue } from '@/lib/keyed-write-queue';
 import { ACTIVE_PROJECT_SECTION_COLUMNS, getActiveProjectColumns } from '@/lib/active-project-columns';
 import { MapPin, Plus, Search, Filter, Maximize2 } from 'lucide-react';
 import { useParams } from 'next/navigation';
-import { selectActiveProjectsForEngineeringMember, selectEngineeringMembers } from '@/lib/personnel-workspace';
+import { selectProjectsForEngineeringMember, selectEngineeringMembers } from '@/lib/personnel-workspace';
 import { parseProjectsRoute } from '@/lib/project-routes';
 
 const getCity = (address: string | null) => {
@@ -93,12 +93,12 @@ export default function ProjectsPage() {
       current?.id === projectId ? { ...current, ...updates } : current
     ));
   };
-  const [activeTab, setActiveTab] = useState<'report' | 'gantt'>('report');
   const [contractors, setContractors] = useState<Contractor[]>([]);
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, project: Project } | null>(null);
+  const [constructionMenu, setConstructionMenu] = useState<{ x: number; y: number; project: Project; type: 'racking' | 'electrical' | 'roof_cover' } | null>(null);
 
   useEffect(() => {
-    const handleClickOutside = () => setContextMenu(null);
+    const handleClickOutside = () => { setContextMenu(null); setConstructionMenu(null); };
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
@@ -108,7 +108,21 @@ export default function ProjectsPage() {
   const [saveStatus, setSaveStatus] = useState<'已儲存' | '儲存中' | '儲存失敗' | ''>('');
 
   // For debounce inline editing
-  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const saveTimeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
+  const constructionWritesRef = useRef(createKeyedWriteQueue());
+  const pendingWritesRef = useRef(0);
+  const failedWritesRef = useRef(false);
+  useEffect(() => () => { saveTimeoutsRef.current.forEach(clearTimeout); }, []);
+
+  const beginSave = () => { pendingWritesRef.current += 1; setSaveStatus('儲存中'); };
+  const endSave = (failed: boolean) => {
+    if (failed) failedWritesRef.current = true;
+    pendingWritesRef.current -= 1;
+    if (pendingWritesRef.current === 0) {
+      setSaveStatus(failedWritesRef.current ? '儲存失敗' : '已儲存');
+      failedWritesRef.current = false;
+    }
+  };
 
   const handleBackup = async () => {
     try {
@@ -178,13 +192,20 @@ export default function ProjectsPage() {
   }, []);
 
   const filterUser = memberId ? users.find(user => user.id === memberId) : undefined;
-  const isActiveView = projectsRoute.kind === 'active' || projectsRoute.kind === 'member';
+  const isActiveView = ['all', 'active', 'member', 'contractor-schedule'].includes(projectsRoute.kind);
+  const isMeteredView = projectsRoute.kind === 'metered';
+  const isWeeklyReportView = projectsRoute.kind === 'weekly-report';
+  const isClosedView = projectsRoute.kind === 'closed';
 
   const getPageTitle = () => {
-    if (projectsRoute.kind === 'active') return '進行中案場';
+    if (projectsRoute.kind === 'metered') return '已掛表';
+    if (projectsRoute.kind === 'contractor-schedule') return '包商排工';
+    if (projectsRoute.kind === 'weekly-report') return '週回報表';
+    if (projectsRoute.kind === 'closed') return '結案／作廢清單';
+    if (projectsRoute.kind === 'active' || projectsRoute.kind === 'all') return '全部案場';
     if (filterUser) return `${filterUser.name}案場`;
     if (projectsRoute.kind === 'member') return '個人案場';
-    return '所有案場';
+    return '全部案場';
   };
 
   const cities = useMemo(() => {
@@ -218,11 +239,12 @@ export default function ProjectsPage() {
 
   const filteredProjects = useMemo(() => {
     if (memberId) {
-      return selectActiveProjectsForEngineeringMember(projects, memberId, positions, projectAssignments)
-        .filter(project => !searchTerm || projectMatchesSearchQuery(project, searchTerm, [project.notes]));
+      const ids = new Set(selectProjectsForEngineeringMember(projects.map(project => project.id), memberId, positions, projectAssignments));
+      return projects.filter(project => ids.has(project.id) && isManagedProject(project)
+        && (!searchTerm || projectMatchesSearchQuery(project, searchTerm, [project.notes])));
     }
     return projects.filter(p => {
-      if (!isActiveProject(p)) return false;
+      if (!isManagedProject(p)) return false;
 
       if (searchTerm) {
         if (!projectMatchesSearchQuery(p, searchTerm, [p.notes])) return false;
@@ -232,69 +254,17 @@ export default function ProjectsPage() {
   }, [projects, searchTerm, memberId, positions, projectAssignments]);
 
   const activeCategories = useMemo(() => {
-    const cats = {
-      section1: [] as Project[], // 目前施工中案件
-      section2: [] as Project[], // 下兩周預計進場之案件
-      section3: [] as Project[], // 其他負責案件
-      section4: [] as Project[], // 前兩周掛表案件
-    };
-
-    const globalBaseDateStr = new Date().toISOString().split('T')[0];
-    const globalBaseDate = new Date(globalBaseDateStr);
-    const globalBaseTime = new Date(globalBaseDate.getFullYear(), globalBaseDate.getMonth(), globalBaseDate.getDate()).getTime();
-
-    filteredProjects.forEach(p => {
-      // 強制使用全域的「今日」作為分類判斷的基準日，避免各案場自帶的舊基準日導致「下兩周」的定義錯亂
-      const baseDateStr = globalBaseDateStr;
-      const baseTime = globalBaseTime;
-
-      // 掛表日期判斷：優先看新的 DateDualInput 產生的 expected_date，若無則看舊的 status
-      let meterDate: Date | null = null;
-      if (p.meter_expected_date) {
-        meterDate = parseDateField(p.meter_expected_date, baseDateStr) || new Date(p.meter_expected_date);
-      } else {
-        meterDate = parseDateField(p.meter_status || "", baseDateStr);
-      }
-      
-      const isDateBeforeOrEqualBase = (d: Date | null) => d && d.getTime() <= baseTime;
-      const expectedDates: Date[] = [];
-      const contractorTypes = ['racking', 'electrical', 'steel', 'roof_cover', 'civil', 'other'];
-      
-      contractorTypes.forEach(type => {
-        const expectedStr = p[`${type}_expected_start_date` as keyof Project] as string | null;
-        if (expectedStr) {
-          const parsed = parseDateField(expectedStr, baseDateStr);
-          if (parsed) expectedDates.push(parsed);
-          else expectedDates.push(new Date(expectedStr)); // fallback
-        }
-      });
-      if (!p.racking_expected_start_date) {
-        const d = parseDateField(p.bracket_status || "", baseDateStr);
-        if (d) expectedDates.push(d);
-      }
-      if (!p.electrical_expected_start_date) {
-        const d = parseDateField(p.power_status || "", baseDateStr);
-        if (d) expectedDates.push(d);
-      }
-
-      const hasDateWithin14Days = expectedDates.some(d => d && d.getTime() >= baseTime && d.getTime() <= baseTime + 14 * 24 * 60 * 60 * 1000);
-      const hasDateBeforeBase = expectedDates.some(d => d && d.getTime() < baseTime);
-      const isLegacyCompleted = (text: string | null) => text?.includes('已完工') || text?.includes('已完成');
-      const isLegacyDone = isLegacyCompleted(p.bracket_status || "") || isLegacyCompleted(p.power_status || "");
-
-      if (isDateBeforeOrEqualBase(meterDate)) {
-        cats.section4.push(p); // 1. 掛表日期在基準日前
-      } else if (hasDateBeforeBase || isLegacyDone) {
-        cats.section1.push(p); // 2. 任何工種進場日在基準日前 (代表已實際進場施工中)，或包含已完工/已完成
-      } else if (hasDateWithin14Days) {
-        cats.section2.push(p); // 3. 只要有任何工種預計在兩周內進場，且沒有任何工種已經進場
-      } else {
-        cats.section3.push(p); // 4. 其他 (超過兩周才要進場的案件)
-      }
+    const cats = { section1: [] as Project[], section2: [] as Project[], section3: [] as Project[] };
+    filteredProjects.forEach(project => {
+      const section = classifyProjectManagement(project);
+      if (section === 'construction') cats.section1.push(project);
+      else if (section === 'upcoming') cats.section2.push(project);
+      else if (section === 'other') cats.section3.push(project);
     });
-
     return cats;
   }, [filteredProjects]);
+  const meteredProjects = useMemo(() => projects.filter(project => isManagedProject(project)
+    && classifyProjectManagement(project) === 'metered'), [projects]);
 
   const handleCreateOrUpdateBase = async (data: Omit<Project, 'id' | 'created_at' | 'updated_at'>) => {
     setIsSubmitting(true);
@@ -337,12 +307,6 @@ export default function ProjectsPage() {
         short_name: formData.get('name') as string || '',
         capacity: formData.get('capacity') as string || '',
         manager: formData.get('manager') as string || '',
-        bracket_status: formData.get('bracket_status') as string || '',
-        power_status: formData.get('power_status') as string || '',
-        inspection_status: formData.get('inspection_status') as string || '',
-        meter_status: formData.get('meter_status') as string || '',
-        roof_status: formData.get('roof_status') as string || '',
-        start_date: formData.get('start_date') as string || '',
         notes: formData.get('notes') as string || '',
         status: '進行中',
         report_section: '其他負責案件'
@@ -430,68 +394,67 @@ export default function ProjectsPage() {
     }
   };
 
-  const handleProjectDatesChange = async (id: string, updates: Partial<Project>) => {
-    try {
-      setSaveStatus('儲存中');
-      setProjects(prev => prev.map(p => p.id === id ? { ...p, ...updates } as Project : p));
-      
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-      saveTimeoutRef.current = setTimeout(async () => {
-        try {
-          await dbAdapter.updateProject(id, updates);
-          setSaveStatus('已儲存');
-          setTimeout(() => setSaveStatus(''), 2000);
-        } catch (error) {
-          console.error("Failed to update project dates", error);
-          setSaveStatus('儲存失敗');
-        }
-      }, 1000);
-    } catch (e) {
-      console.error(e);
-      setSaveStatus('儲存失敗');
-    }
-  };
-
   const handleConstructionDatesChange = (
     project: Project,
     type: 'racking' | 'electrical' | 'roof_cover',
     expectedStart: string | null,
     endDate: string | null,
+    completed = Boolean(project[`${type}_is_completed` as keyof Project]),
   ) => {
-    const isCompleted = Boolean(project[`${type}_is_completed` as keyof Project]);
     const today = getConstructionToday();
-    const normalizedEndDate = isCompleted ? endDate || today : endDate;
-    const validationError = isCompleted
+    const nextCompleted = expectedStart && expectedStart > today ? false : completed;
+    const normalizedEndDate = nextCompleted ? endDate || today : endDate;
+    const validationError = nextCompleted
       ? validateActualCompletionDate(normalizedEndDate, today)
       : null;
     if (validationError) {
       alert(validationError);
       return;
     }
-    void handleProjectDatesChange(project.id, {
-      [`${type}_expected_start_date`]: expectedStart,
-      [`${type}_completion_date`]: normalizedEndDate,
-      [`${type}_is_completed`]: isCompleted,
-    } as Partial<Project>);
+    const key = `${project.id}:${type}`;
+    beginSave();
+    const write = constructionWritesRef.current.run(key, async () => {
+      const rows = (await constructionProgressAdapter.list(project.id)).filter(row => row.work_type === type);
+      if (rows.length > 1) throw new Error('同一施工工項有多筆有效紀錄，請在案場彈窗編輯');
+      const row = rows[0];
+      if (!row && !expectedStart && !endDate && !nextCompleted) return;
+      const values: ConstructionUpdate = {
+        planned_start_date: expectedStart,
+        is_completed: nextCompleted,
+        actual_completed_date: nextCompleted ? normalizedEndDate : null,
+      };
+      if (!nextCompleted && !completed) values.planned_end_date = endDate;
+      const saved = row
+        ? await constructionProgressAdapter.update(project.id, row.id, values)
+        : await constructionProgressAdapter.create(project.id, { work_type: type, sort_order: type === 'racking' ? 20 : type === 'electrical' ? 30 : 10, ...values });
+      patchProjectState(project.id, getConstructionProjectPatch(saved));
+    });
+    void write.then(() => endSave(false), error => {
+      console.error('Construction progress save failed:', error);
+      endSave(true);
+      void fetchProjects();
+    });
   };
 
   const handleProjectInlineChange = async (id: string, field: string, value: string) => {
     try {
-      setSaveStatus('儲存中');
       const updatedProjects = projects.map(p => p.id === id ? { ...p, [field]: value } as Project : p);
       setProjects(updatedProjects);
-      
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-      saveTimeoutRef.current = setTimeout(async () => {
+      const key = `${id}:${field}`;
+      const oldTimer = saveTimeoutsRef.current.get(key);
+      if (oldTimer) clearTimeout(oldTimer);
+      saveTimeoutsRef.current.set(key, setTimeout(async () => {
+        saveTimeoutsRef.current.delete(key);
+        beginSave();
         try {
           await dbAdapter.updateProject(id, { [field]: value });
-          setSaveStatus('已儲存');
-          setTimeout(() => setSaveStatus(''), 2000);
+          endSave(false);
         } catch (error) {
           console.error("Failed to update project inline", error);
-          setSaveStatus('儲存失敗');
+          endSave(true);
+          void fetchProjects();
         }
-      }, 1000);
+      }, 700));
     } catch (e) {
       console.error(e);
       setSaveStatus('儲存失敗');
@@ -504,10 +467,33 @@ export default function ProjectsPage() {
     window.open(url, '_blank');
   };
 
+  const renderConstructionInput = (project: Project, type: 'racking' | 'electrical' | 'roof_cover') => {
+    const completed = Boolean(project[`${type}_is_completed` as keyof Project]);
+    const expected = project[`${type}_expected_start_date` as keyof Project] as string | null;
+    const end = project[`${type}_completion_date` as keyof Project] as string | null;
+    return <div className="flex min-w-[9.5rem] items-center gap-1" onContextMenu={event => {
+      event.preventDefault(); event.stopPropagation();
+      if (currentUser?.role !== 'VIEWER') setConstructionMenu({ x: event.clientX, y: event.clientY, project, type });
+    }}>
+      <DateDualInput
+        baseDate={getConstructionToday()}
+        disabled={currentUser?.role === 'VIEWER' || completed}
+        expectedDate={expected || null}
+        completionDate={end || null}
+        completionIsActual={completed}
+        summaryText={getProjectConstructionDisplay(expected, end, completed).label}
+        onChange={(nextStart, nextEnd) => handleConstructionDatesChange(project, type, nextStart, nextEnd)}
+      />
+      {currentUser?.role !== 'VIEWER' && <button type="button" aria-label={`${type}施工操作`} title="施工操作" className="min-h-9 shrink-0 rounded border border-theme-border px-1 text-secondary hover:text-primary" onClick={event => {
+        event.stopPropagation(); setConstructionMenu({ x: event.clientX, y: event.clientY, project, type });
+      }}>⋯</button>}
+    </div>;
+  };
+
   const renderActiveTable = (title: string, projectsList: Project[]) => {
-    const isSec1 = title === '1. 目前施工中案件';
-    const isSec2 = title === '2. 下兩周預計進場之案件';
-    const isSec3 = title === '3. 其他負責案件';
+    const isSec1 = title === '1. 施工中案件';
+    const isSec2 = title === '2. 下兩週預計進場';
+    const isSec3 = title === '3. 其他案件';
     const isSec4 = title === '4. 前兩周掛表案件';
 
     const showBracket = isSec1 || isSec2 || isSec3;
@@ -583,28 +569,8 @@ export default function ProjectsPage() {
                   
                   {/* 工程負責人統一由 Project Detail 的「專案分工」維護。 */}
                   <td className="p-3 text-secondary">{project.manager || '未指派'}</td>
-                  {showBracket && <td className="p-1">
-                    <DateDualInput 
-                      baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
-                      disabled={currentUser?.role === 'VIEWER'}
-                      expectedDate={project.racking_expected_start_date || null}
-                      completionDate={project.racking_completion_date || null}
-                      completionIsActual={project.racking_is_completed}
-                      summaryText={getProjectConstructionDisplay(project.racking_expected_start_date, project.racking_completion_date, project.racking_is_completed).label}
-                      onChange={(exp, comp) => handleConstructionDatesChange(project, 'racking', exp, comp)}
-                    />
-                  </td>}
-                  {showPower && <td className="p-1">
-                    <DateDualInput 
-                      baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
-                      disabled={currentUser?.role === 'VIEWER'}
-                      expectedDate={project.electrical_expected_start_date || null}
-                      completionDate={project.electrical_completion_date || null}
-                      completionIsActual={project.electrical_is_completed}
-                      summaryText={getProjectConstructionDisplay(project.electrical_expected_start_date, project.electrical_completion_date, project.electrical_is_completed).label}
-                      onChange={(exp, comp) => handleConstructionDatesChange(project, 'electrical', exp, comp)}
-                    />
-                  </td>}
+                  {showBracket && <td className="p-1">{renderConstructionInput(project, 'racking')}</td>}
+                  {showPower && <td className="p-1">{renderConstructionInput(project, 'electrical')}</td>}
                   {showInspection && <td className="p-1">
                     <WorkflowMilestoneQuickEditor
                       projectId={project.id}
@@ -632,24 +598,10 @@ export default function ProjectsPage() {
                     />
                   </td>}
                   {usesSharedActiveGeometry && <td className="p-1">
-                    {showRoof && <DateDualInput
-                      baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
-                      disabled={currentUser?.role === 'VIEWER'}
-                      expectedDate={project.roof_cover_expected_start_date || null}
-                      completionDate={project.roof_cover_completion_date || null}
-                      completionIsActual={project.roof_cover_is_completed}
-                      summaryText={getProjectConstructionDisplay(project.roof_cover_expected_start_date, project.roof_cover_completion_date, project.roof_cover_is_completed).label}
-                      onChange={(exp, comp) => handleConstructionDatesChange(project, 'roof_cover', exp, comp)}
-                    />}
+                    {showRoof && renderConstructionInput(project, 'roof_cover')}
                   </td>}
                   {usesSharedActiveGeometry && <td className="p-1">
-                    {showStartDate && <SmartDateInput
-                      disabled={currentUser?.role === 'VIEWER'}
-                      value={project.start_date || ''}
-                      baseDate={project.report_base_date || new Date().toISOString().split('T')[0]}
-                      onChange={(val) => handleProjectInlineChange(project.id, 'start_date', val)}
-                      placeholder="YYYY-MM-DD"
-                    />}
+                    {showStartDate && <span className="block px-2 text-xs text-secondary" title="依正式進場日期顯示">{getFormalEntryDate(project) || '未排程'}</span>}
                   </td>}
                   <td className="p-1">
                     <input 
@@ -682,9 +634,9 @@ export default function ProjectsPage() {
 
   return (
     <>
-      <div className="mx-auto flex h-full min-w-0 flex-col p-3 sm:p-5 lg:p-8 xl:min-w-[1600px]">
+      <div className="mx-auto flex h-full min-w-0 flex-col p-3 sm:p-5 lg:p-8">
       <div className="mb-4 flex flex-col items-stretch justify-between gap-3 sm:mb-6 lg:flex-row lg:items-center">
-        <h1 className="break-words text-2xl font-bold text-primary sm:text-3xl">{getPageTitle()} <span className="ml-1 text-base font-normal text-secondary/70 sm:ml-2 sm:text-lg">({isActiveView ? filteredProjects.length : filteredBaseProjects.length})</span></h1>
+        <h1 className="break-words text-2xl font-bold text-primary sm:text-3xl">{getPageTitle()} <span className="ml-1 text-base font-normal text-secondary/70 sm:ml-2 sm:text-lg">{!isWeeklyReportView && `(${isMeteredView ? meteredProjects.length : isClosedView ? filteredBaseProjects.length : filteredProjects.length})`}</span></h1>
         
         <div className="flex flex-wrap items-center gap-2 sm:gap-4">
           {isActiveView && saveStatus && (
@@ -707,22 +659,22 @@ export default function ProjectsPage() {
               className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-accent px-5 py-2.5 font-medium text-white shadow-lg shadow-accent/20 transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
             >
               <Plus size={20} />
-              新增進行中案場
+              新增案場
             </button>
-          ) : (
+          ) : isClosedView ? (
             <button 
               onClick={() => { setEditingProject(null); setIsFormModalOpen(true); }}
               disabled={currentUser?.role === 'VIEWER'}
               className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-accent px-5 py-2.5 font-medium text-white shadow-lg shadow-accent/20 transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
             >
               <Plus size={20} />
-              新增所有案場
+              新增案場
             </button>
-          )}
+          ) : null}
         </div>
       </div>
 
-      {!isActiveView && (
+      {isClosedView && (
         <div className="bg-card/60 border border-theme-border p-4 rounded-xl mb-6 flex flex-col md:flex-row gap-4 backdrop-blur-sm shrink-0">
           <div className="flex-1 flex items-center gap-3 bg-page/50 rounded-lg px-3 border border-theme-border/50">
             <Search className="text-secondary" size={20} />
@@ -779,30 +731,28 @@ export default function ProjectsPage() {
           </div>
         ) : isLoading ? (
           <div className="absolute inset-0 flex items-center justify-center text-secondary">載入中...</div>
+        ) : isWeeklyReportView ? (
+          <div className="rounded-xl border border-dashed border-theme-border bg-card/40 p-8 text-center text-secondary">週回報表頁面已建立，正式一鍵複製功能將於後續整合。</div>
+        ) : isMeteredView ? (
+          <div className="overflow-x-auto rounded-xl border border-theme-border bg-card/40 shadow-xl">
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <thead className="border-b border-theme-border bg-card text-secondary"><tr><th className="p-3">案場</th><th className="p-3">負責人</th><th className="p-3">容量</th><th className="p-3">掛表日期</th><th className="p-3">設備登記</th></tr></thead>
+              <tbody>{meteredProjects.map(project => <tr key={project.id} className="border-b border-theme-border/50">
+                <td className="p-3"><button type="button" className="text-left font-medium text-accent" onClick={() => setViewingProject(project)}>{project.name}</button></td>
+                <td className="p-3">{project.manager || '未指派'}</td><td className="p-3">{project.capacity || '—'}</td>
+                <td className="p-3"><WorkflowMilestoneQuickEditor projectId={project.id} milestoneId={project.meter_milestone_id ?? null} milestoneKey="METER_INSTALLATION" kind="METER" status={project.meter_status ?? null} plannedDate={project.meter_expected_date ?? null} actualDate={project.meter_completion_date ?? null} disabled={currentUser?.role === 'VIEWER'} onUpdated={milestone => patchProjectState(project.id, getWorkflowMilestoneProjectPatch(milestone))}/></td>
+                <td className="p-3 text-secondary">—</td>
+              </tr>)}{meteredProjects.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-secondary">目前沒有已掛表案場</td></tr>}</tbody>
+            </table>
+          </div>
         ) : isActiveView ? (
           
           <div className="pb-8 flex flex-col h-full">
-            <div className="mb-6 flex shrink-0 gap-4 overflow-x-auto border-b border-theme-border/50 pb-2">
-              <button 
-                onClick={() => setActiveTab('report')}
-                className={`px-4 py-2 font-medium transition-colors border-b-2 -mb-[10px] ${activeTab === 'report' ? 'text-accent border-accent' : 'text-secondary border-transparent hover:text-primary'}`}
-              >
-                週回報表
-              </button>
-              <button 
-                onClick={() => setActiveTab('gantt')}
-                className={`px-4 py-2 font-medium transition-colors border-b-2 -mb-[10px] ${activeTab === 'gantt' ? 'text-accent border-accent' : 'text-secondary border-transparent hover:text-primary'}`}
-              >
-                包商排工 (甘特圖)
-              </button>
-            </div>
-
-            {activeTab === 'report' ? (
+            {projectsRoute.kind !== 'contractor-schedule' ? (
               <>
-                {renderActiveTable("1. 目前施工中案件", activeCategories.section1)}
-                {renderActiveTable("2. 下兩周預計進場之案件", activeCategories.section2)}
-                {renderActiveTable("3. 其他負責案件", activeCategories.section3)}
-                {renderActiveTable("4. 前兩周掛表案件", activeCategories.section4)}
+                {renderActiveTable("1. 施工中案件", activeCategories.section1)}
+                {renderActiveTable("2. 下兩週預計進場", activeCategories.section2)}
+                {renderActiveTable("3. 其他案件", activeCategories.section3)}
               </>
             ) : (
               <div className="min-h-[500px] flex-1 overflow-auto">
@@ -906,7 +856,7 @@ export default function ProjectsPage() {
       {isActiveFormOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-page/80 p-2 backdrop-blur-sm sm:p-4">
           <div className="relative my-2 max-h-[calc(100dvh-1rem)] w-full max-w-2xl overflow-y-auto rounded-2xl border border-theme-border bg-card p-4 shadow-2xl sm:my-8 sm:max-h-[calc(100dvh-2rem)] sm:p-6">
-            <h2 className="mb-6 text-xl font-bold text-primary sm:text-2xl">新增進行中案場</h2>
+            <h2 className="mb-6 text-xl font-bold text-primary sm:text-2xl">新增案場</h2>
             <form onSubmit={handleCreateActive} className="flex flex-col gap-4">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <label className="flex flex-col gap-1">
@@ -921,31 +871,8 @@ export default function ProjectsPage() {
                   <span className="text-sm text-secondary">容量 KW</span>
                   <input name="capacity" type="text" className="p-2 bg-page border border-theme-border rounded text-primary outline-none focus:border-accent" />
                 </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-sm text-secondary">支架</span>
-                  <input name="bracket_status" type="text" className="p-2 bg-page border border-theme-border rounded text-primary outline-none focus:border-accent" />
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-sm text-secondary">電力</span>
-                  <input name="power_status" type="text" className="p-2 bg-page border border-theme-border rounded text-primary outline-none focus:border-accent" />
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-sm text-secondary">驗收</span>
-                  <input name="inspection_status" type="text" className="p-2 bg-page border border-theme-border rounded text-primary outline-none focus:border-accent" />
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-sm text-secondary">掛表</span>
-                  <input name="meter_status" type="text" className="p-2 bg-page border border-theme-border rounded text-primary outline-none focus:border-accent" />
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-sm text-secondary">新設頂蓋</span>
-                  <input name="roof_status" type="text" className="p-2 bg-page border border-theme-border rounded text-primary outline-none focus:border-accent" />
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-sm text-secondary">開工日期</span>
-                  <input name="start_date" type="text" className="p-2 bg-page border border-theme-border rounded text-primary outline-none focus:border-accent" />
-                </label>
               </div>
+              <p className="text-sm text-secondary">施工、驗收與掛表日期請在案場詳細資料中設定；開工日期依正式進場資料顯示。</p>
               <label className="flex flex-col gap-1">
                 <span className="text-sm text-secondary">備註</span>
                 <textarea name="notes" className="p-2 bg-page border border-theme-border rounded text-primary outline-none focus:border-accent min-h-[80px]"></textarea>
@@ -1000,6 +927,16 @@ export default function ProjectsPage() {
           </button>
         </div>
       )}
+      {constructionMenu && <div className="fixed z-[110] min-w-40 rounded-lg border border-theme-border bg-card p-1 shadow-2xl" style={{ top: constructionMenu.y, left: Math.min(constructionMenu.x, window.innerWidth - 180) }} onClick={event => event.stopPropagation()}>
+        <button type="button" className="w-full rounded px-3 py-2 text-left text-sm text-primary hover:bg-page" onClick={() => {
+          const { project, type } = constructionMenu;
+          const completed = Boolean(project[`${type}_is_completed` as keyof Project]);
+          handleConstructionDatesChange(project, type,
+            project[`${type}_expected_start_date` as keyof Project] as string | null,
+            completed ? null : getConstructionToday(), !completed);
+          setConstructionMenu(null);
+        }}>{constructionMenu.project[`${constructionMenu.type}_is_completed` as keyof Project] ? '取消已完工' : '標記已完工'}</button>
+      </div>}
     </>
   );
 }

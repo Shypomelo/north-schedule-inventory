@@ -81,11 +81,14 @@ test('acceptance and meter outer fields use active authoritative milestones', ()
     meter_expected_date: '2026-10-20',
     meter_completion_date: '2026-10-21',
   });
-  assert.deepEqual(getWorkflowOuterDisplay('ACCEPTANCE', fields.inspection_status, fields.inspection_expected_date, fields.inspection_completion_date), {
+  assert.deepEqual(getWorkflowOuterDisplay('ACCEPTANCE', fields.inspection_status, fields.inspection_expected_date, fields.inspection_completion_date, '2026-10-09'), {
     label: '驗收 · 預計 2026/10/15', date: '2026-10-15', isCompleted: false,
   });
-  assert.deepEqual(getWorkflowOuterDisplay('METER', fields.meter_status, fields.meter_expected_date, fields.meter_completion_date), {
+  assert.deepEqual(getWorkflowOuterDisplay('METER', fields.meter_status, fields.meter_expected_date, fields.meter_completion_date, '2026-10-22'), {
     label: '掛表 · 實際 2026/10/21', date: '2026-10-21', isCompleted: true,
+  });
+  assert.deepEqual(getWorkflowOuterDisplay('METER', fields.meter_status, fields.meter_expected_date, fields.meter_completion_date, '2026-10-21'), {
+    label: '掛表 · 預計 2026/10/21', date: '2026-10-21', isCompleted: false,
   });
 });
 

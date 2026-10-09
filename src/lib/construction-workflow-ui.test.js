@@ -174,9 +174,9 @@ test('completed early work remains in PREWORK grouping, steel after entry does n
   assert.equal(helpers.isConstructionPrework(row({ planned_start_date: '2026-09-01', is_completed: true }), '2026-09-08'), true);
   assert.equal(helpers.isConstructionPrework(row({ work_type: 'steel', planned_start_date: '2026-09-10' }), '2026-09-08'), false);
 });
-test('no date is unscheduled, same-day is scheduled, past is in progress, completed wins', () => {
+test('no date is unscheduled, same-day and past are in progress, completed wins', () => {
   assert.equal(helpers.classifyConstructionItem(row(), null, '2026-09-08'), 'UNSCHEDULED');
-  assert.equal(helpers.classifyConstructionItem(row({ planned_start_date: '2026-09-08' }), null, '2026-09-08'), 'SCHEDULED');
+  assert.equal(helpers.classifyConstructionItem(row({ planned_start_date: '2026-09-08' }), null, '2026-09-08'), 'IN_PROGRESS');
   assert.equal(helpers.classifyConstructionItem(row({ planned_start_date: '2026-09-07' }), null, '2026-09-08'), 'IN_PROGRESS');
   assert.equal(helpers.classifyConstructionItem(row({ is_completed: true }), null, '2026-09-08'), 'COMPLETED');
 });
@@ -229,8 +229,8 @@ test('outer construction stage follows V2 start, end, and completion fields', ()
   const display = values => helpers.getConstructionOuterDisplay(row(values), '2026-09-05');
   assert.deepEqual(display({ planned_start_date: null }), { status: 'UNSCHEDULED', label: '未排程', date: null });
   assert.deepEqual(display({ planned_start_date: '2026-09-06', planned_end_date: '2026-09-30' }), { status: 'EXPECTED_START', label: '預計進場 09/06', date: '2026-09-06' });
-  assert.deepEqual(display({ planned_start_date: '2026-09-05', planned_end_date: '2026-09-30' }), { status: 'EXPECTED_END', label: '預計完工 09/30', date: '2026-09-30' });
-  assert.deepEqual(display({ planned_start_date: '2026-09-04', planned_end_date: '2026-09-30' }), { status: 'EXPECTED_END', label: '預計完工 09/30', date: '2026-09-30' });
+  assert.deepEqual(display({ planned_start_date: '2026-09-05', planned_end_date: '2026-09-30' }), { status: 'IN_PROGRESS', label: '施工中', date: null });
+  assert.deepEqual(display({ planned_start_date: '2026-09-04', planned_end_date: '2026-09-30' }), { status: 'IN_PROGRESS', label: '施工中', date: null });
   assert.deepEqual(display({ planned_start_date: '2026-09-04' }), { status: 'IN_PROGRESS', label: '施工中', date: null });
   assert.deepEqual(display({ is_completed: true, actual_completed_date: '2026-09-03', completed_date: '2099-01-01' }), { status: 'COMPLETED', label: '已完工 09/03', date: '2026-09-03' });
 
@@ -264,17 +264,18 @@ test('legacy unnamed other displays other without any write or legacy end date',
   assert.doesNotMatch(html, /2020-01-01/);
   assert.equal(legacy.work_name, null);
   assert.equal(helpers.getConstructionWorkLabel(legacy), '其他');
-  assert.match(html, />完工日期</);
+  assert.match(html, />實際日期</);
   assert.doesNotMatch(html, />預計完工<|>實際完工</);
 });
-test('PREWORK heading is conditional and completed PREWORK remains visible there', () => {
+test('completed early work remains visible in the unified construction list without phase headings', () => {
   const plain = renderToStaticMarkup(React.createElement(ConstructionProgressSection, { model: model([row()]) }));
   assert.doesNotMatch(plain, />前置作業</);
   const html = renderToStaticMarkup(React.createElement(ConstructionProgressSection, { model: model([
     row({ work_name: '防水', planned_start_date: '2026-09-01', is_completed: true, actual_completed_date: '2026-09-02' }),
     row({ id: 'main', work_type: 'racking', planned_start_date: '2026-09-08' }),
   ]) }));
-  assert.match(html, />前置作業</);
+  assert.doesNotMatch(html, />前置作業</);
+  assert.match(html, /防水/);
   assert.match(html, /已完工/);
   assert.match(html, /正式進場：2026-09-08/);
 });
@@ -311,15 +312,15 @@ test('Project Detail defaults to Workflow with embedded construction and no stan
   assert.doesNotMatch(html, />施工進度</);
 });
 
-test('construction renders inside the CONSTRUCTION phase instead of after the milestone list', () => {
+test('construction and milestones share the workflow list without phase separators or duplicate SITE_ENTRY', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'components', 'ProjectWorkflow.tsx'), 'utf8');
-  const phaseInsertion = source.indexOf('data-workflow-phase-content="CONSTRUCTION"');
+  const constructionInsertion = source.indexOf('{construction}', source.indexOf('visibleMilestones.map'));
   const milestoneMap = source.indexOf('visibleMilestones.map');
   const createDialog = source.indexOf('{showCreate ?');
 
-  assert.ok(milestoneMap >= 0 && phaseInsertion > milestoneMap && phaseInsertion < createDialog);
-  assert.match(source, /showPhase && milestone\.phase_key_snapshot === 'CONSTRUCTION'/);
-  assert.doesNotMatch(source.slice(createDialog - 80, createDialog), /\{construction\}/);
+  assert.ok(milestoneMap >= 0 && constructionInsertion > milestoneMap && constructionInsertion < createDialog);
+  assert.doesNotMatch(source, /showPhase \?/);
+  assert.match(source, /milestone\.milestone_key !== 'SITE_ENTRY'/);
 });
 
 test('construction phase integration reuses the supplied section without milestone date synchronization', () => {
@@ -327,7 +328,7 @@ test('construction phase integration reuses the supplied section without milesto
   const detailSource = fs.readFileSync(path.join(__dirname, '..', 'components', 'ProjectDetailModal.tsx'), 'utf8');
 
   assert.equal((detailSource.match(/useConstructionProgress\(/g) || []).length, 1);
-  assert.equal((detailSource.match(/<ConstructionProgressSection model=\{construction\} \/>/g) || []).length, 1);
+  assert.equal((detailSource.match(/<ConstructionProgressSection model=\{construction\} embedded \/>/g) || []).length, 1);
   assert.doesNotMatch(workflowSource, /planned_start_date|planned_end_date|actual_completed_date/);
 });
 

@@ -10,6 +10,7 @@ import {
   getSafeNextPath,
   initializeAuth,
   resolveAuthStateChange,
+  shouldBlockForSignIn,
   type AuthResolution,
   withAuthFailureTimeout,
 } from '@/lib/auth-lifecycle';
@@ -33,6 +34,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
   const preserveNextSignOutError = useRef(false);
+  const resolvedEmail = useRef<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -42,6 +44,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       if (!mounted || operationId !== operation) return;
       setAllUsers(resolution.allUsers);
       setCurrentUser(resolution.currentUser);
+      resolvedEmail.current = resolution.currentUser?.email?.trim().toLowerCase() ?? null;
       setAuthError(resolution.error);
       setIsLoading(false);
       if (resolution.shouldClearLocalSession) {
@@ -66,12 +69,16 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       if (!mounted) return;
 
       if (event === 'SIGNED_IN') {
-        setIsLoading(true);
+        const incomingEmail = session?.user?.email?.trim().toLowerCase() ?? null;
+        // A refreshed session for the same account still gets revalidated, while the
+        // mounted page and its unsaved modal state remain visible during that read.
+        if (shouldBlockForSignIn(resolvedEmail.current, incomingEmail)) setIsLoading(true);
         setTimeout(() => {
           if (mounted) runResolution(() => resolveAuthStateChange(event, session, () => dbAdapter.getUsers()).then(result => result!));
         }, 0);
       } else if (event === 'SIGNED_OUT') {
         operation += 1;
+        resolvedEmail.current = null;
         const preserveError = preserveNextSignOutError.current;
         preserveNextSignOutError.current = false;
         setAllUsers([]);

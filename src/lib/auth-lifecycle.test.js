@@ -9,6 +9,7 @@ const {
   initializeAuth,
   resolveAuthSession,
   resolveAuthStateChange,
+  shouldBlockForSignIn,
   selectLoginNextPath,
   withAuthFailureTimeout,
 } = load('auth-lifecycle.ts');
@@ -25,6 +26,12 @@ const user = (overrides = {}) => ({
   ...overrides,
 });
 const session = { user: { email: ' MEMBER@example.test ' } };
+
+test('same-account background sign-in revalidates without blocking mounted dialogs', () => {
+  assert.equal(shouldBlockForSignIn('member@example.test', ' MEMBER@example.test '), false);
+  assert.equal(shouldBlockForSignIn('member@example.test', 'other@example.test'), true);
+  assert.equal(shouldBlockForSignIn(null, 'member@example.test'), true);
+});
 
 test('no session settles logged-out without member lookup', async () => {
   let lookups = 0;

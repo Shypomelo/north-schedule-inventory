@@ -61,7 +61,7 @@ export function WorkflowMilestoneQuickEditor({
   };
 
   const saveEditor = (nextPlannedDate: string | null, nextActualDate: string | null, completed?: boolean) => {
-    const nextCompleted = completed ?? isCompleted;
+    const nextCompleted = nextPlannedDate && nextPlannedDate >= today ? false : completed ?? isCompleted;
     const updates: Parameters<typeof save>[0] = { planned_date: nextPlannedDate };
     if (nextCompleted) {
       Object.assign(updates, normalizeMilestoneCompletion('COMPLETED', nextActualDate, today));

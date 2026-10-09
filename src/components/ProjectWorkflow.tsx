@@ -27,6 +27,7 @@ import {
 } from '@/lib/project-workflow';
 import { logWorkflowActivitySafely } from '@/lib/workflow-activity';
 import { getConstructionToday } from '@/lib/construction-progress';
+import { WORKFLOW_GRID_CLASS } from '@/lib/workflow-table';
 import { WorkflowRebuild } from './WorkflowRebuild';
 import { presentBusinessDate } from '@/lib/date-presentation';
 
@@ -127,11 +128,12 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
     [workflow.milestones],
   );
   const visibleMilestones = useMemo(
-    () => getVisibleWorkflowMilestones(orderedMilestones, hideCompleted).sort((a,b)=>(a.phase_sort_order_snapshot??0)-(b.phase_sort_order_snapshot??0)||a.phase_key_snapshot.localeCompare(b.phase_key_snapshot)||a.sort_order-b.sort_order||a.created_at.localeCompare(b.created_at)||a.id.localeCompare(b.id)),
+    () => getVisibleWorkflowMilestones(orderedMilestones, hideCompleted)
+      .filter(milestone => milestone.milestone_key !== 'SITE_ENTRY'),
     [hideCompleted, orderedMilestones],
   );
   const summary = useMemo(
-    () => getCurrentAndNextMilestones(orderedMilestones),
+    () => getCurrentAndNextMilestones(orderedMilestones.filter(milestone => milestone.milestone_key !== 'SITE_ENTRY')),
     [orderedMilestones],
   );
 
@@ -455,17 +457,12 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
       {notice ? <div className="rounded-lg border border-success/30 bg-success/10 p-3 text-sm text-success">{notice}</div> : null}
 
       <div className="overflow-x-auto rounded-xl border border-theme-border bg-card/40">
-        {visibleMilestones.length === 0 ? (
-          <div className="p-10 text-center text-sm text-secondary">目前篩選下沒有流程項目。</div>
-        ) : (
-          <div className="min-w-[64rem]">
-            <div className="grid grid-cols-[2rem_minmax(12rem,1fr)_5.5rem_10rem_8.5rem_8.5rem_minmax(11rem,1fr)_3rem] gap-2 border-b border-theme-border bg-card px-3 py-2 text-xs font-semibold text-secondary">
-              <span /><span>項目</span><span>類型</span><span>狀態</span><span>預計日期</span><span>實際日期</span><span>備註</span><span>操作</span>
+          <div className="min-w-[80rem]">
+            <div className={`${WORKFLOW_GRID_CLASS} border-b border-theme-border bg-card px-3 py-2 text-xs font-semibold text-secondary`}>
+              <span /><span>工項</span><span>類型</span><span>狀態</span><span>包商</span><span>預計日期</span><span>實際日期</span><span>備註</span><span>操作</span>
             </div>
+            {visibleMilestones.length === 0 && <div className="px-3 py-4 text-sm text-secondary">目前篩選下沒有一般流程項目。</div>}
             {visibleMilestones.map((milestone, index) => {
-              const previous = visibleMilestones[index - 1];
-              const showPhase = !previous || previous.phase_key_snapshot !== milestone.phase_key_snapshot || previous.phase_name_snapshot !== milestone.phase_name_snapshot;
-              const showConstruction = showPhase && milestone.phase_key_snapshot === 'CONSTRUCTION';
               const isSaving = savingId === milestone.id;
               const capabilities = getMilestoneCapabilities(milestone.origin);
               const dragged = orderedMilestones.find(row => row.id === draggedId);
@@ -476,12 +473,6 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
                   id={`workflow-milestone-${milestone.id}`}
                   className={targetMilestoneId === milestone.id ? 'relative z-[1] ring-2 ring-inset ring-accent/70' : ''}
                 >
-                  {showPhase ? <div className="border-b border-theme-border bg-page/60 px-3 py-1.5 text-xs font-bold tracking-wide text-secondary">{milestone.phase_name_snapshot}</div> : null}
-                  {showConstruction ? (
-                    <div data-workflow-phase-content="CONSTRUCTION" className="border-b border-theme-border bg-card px-3 py-3">
-                      {construction}
-                    </div>
-                  ) : null}
                   <div
                     onDragOver={event => {
                       if (canDrop) {
@@ -492,7 +483,7 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
                     }}
                     onDragLeave={() => setDragOverId(current => current === milestone.id ? null : current)}
                     onDrop={event => { event.preventDefault(); void dropMilestone(milestone.id); }}
-                    className={`${milestone.is_applicable ? '' : 'opacity-55'} ${dragOverId === milestone.id && canDrop ? 'bg-accent/10' : ''} grid grid-cols-[2rem_minmax(12rem,1fr)_5.5rem_10rem_8.5rem_8.5rem_minmax(11rem,1fr)_3rem] items-center gap-2 border-b border-theme-border/60 px-3 py-2 last:border-b-0`}
+                    className={`${milestone.is_applicable ? '' : 'opacity-55'} ${dragOverId === milestone.id && canDrop ? 'bg-accent/10' : ''} ${WORKFLOW_GRID_CLASS} border-b border-theme-border/60 px-3 py-2 last:border-b-0`}
                   >
                     <button
                       type="button"
@@ -522,6 +513,7 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
                       ) : null}
                       {milestone.status !== 'COMPLETED' ? <button type="button" onClick={() => void quickComplete(milestone)} disabled={!canEdit || isSaving} aria-label={`快速完成${milestone.label}`} title="完成並填入今天" className="rounded-md border border-success/30 p-1.5 text-success hover:bg-success/10 disabled:opacity-50"><Check size={14} /></button> : <span role="img" aria-label={`${milestone.label}已完成`} title="已完成" className="rounded-md border border-success/30 bg-success/10 p-1.5 text-success"><Check size={14} /></span>}
                     </div>
+                    <span className="text-xs text-secondary">—</span>
                     <input type="date" value={milestone.planned_date ?? ''} onChange={event => void persistMilestone(milestone, { planned_date: event.target.value || null }, 'WORKFLOW_PLANNED_DATE_CHANGED')} disabled={!canEdit} aria-label={`${milestone.label}預計日期`} className="w-full rounded-md border border-theme-border bg-page px-2 py-1.5 text-xs text-primary outline-none focus:border-accent disabled:opacity-50" />
                     <input type="date" value={milestone.actual_date ?? ''} onChange={event => void changeActualDate(milestone, event.target.value || null)} disabled={!canEdit} aria-label={`${milestone.label}實際日期`} className="w-full rounded-md border border-theme-border bg-page px-2 py-1.5 text-xs text-primary outline-none focus:border-accent disabled:opacity-50" />
                     <input type="text" value={notesDrafts[milestone.id] ?? ''} onChange={event => setNotesDrafts(current => ({ ...current, [milestone.id]: event.target.value }))} onBlur={() => void saveNotes(milestone)} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} disabled={!canEdit} aria-label={`${milestone.label}備註`} placeholder="輸入備註" className="w-full rounded-md border border-theme-border bg-page px-2 py-1.5 text-xs text-primary outline-none focus:border-accent disabled:opacity-50" />
@@ -539,11 +531,10 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
                 </div>
               );
             })}
+            {construction}
           </div>
-        )}
       </div>
 
-      {!visibleMilestones.some(m=>m.phase_key_snapshot==='CONSTRUCTION')&&construction}
       {workflow.milestones.some(m=>m.archived_at)&&<details className="rounded border border-theme-border p-3"><summary className="min-h-11 cursor-pointer">封存流程歷史</summary><div className="space-y-3">{workflow.milestones.filter(m=>m.archived_at).map(m=><article key={m.id} className="break-words border-t border-theme-border pt-2"><h3>{m.phase_name_snapshot} · {m.label}</h3><p>{STATUS_LABEL[m.status]} · {presentBusinessDate({planned:m.planned_date,actual:m.actual_date,completed:m.status==='COMPLETED',today:getConstructionToday()}).label}</p><p className="whitespace-pre-wrap">{m.notes}</p></article>)}</div></details>}
       {showCreate ? (
         <CreateCustomMilestoneDialog projectId={projectId} milestones={orderedMilestones} phases={phases} types={types} onClose={() => setShowCreate(false)} onCreated={async created => {

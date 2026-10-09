@@ -8,15 +8,16 @@ import {
   CONSTRUCTION_WORK_LABELS, classifyConstructionItem, constructionCompletionPatch,
   getConstructionEndDate, getConstructionToday, getConstructionWorkLabel, getProjectEntryDate,
   getConstructionConflict,
-  isConstructionPrework, normalizeConstructionDateInput, sortConstructionRows,
+  normalizeConstructionDateInput, sortConstructionRows,
   validateActualCompletionDate, validateConstructionWorkName,
 } from '@/lib/construction-progress';
 import { formatDateForDisplay } from '@/lib/utils/date-utils';
 import { getContractorsForWorkType } from '@/lib/contractors';
+import { WORKFLOW_GRID_CLASS } from '@/lib/workflow-table';
 
 const FIXED_TYPES: ConstructionWorkType[] = ['racking', 'electrical', 'steel', 'roof_cover', 'civil'];
 const inputClass = 'w-full min-w-0 rounded border border-theme-border bg-page px-2 py-1.5 text-xs text-primary disabled:opacity-50';
-const gridClass = 'grid grid-cols-[8rem_12rem_8.5rem_8.5rem_4rem_minmax(8rem,1fr)_4rem] items-center gap-2 px-3 py-2';
+const gridClass = `${WORKFLOW_GRID_CLASS} px-3 py-2`;
 const statusLabels = { COMPLETED: '已完工', UNSCHEDULED: '未排程', SCHEDULED: '預計進場', IN_PROGRESS: '施工中', PREWORK: '前置作業' };
 
 function ConstructionCompletionDateInput({ value, today, isCompleted, disabled, onCommit }: {
@@ -69,24 +70,22 @@ function ConstructionCompletionDateInput({ value, today, isCompleted, disabled, 
   </div>;
 }
 
-export function ConstructionProgressSection({ model }: { model: ConstructionProgressModel }) {
+export function ConstructionProgressSection({ model, embedded = false }: { model: ConstructionProgressModel; embedded?: boolean }) {
   const [adding, setAdding] = useState(false);
   const activeRows = model.rows.filter(row => !row.deleted_at && row.status_override !== 'disabled');
-  const entry = getProjectEntryDate(activeRows);
+  const newRoof = activeRows.some(row => row.work_type === 'steel' || row.work_type === 'roof_cover');
+  const entry = getProjectEntryDate(activeRows, newRoof);
   const today = getConstructionToday();
   const sorted = sortConstructionRows(activeRows);
-  const prework = sorted.filter(row => isConstructionPrework(row, entry));
-  const construction = sorted.filter(row => !isConstructionPrework(row, entry));
   const disabled = !model.canEdit || model.busy || model.loading;
   const nextOrder = Math.max(0, ...model.rows.map(row => row.sort_order)) + 10;
 
-  const renderGroup = (label: string, rows: ProjectConstructionProgress[]) => (
-    <div className="overflow-x-auto rounded-lg border border-theme-border">
-      <h4 className="bg-page/60 px-3 py-2 text-sm font-semibold text-secondary">{label}</h4>
-      <div className="min-w-[70rem]">
-        <div className={`${gridClass} border-b border-theme-border text-xs text-secondary`}>
-          <span>工項 / 狀態</span><span>包商</span><span>進場日期</span><span>完工日期</span><span>完成</span><span>備註</span><span>操作</span>
-        </div>
+  const renderGroup = (rows: ProjectConstructionProgress[]) => (
+    <div className="border-t border-theme-border">
+      <div className="min-w-[80rem]">
+        {!embedded && <div className={`${gridClass} border-b border-theme-border text-xs text-secondary`}>
+          <span /><span>工項</span><span>類型</span><span>狀態</span><span>包商</span><span>預計日期</span><span>實際日期</span><span>備註</span><span>操作</span>
+        </div>}
         {rows.map(row => <ConstructionRow key={row.id} row={row} model={model} today={today} />)}
         {!rows.length && <p className="px-3 py-5 text-sm text-secondary">尚無施工工項，可啟用固定工項或新增其他工項。</p>}
       </div>
@@ -95,7 +94,7 @@ export function ConstructionProgressSection({ model }: { model: ConstructionProg
 
   return <section aria-label="施工工項" className="space-y-3 border-t border-theme-border pt-4">
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <h3 className="font-semibold text-primary">施工工項 <span className="ml-2 text-xs font-normal text-secondary">正式進場：{entry ?? '未排程'}</span></h3>
+      <p className="text-xs text-secondary">正式進場：{entry ?? '未排程'}</p>
       {model.canEdit && <button type="button" disabled={disabled} onClick={() => setAdding(current => !current)} className="rounded border border-accent/30 px-3 py-1.5 text-sm text-accent disabled:opacity-50">{adding ? '取消新增' : '＋新增其他工項'}</button>}
     </div>
     {model.error && <div role="alert" className="text-sm text-danger">{model.error} <button type="button" disabled={model.busy} onClick={() => void model.reload()}>重新載入</button></div>}
@@ -103,8 +102,7 @@ export function ConstructionProgressSection({ model }: { model: ConstructionProg
     {model.loading ? <p className="text-sm text-secondary">施工資料載入中...</p> : <>
       {model.canEdit && <ConstructionWorkTypeControls model={model} />}
       {adding && <NewConstructionRow model={model} nextOrder={nextOrder} onCreated={() => setAdding(false)} />}
-      {!!prework.length && renderGroup('前置作業', prework)}
-      {renderGroup('施工', construction)}
+      {renderGroup(sorted)}
     </>}
     {model.busy && <p role="status" className="text-xs text-secondary">儲存中...</p>}
   </section>;
@@ -153,6 +151,7 @@ function ConstructionRow({ row, model, today }: { row: ProjectConstructionProgre
   const conflict = getConstructionConflict(row, model.conflicts);
   const save = (patch: ConstructionUpdate) => model.save(row, patch);
   return <div className="border-b border-theme-border/50 last:border-b-0"><div className={gridClass}>
+    <span aria-hidden="true" />
     <div>
       {row.work_type === 'other' ? <input aria-label="其他工項名稱" placeholder="其他" className={inputClass} value={name} disabled={disabled} onChange={event => setName(event.target.value)} onBlur={() => {
         if (name === (row.work_name ?? '')) return;
@@ -161,14 +160,19 @@ function ConstructionRow({ row, model, today }: { row: ProjectConstructionProgre
         if (!error) void save({ work_name: name.trim() });
       }} /> : <span className="text-sm font-medium text-primary">{label}</span>}
       {nameError && <span role="alert" className="text-xs text-danger">{nameError}</span>}
-      <span className="mt-1 block text-xs text-secondary">{statusLabels[status]}</span>
     </div>
+    <span className="w-fit rounded-full border border-accent/25 bg-accent/10 px-2 py-1 text-xs text-accent">施工</span>
+    <label className="flex items-center gap-2 text-xs text-secondary"><input aria-label={`${label}完成`} type="checkbox" checked={row.is_completed} disabled={disabled} onChange={event => void save(constructionCompletionPatch(event.target.checked, event.target.checked ? null : row.actual_completed_date, today))} />{statusLabels[status]}</label>
     <ContractorSelect contractors={model.contractors} workType={row.work_type} workName={row.work_name} value={row.contractor_id} savedName={row.contractor_name} disabled={disabled} onChange={(id, name) => void save({ contractor_id: id, contractor_name: name })} />
-    <input aria-label={`${label}進場日期`} type="date" className={inputClass} value={row.planned_start_date ?? ''} disabled={disabled} onChange={event => void save({ planned_start_date: event.target.value || null })} />
+    <input aria-label={`${label}進場日期`} type="date" className={inputClass} value={row.planned_start_date ?? ''} disabled={disabled} onChange={event => {
+      const date = event.target.value || null;
+      void save(date && date > today && row.is_completed
+        ? { planned_start_date: date, is_completed: false, actual_completed_date: null }
+        : { planned_start_date: date });
+    }} />
     <ConstructionCompletionDateInput value={getConstructionEndDate(row)} today={today} isCompleted={row.is_completed} disabled={disabled} onCommit={date => {
       void save(row.is_completed ? constructionCompletionPatch(true, date, today) : { planned_end_date: date });
     }} />
-    <input aria-label={`${label}完成`} type="checkbox" checked={row.is_completed} disabled={disabled} onChange={event => void save(constructionCompletionPatch(event.target.checked, event.target.checked ? null : row.actual_completed_date, today))} />
     <input aria-label={`${label}備註`} className={inputClass} value={notes} disabled={disabled} onChange={event => setNotes(event.target.value)} onBlur={() => { if (notes !== (row.notes ?? '')) void save({ notes: notes || null }); }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} />
     {row.work_type === 'other' && model.canEdit ? <div className="text-xs">
       {confirmDelete ? <><button type="button" disabled={disabled} className="text-danger" onClick={() => void model.remove(row.id)}>確認刪除</button><button type="button" onClick={() => setConfirmDelete(false)}>取消</button></> : <button type="button" disabled={disabled} className="text-danger" onClick={() => setConfirmDelete(true)}>刪除</button>}

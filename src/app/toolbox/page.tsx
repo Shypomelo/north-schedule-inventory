@@ -25,6 +25,7 @@ export default function ToolboxPage() {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('ALL');
   const [sort, setSort] = useState<'ORDER' | 'NAME'>('ORDER');
+  const [density, setDensity] = useState<'list' | 'cards'>('list');
   const [draft, setDraft] = useState<Draft | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -86,6 +87,10 @@ export default function ToolboxPage() {
     <div className="grid gap-3 sm:grid-cols-[1fr_12rem_10rem]"><input type="search" aria-label="搜尋連結" placeholder="搜尋名稱、分類、說明" value={query} onChange={e => setQuery(e.target.value)} className={inputClass} />
       <select aria-label="分類" value={category} onChange={e => setCategory(e.target.value)} className={inputClass}><option value="ALL">所有分類</option>{categories.map(value => <option key={value} value={value}>{value}</option>)}</select>
       <select aria-label="排序" value={sort} onChange={e => setSort(e.target.value as 'ORDER' | 'NAME')} className={inputClass}><option value="ORDER">自訂排序</option><option value="NAME">名稱排序</option></select></div>
+    <div role="group" aria-label="工具箱顯示方式" className="flex gap-2 text-sm">
+      <button type="button" aria-pressed={density === 'list'} onClick={() => setDensity('list')} className="rounded border border-theme-border px-3 py-1.5 aria-pressed:bg-accent aria-pressed:text-white">高密度條列</button>
+      <button type="button" aria-pressed={density === 'cards'} onClick={() => setDensity('cards')} className="rounded border border-theme-border px-3 py-1.5 aria-pressed:bg-accent aria-pressed:text-white">高密度卡片</button>
+    </div>
     {error && <p role="alert" className="rounded-lg bg-danger/10 p-3 text-danger">{error}</p>}
     {draft && <section aria-label={editingId ? '修改連結' : '新增連結'} className="grid gap-3 rounded-xl border border-theme-border bg-card p-4 sm:grid-cols-2">
       <label className="text-sm text-secondary">名稱<input className={inputClass} value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} /></label>
@@ -99,9 +104,9 @@ export default function ToolboxPage() {
       <div className="flex items-end gap-2"><button type="button" onClick={() => void save()} className="rounded-lg bg-accent px-4 py-2 text-white">儲存</button><button type="button" onClick={() => setDraft(null)} className="rounded-lg border border-theme-border px-4 py-2 text-primary">取消</button></div>
     </section>}
     {loading ? <p className="text-secondary">載入中…</p> : visible.length === 0 ? <p className="rounded-lg bg-card p-6 text-secondary">沒有符合的連結。</p> :
-      <ul className="grid gap-3 sm:grid-cols-2">{visible.map(link => <li key={link.id} className="rounded-xl border border-theme-border bg-card p-4">
+      <ul className={density === 'cards' ? 'grid gap-2 sm:grid-cols-2 xl:grid-cols-3' : 'space-y-1.5'}>{visible.map(link => <li key={link.id} onContextMenu={event => { if (!canEdit(link)) return; event.preventDefault(); openEdit(link); }} className={`rounded-lg border border-theme-border bg-card ${density === 'cards' ? 'p-3' : 'px-3 py-2'}`}>
         <div className="flex items-start justify-between gap-2"><div className="min-w-0"><a href={link.url} target="_blank" rel="noopener noreferrer" className="break-words font-semibold text-accent hover:underline">{link.name} ↗</a><p className="text-xs text-secondary">{link.category}{link.work_group_id ? ` · ${groups.find(group => group.id === link.work_group_id)?.name || '部門'}` : ''}</p></div>
-          {canEdit(link) && <div className="flex shrink-0 gap-2"><button type="button" onClick={() => openEdit(link)} className="text-sm text-accent">修改</button><button type="button" onClick={() => void remove(link)} className="text-sm text-danger">刪除</button></div>}</div>
+          {canEdit(link) && <div className="flex shrink-0 gap-2"><button type="button" onClick={() => openEdit(link)} aria-label={`編輯${link.name}`} className="text-sm text-accent">⋯ <span className="hidden sm:inline">修改</span></button><button type="button" onClick={() => void remove(link)} className="text-sm text-danger">刪除</button></div>}</div>
         {link.description && <p className="mt-2 text-sm text-secondary">{link.description}</p>}
       </li>)}</ul>}
   </main>;

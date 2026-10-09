@@ -33,6 +33,10 @@ export type AuthResolution = {
 
 const normalizeEmail = (email?: string | null) => email?.trim().toLowerCase() || '';
 
+export function shouldBlockForSignIn(currentEmail?: string | null, incomingEmail?: string | null): boolean {
+  return !normalizeEmail(currentEmail) || normalizeEmail(currentEmail) !== normalizeEmail(incomingEmail);
+}
+
 const errorText = (error: unknown) => {
   if (!error || typeof error !== 'object') return String(error || '');
   const record = error as Record<string, unknown>;

@@ -1,5 +1,6 @@
 import { createInventoryAtomicWriter, inventoryWriteError, type InventoryCountInput } from './inventory-atomic';
 import { supabase } from './supabaseClient';
+import { constructionProgressAdapter, type ConstructionUpdate } from './construction-progress';
 import {
   ScheduleTask,
   ScheduleTaskMember,
@@ -880,93 +881,58 @@ const calculateInventoryBalancesFromSupabase = async (): Promise<{ item_id: stri
 };
 
 const syncProjectProgress = async (projectId: string, p: Partial<Project>) => {
-  const workTypes = ['racking', 'electrical', 'steel', 'roof_cover', 'civil', 'other'];
-  
-  const { data: contractorsData, error: contractorsError } = await supabase.from('contractors').select('id, name');
-  throwMissingCoreTablesErrorIfNeeded(contractorsError);
-  const contractorsMap = new Map((contractorsData || []).map((c: any) => [c.id, c.name]));
+  const workTypes = ['racking', 'electrical', 'steel', 'roof_cover', 'civil', 'other'] as const;
+  const relevant = workTypes.some(type => [
+    `${type}_contractor_id`, `${type}_expected_start_date`, `${type}_completion_date`,
+    `${type}_is_completed`, `${type}_status`, `${type}_notes`,
+  ].some(key => p[key as keyof Project] !== undefined));
+  if (!relevant) return;
 
-  const { data: existingProgress, error: progressError } = await supabase
-    .from('project_construction_progress')
-    .select('*')
-    .eq('project_id', projectId);
-  throwMissingCoreTablesErrorIfNeeded(progressError);
-    
+  // The modal and the outer editor share this adapter and its active-row contract.
+  const [existingProgress, contractorResult] = await Promise.all([
+    constructionProgressAdapter.list(projectId),
+    supabase.from('contractors').select('id,name'),
+  ]);
+  if (contractorResult.error) throw contractorResult.error;
+  const contractorsMap = new Map((contractorResult.data ?? []).map(contractor => [contractor.id, contractor.name]));
   for (const type of workTypes) {
-    const cidKey = `${type}_contractor_id` as keyof Project;
-    const sDateKey = `${type}_expected_start_date` as keyof Project;
-    const eDateKey = `${type}_completion_date` as keyof Project;
-    const completedKey = `${type}_is_completed` as keyof Project;
-    const statusKey = `${type}_status` as keyof Project;
-    const notesKey = `${type}_notes` as keyof Project;
+    const contractorId = p[`${type}_contractor_id` as keyof Project] as string | null | undefined;
+    const start = p[`${type}_expected_start_date` as keyof Project] as string | null | undefined;
+    const end = p[`${type}_completion_date` as keyof Project] as string | null | undefined;
+    const completed = p[`${type}_is_completed` as keyof Project] as boolean | undefined;
+    const status = p[`${type}_status` as keyof Project] as string | null | undefined;
+    const notes = p[`${type}_notes` as keyof Project] as string | null | undefined;
+    if ([contractorId, start, end, completed, status, notes].every(value => value === undefined)) continue;
 
-    if (
-      p[cidKey] === undefined && p[sDateKey] === undefined && 
-      p[eDateKey] === undefined && p[completedKey] === undefined && p[statusKey] === undefined &&
-      p[notesKey] === undefined
-    ) {
-      continue;
+    const matches = existingProgress.filter(row => row.work_type === type);
+    if (matches.length > 1) throw new Error(`同類施工工項有多筆有效資料，請在案場彈窗編輯：${type}`);
+    const existing = matches[0];
+    const values: ConstructionUpdate = {};
+    if (contractorId !== undefined) {
+      values.contractor_id = contractorId || null;
+      values.contractor_name = contractorId ? contractorsMap.get(contractorId) ?? existing?.contractor_name ?? null : null;
     }
-
-    const existing = existingProgress?.find((x: any) => x.work_type === type);
-    
-    const payload: any = {
-      project_id: projectId,
-      work_type: type,
-    };
-    
-    let hasData = false;
-    
-    if (p[cidKey] !== undefined) {
-      payload.contractor_id = p[cidKey] || null;
-      if (payload.contractor_id) {
-         payload.contractor_name = contractorsMap.get(payload.contractor_id) || null;
-      } else {
-         payload.contractor_name = null;
-      }
-      hasData = true;
-    } else if (existing) {
-      payload.contractor_id = existing.contractor_id;
-      payload.contractor_name = existing.contractor_name;
+    if (start !== undefined) values.planned_start_date = start || null;
+    if (status !== undefined) values.status_override = status || null;
+    if (notes !== undefined) values.notes = notes || null;
+    const nextCompleted = completed ?? existing?.is_completed ?? false;
+    if (completed !== undefined) {
+      values.is_completed = completed;
+      values.actual_completed_date = completed ? end || existing?.actual_completed_date || getConstructionToday() : null;
     }
-
-    if (p[sDateKey] !== undefined) { payload.planned_start_date = p[sDateKey] || null; hasData = true; }
-    else if (existing) { payload.planned_start_date = existing.planned_start_date; }
-
-    if (p[completedKey] !== undefined) {
-      const isCompleted = p[completedKey] === true;
-      const endDate = (p[eDateKey] as string | null | undefined) ?? null;
-      const actualDate = isCompleted ? endDate || getConstructionToday() : null;
-      const validationError = validateActualCompletionDate(actualDate, getConstructionToday());
-      if (validationError) throw new Error(validationError);
-      payload.is_completed = isCompleted;
-      payload.actual_completed_date = actualDate;
-      if (!isCompleted) payload.planned_end_date = endDate;
-      hasData = true;
-    } else if (p[eDateKey] !== undefined) { payload.completed_date = p[eDateKey] || null; hasData = true; }
-    else if (existing) { payload.completed_date = existing.completed_date; }
-
-    if (p[statusKey] !== undefined) { payload.status_override = p[statusKey] || null; hasData = true; }
-    else if (existing) { payload.status_override = existing.status_override; }
-
-    if (p[notesKey] !== undefined) { payload.notes = p[notesKey] || null; hasData = true; }
-    else if (existing) { payload.notes = existing.notes; }
-
-    if (hasData || existing) {
-       const isNowEmpty = !payload.contractor_id && !payload.planned_start_date && !payload.completed_date && !payload.status_override && !payload.notes;
-       
-       if (existing) {
-          if (isNowEmpty) {
-             await supabase.from('project_construction_progress').update({ deleted_at: new Date().toISOString() }).eq('id', existing.id);
-          } else {
-             payload.deleted_at = null;
-             await supabase.from('project_construction_progress').update(payload).eq('id', existing.id);
-          }
-       } else {
-          if (!isNowEmpty) {
-             await supabase.from('project_construction_progress').insert(payload);
-          }
-       }
+    if (end !== undefined) {
+      if (nextCompleted) values.actual_completed_date = end || getConstructionToday();
+      else values.planned_end_date = end || null;
+    }
+    if (start && start > getConstructionToday() && nextCompleted) {
+      values.is_completed = false;
+      values.actual_completed_date = null;
+    }
+    if (existing) {
+      await constructionProgressAdapter.update(projectId, existing.id, values);
+    } else if (contractorId || start || end || completed || status || notes) {
+      if (type === 'other') throw new Error('其他施工工項請在案場彈窗新增');
+      await constructionProgressAdapter.create(projectId, { work_type: type, sort_order: existingProgress.length * 10, ...values });
     }
   }
 };
@@ -1810,7 +1776,7 @@ export const pocSupabaseAdapter = {
         .order('created_at', { ascending: true }),
       supabase
         .from('project_milestones')
-        .select('id,project_id,milestone_key,status,planned_date,actual_date,deleted_at,is_applicable')
+        .select('id,project_id,milestone_key,status,planned_date,actual_date,deleted_at,archived_at,is_applicable')
         .in('milestone_key', ['INTERNAL_ACCEPTANCE', 'METER_INSTALLATION']),
     ]);
 
