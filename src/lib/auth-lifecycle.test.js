@@ -120,8 +120,11 @@ test('login next redirect is preserved and external paths are rejected', () => {
   assert.equal(selectLoginNextPath('/schedule?view=week', '/'), '/schedule?view=week');
   assert.equal(selectLoginNextPath('/', '/projects'), '/projects');
   assert.equal(getSafeNextPath('//evil.example'), '/');
+  assert.equal(getSafeNextPath('/\\evil.example'), '/');
   assert.equal(buildOAuthRedirectUrl('http://localhost:3002', '/schedule'), 'http://localhost:3002/login?next=%2Fschedule');
   assert.equal(buildOAuthRedirectUrl('http://127.0.0.1:3002', '/schedule'), 'http://127.0.0.1:3002/login?next=%2Fschedule');
+  assert.equal(buildOAuthRedirectUrl('https://preview.example.test', '/projects/active'), 'https://preview.example.test/login?next=%2Fprojects%2Factive');
+  assert.equal(buildOAuthRedirectUrl('https://production.example.test', '/projects/active'), 'https://production.example.test/login?next=%2Fprojects%2Factive');
 });
 
 test('AuthGuard redirects unauthenticated routes only after loading settles', () => {

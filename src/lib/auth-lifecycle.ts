@@ -182,7 +182,7 @@ export async function resolveAuthStateChange(
 
 export function getSafeNextPath(value?: string | null) {
   if (!value) return '/';
-  if (!value.startsWith('/') || value.startsWith('//')) return '/';
+  if (!value.startsWith('/') || value.startsWith('//') || value.includes('\\')) return '/';
   if (value === '/login' || value.startsWith('/login?')) return '/';
   return value;
 }
