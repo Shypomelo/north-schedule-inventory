@@ -62,6 +62,7 @@ export function selectScheduleTasksByWorkGroup(
   const seen=new Set<string>();
   return tasks.filter(task=>{
     const visible=task.work_group_id===workGroupId
+      || participantIds.has(task.main_assignee_id||'')
       || Array.from(sharedTaskMembers.get(task.id) || []).some(id=>id!==task.main_assignee_id);
     if(!visible||seen.has(task.id))return false;seen.add(task.id);return true;
   });
