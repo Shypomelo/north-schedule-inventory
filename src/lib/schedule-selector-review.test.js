@@ -15,13 +15,45 @@ test('2026/09/11 TEST fixture with PROJECT ownership and ENGINEERING assistant a
  assert.deepEqual(selectScheduleTasksByWorkGroup([task,task],'project',context).map(row=>row.id),['test-task']);
  assert.equal(task.work_group_id,'project');
 });
-test('dual-department primary assignee appears once in owner and default-group views',()=>{
+test('dual-department primary assignee does not route a project task into engineering',()=>{
  const groups=[{id:'engineering',key:'ENGINEERING',is_active:true,sort_order:10},{id:'project',key:'PROJECT',is_active:true,sort_order:20}];
  const users=[{id:'dual',category:'ENGINEERING'}];
  const memberships=[{member_id:'dual',work_group_id:'engineering',is_default:true},{member_id:'dual',work_group_id:'project',is_default:false}];
  const task={id:'task',work_group_id:'project',main_assignee_id:'dual'};
  const context={groups,users,members:[],memberships};
  assert.deepEqual(selectScheduleTasksByWorkGroup([task,task],'project',context).map(row=>row.id),['task']);
- assert.deepEqual(selectScheduleTasksByWorkGroup([task,task],'engineering',context).map(row=>row.id),['task']);
+ assert.deepEqual(selectScheduleTasksByWorkGroup([task,task],'engineering',context).map(row=>row.id),[]);
  assert.equal(task.work_group_id,'project');
+});
+
+test('project task with a project primary stays in the project view',()=>{
+ const groups=[{id:'engineering',key:'ENGINEERING',is_active:true,sort_order:10},{id:'project',key:'PROJECT',is_active:true,sort_order:20}];
+ const users=[{id:'primary',category:'OTHER'}];
+ const memberships=[{member_id:'primary',work_group_id:'project',is_default:true}];
+ const task={id:'task',work_group_id:'project',main_assignee_id:'primary'};
+ const context={groups,users,members:[],memberships};
+ assert.deepEqual(selectScheduleTasksByWorkGroup([task],'project',context).map(row=>row.id),['task']);
+ assert.deepEqual(selectScheduleTasksByWorkGroup([task],'engineering',context).map(row=>row.id),[]);
+});
+
+test('engineering task with an explicit project collaborator appears in both views',()=>{
+ const groups=[{id:'engineering',key:'ENGINEERING',is_active:true,sort_order:10},{id:'project',key:'PROJECT',is_active:true,sort_order:20}];
+ const users=[{id:'primary',category:'ENGINEERING'},{id:'collaborator',category:'OTHER'}];
+ const memberships=[{member_id:'collaborator',work_group_id:'project',is_default:true}];
+ const task={id:'task',work_group_id:'engineering',main_assignee_id:'primary'};
+ const members=[{id:'assistant',task_id:'task',user_id:'collaborator'}];
+ const context={groups,users,members,memberships};
+ assert.deepEqual(selectScheduleTasksByWorkGroup([task],'engineering',context).map(row=>row.id),['task']);
+ assert.deepEqual(selectScheduleTasksByWorkGroup([task],'project',context).map(row=>row.id),['task']);
+ assert.equal(task.work_group_id,'engineering');
+});
+
+test('duplicate task rows appear once per owner or collaborator view',()=>{
+ const groups=[{id:'engineering',key:'ENGINEERING',is_active:true,sort_order:10},{id:'project',key:'PROJECT',is_active:true,sort_order:20}];
+ const users=[{id:'primary',category:'OTHER'},{id:'collaborator',category:'ENGINEERING'}];
+ const task={id:'task',work_group_id:'project',main_assignee_id:'primary'};
+ const members=[{id:'assistant',task_id:'task',user_id:'collaborator'}];
+ const context={groups,users,members,memberships:[]};
+ assert.deepEqual(selectScheduleTasksByWorkGroup([task,task],'project',context).map(row=>row.id),['task']);
+ assert.deepEqual(selectScheduleTasksByWorkGroup([task,task],'engineering',context).map(row=>row.id),['task']);
 });
