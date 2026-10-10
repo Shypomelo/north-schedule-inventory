@@ -10,8 +10,7 @@ import { Building2, Calendar, ChevronLeft, ChevronRight, Home, ListChecks, LogOu
 import { isMobileNavigationEdgeSwipe, type SwipePoint } from '@/lib/mobile-navigation-gesture';
 import { dbAdapter } from '@/lib/db';
 import type { MemberPosition, Position } from '@/lib/db/types';
-import { ROLE_LABELS, selectEngineeringMembers } from '@/lib/personnel-workspace';
-import { buildMemberProjectsHref } from '@/lib/project-routes';
+import { ROLE_LABELS } from '@/lib/personnel-workspace';
 import { deploymentSafetyState } from '@/lib/deployment-safety';
 
 const showPreviewBadge = deploymentSafetyState(
@@ -25,13 +24,12 @@ export function Sidebar() {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [showTheme, setShowTheme] = useState(false);
   const [showAccount, setShowAccount] = useState(false);
-  const { currentUser, allUsers, logout } = useUser();
+  const { currentUser, logout } = useUser();
   const isSystemOwner = useSystemOwner();
   const { theme, setTheme } = useTheme();
   const [positions, setPositions] = useState<Position[]>([]);
   const [memberPositions, setMemberPositions] = useState<MemberPosition[]>([]);
   const currentRole = currentUser?.role?.toLowerCase();
-  const engineeringUsers = selectEngineeringMembers(allUsers, positions, memberPositions);
   const currentPositionNames = positions
     .filter(position => position.is_active && memberPositions.some(link => link.member_id === currentUser?.id && link.position_id === position.id))
     .sort((left, right) => left.sort_order - right.sort_order)
@@ -119,12 +117,8 @@ export function Sidebar() {
             <span className="flex items-center"><Building2 size={18} className={collapsed ? '' : 'hidden'} /><span className={collapsed ? 'hidden' : ''}>案場管理</span></span>{!collapsed && <span>▾</span>}
           </summary>
           {!collapsed && <div className="mt-1 flex flex-col gap-1 pl-2">
-            <a href="/projects" className={`min-h-11 rounded p-2 text-sm text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] ${isActive('/projects') || isActive('/projects/active') ? 'bg-[var(--sidebar-active)]' : ''}`}>全部案場</a>
-            <a href="/projects/metered" className={`min-h-11 rounded p-2 text-sm text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] ${isActive('/projects/metered') ? 'bg-[var(--sidebar-active)]' : ''}`}>已掛表</a>
-            <a href="/projects/contractor-schedule" className={`min-h-11 rounded p-2 text-sm text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] ${isActive('/projects/contractor-schedule') ? 'bg-[var(--sidebar-active)]' : ''}`}>包商排工</a>
-            <a href="/projects/weekly-report" className={`min-h-11 rounded p-2 text-sm text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] ${isActive('/projects/weekly-report') ? 'bg-[var(--sidebar-active)]' : ''}`}>週回報表</a>
-            {engineeringUsers.map(user => { const href = buildMemberProjectsHref(user.id); return <a key={user.id} href={href} className={`min-h-11 rounded p-2 text-sm text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] ${isActive(href, true) ? 'bg-[var(--sidebar-active)]' : ''}`}>{user.name}案場</a>; })}
-            <a href="/projects/closed" className={`min-h-11 rounded p-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--sidebar-hover)] ${isActive('/projects/closed') ? 'bg-[var(--sidebar-active)]' : ''}`}>結案／作廢清單</a>
+            <a href="/projects/active" className={`min-h-11 rounded p-2 text-sm text-[var(--text-primary)] hover:bg-[var(--sidebar-hover)] ${pathname.startsWith('/projects/') && pathname !== '/projects/closed' && pathname !== '/projects/all' ? 'bg-[var(--sidebar-active)]' : ''}`}>進行中案場</a>
+            <a href="/projects" className={`min-h-11 rounded p-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--sidebar-hover)] ${isActive('/projects') || isActive('/projects/all') || isActive('/projects/closed') ? 'bg-[var(--sidebar-active)]' : ''}`}>所有案場</a>
           </div>}
         </details>
         {navItem('/inventory', '庫存管理', Package, collapsed, true)}

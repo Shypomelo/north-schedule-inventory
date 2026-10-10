@@ -24,6 +24,7 @@ const {
   getVisibleWorkflowMilestones,
   getWorkflowActivityMessage,
   getWorkflowOuterDisplay,
+  getWorkflowOuterCompactLabel,
   getProjectOuterWorkflowFields,
   getWorkflowMilestoneProjectPatch,
   normalizeMilestoneCompletion,
@@ -98,6 +99,13 @@ test('acceptance, meter, and equipment use independent active authoritative mile
   assert.deepEqual(getWorkflowOuterDisplay('EQUIPMENT', fields.equipment_status, fields.equipment_expected_date, fields.equipment_completion_date, '2026-10-09'), {
     label: '設備登記 · 預計 2026/10/30', date: '2026-10-30', isCompleted: false,
   });
+});
+
+test('outer acceptance and meter use compact labels from canonical milestone dates', () => {
+  assert.equal(getWorkflowOuterCompactLabel('ACCEPTANCE', 'IN_PROGRESS', '2026-10-15', null, '2026-10-10'), '預計 10/15');
+  assert.equal(getWorkflowOuterCompactLabel('METER', 'IN_PROGRESS', '2026-10-20', null, '2026-10-10'), '預計 10/20');
+  assert.equal(getWorkflowOuterCompactLabel('ACCEPTANCE', 'COMPLETED', '2026-10-15', '2026-10-09', '2026-10-10'), '已驗收');
+  assert.equal(getWorkflowOuterCompactLabel('METER', 'COMPLETED', '2026-10-20', '2026-10-09', '2026-10-10'), '已掛表');
 });
 
 test('milestone beats legacy meter date and fallback is read-only only when no meter milestone exists', () => {
@@ -306,13 +314,13 @@ test('workflow autosave keeps the active row in place without replaying target s
     workflowComponent,
     /scrollIntoView\([\s\S]*?\}, \[isLoading, targetMilestoneId, visibleMilestones\]\);/,
   );
-  assert.match(workflowComponent, /disabled=\{!canEdit \|\| \(milestone\.milestone_key === 'EQUIPMENT_REGISTRATION' && milestone\.status !== 'COMPLETED'\)\} aria-label=\{[^\n]*實際日期/);
+  assert.match(workflowComponent, /<QuickBusinessDateInput[^\n]*disabled=\{!canEdit \|\| \(milestone\.milestone_key === 'EQUIPMENT_REGISTRATION' && milestone\.status !== 'COMPLETED'\)\} label=\{[^\n]*實際日期/);
 });
 
 test('workflow quick complete uses one canonical update with the Taiwan business date', () => {
   const quickComplete = workflowComponent.match(/const quickComplete =[\s\S]*?\n  \};/)[0];
   assert.match(quickComplete, /milestone\.status === 'COMPLETED'/);
   assert.match(quickComplete, /persistMilestone\([\s\S]*status: 'COMPLETED', actual_date: getConstructionToday\(\)/);
-  assert.match(workflowComponent, /onClick=\{\(\) => void quickComplete\(milestone\)\}/);
+  assert.match(workflowComponent, /option\.value === 'COMPLETED' \? quickComplete\(milestone\) : changeStatus\(milestone, option\.value\)/);
   assert.doesNotMatch(quickComplete, /loadWorkflow|router\.refresh|new Date\(\)\.toISOString/);
 });

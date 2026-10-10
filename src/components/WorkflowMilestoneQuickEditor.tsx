@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { dbAdapter } from '@/lib/db';
 import { getConstructionToday } from '@/lib/construction-progress';
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
-import { getWorkflowOuterDisplay, normalizeMilestoneCompletion, type WorkflowOuterKind } from '@/lib/project-workflow';
+import { getWorkflowOuterCompactLabel, normalizeMilestoneCompletion, type WorkflowOuterKind } from '@/lib/project-workflow';
 import { updateAuthoritativeMilestone, type AuthoritativeMilestoneKey } from '@/lib/workflow-milestone-editor';
 import { DateDualInput } from '@/components/DateDualInput';
 import type { ProjectMilestone } from '@/lib/db/types';
@@ -36,7 +36,7 @@ export function WorkflowMilestoneQuickEditor({
   const [error, setError] = useState<string | null>(null);
   const today = getConstructionToday();
   const isCompleted = Boolean(actualDate || status === 'COMPLETED');
-  const display = getWorkflowOuterDisplay(kind, status, plannedDate, actualDate);
+  const summaryText = getWorkflowOuterCompactLabel(kind, status, plannedDate, actualDate, today);
   const noun = kind === 'ACCEPTANCE' ? '驗收' : kind === 'METER' ? '掛表' : '設備登記';
 
   const save = async (updates: Parameters<typeof updateAuthoritativeMilestone>[1]['updates']) => {
@@ -80,7 +80,7 @@ export function WorkflowMilestoneQuickEditor({
         baseDate={today}
         onChange={saveEditor}
         disabled={disabled || saving}
-        summaryText={display.label}
+        summaryText={summaryText}
         completionIsActual
         showCompletionToggle
         isCompleted={isCompleted}

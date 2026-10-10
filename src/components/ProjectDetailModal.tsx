@@ -6,7 +6,7 @@ import { dbAdapter } from '@/lib/db';
 import { X, Building2, FileText, ListChecks, Package } from 'lucide-react';
 import { useUser } from './UserContext';
 import { ProjectWorkflow } from './ProjectWorkflow';
-import { ConstructionWorkTypeControls } from './ConstructionProgressSection';
+import { ConstructionTradesEditor } from './ConstructionProgressSection';
 import { useConstructionProgress, type ConstructionMutationResult } from './useConstructionProgress';
 import type { ProjectMilestone } from '@/lib/db/types';
 import { ProjectDifficultyAssessments } from './ProjectDifficultyAssessments';
@@ -129,8 +129,8 @@ export function ProjectDetailModal({ project, initialMilestoneId, initialTab, on
         }}
       />
       <div className="border-t border-theme-border pt-4">
-        <p className="mb-3 text-sm text-secondary">參與工種（其他工項請至施工區逐筆新增）</p>
-        <ConstructionWorkTypeControls model={construction} />
+        <p className="mb-3 text-sm text-secondary">參與工種與包商</p>
+        <ConstructionTradesEditor model={construction} />
       </div>
       <ProjectDifficultyAssessments
         projectId={project.id}

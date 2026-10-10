@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Project, User, Contractor, WorkflowSnapshotResult, MemberPosition, Position, ProjectPositionAssignment } from '@/lib/db/types';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { Project, User, Contractor, ProjectConstructionProgress, WorkflowSnapshotResult, MemberPosition, Position, ProjectPositionAssignment } from '@/lib/db/types';
 import { dbAdapter } from '@/lib/db';
 import { ProjectForm } from '@/components/ProjectForm';
 import { ProjectDetailModal } from '@/components/ProjectDetailModal';
@@ -15,14 +15,20 @@ import { classifyProjectManagement, getFormalEntryDate, isManagedProject } from 
 import { buildWorkflowActivityLog, getWorkflowMilestoneProjectPatch } from '@/lib/project-workflow';
 import { logWorkflowActivitySafely } from '@/lib/workflow-activity';
 import { supabase } from '@/lib/db/supabaseClient';
-import { getConstructionOuterDisplay, getConstructionProjectPatch, getConstructionToday, validateActualCompletionDate } from '@/lib/construction-progress';
+import { getConstructionOuterDisplay, getConstructionProjectPatch, getConstructionToday, selectOuterRackingProgress, validateActualCompletionDate } from '@/lib/construction-progress';
 import { constructionProgressAdapter, type ConstructionUpdate } from '@/lib/db/construction-progress';
 import { createKeyedWriteQueue } from '@/lib/keyed-write-queue';
 import { ACTIVE_PROJECT_SECTION_COLUMNS, getActiveProjectColumns } from '@/lib/active-project-columns';
 import { MapPin, Plus, Search, Filter, Maximize2 } from 'lucide-react';
 import { useParams } from 'next/navigation';
+import Link from 'next/link';
 import { selectProjectsForEngineeringMember, selectEngineeringMembers } from '@/lib/personnel-workspace';
-import { parseProjectsRoute } from '@/lib/project-routes';
+import { buildMemberProjectsHref, parseProjectsRoute } from '@/lib/project-routes';
+
+type ProjectsPageCache = { userId: string; loadedAt: number; projects: Project[]; users: User[]; positions: Position[]; assignments: ProjectPositionAssignment[]; contractors: Contractor[] };
+let projectsPageCache: ProjectsPageCache | null = null;
+const CACHE_AGE_MS = 20_000;
+const validCache = (userId: string | undefined) => userId && projectsPageCache?.userId === userId && Date.now() - projectsPageCache.loadedAt < CACHE_AGE_MS ? projectsPageCache : null;
 
 const getCity = (address: string | null) => {
   if (!address) return null;
@@ -86,6 +92,8 @@ export default function ProjectsPage() {
   const [viewingProject, setViewingProject] = useState<Project | null>(null);
 
   const patchProjectState = (projectId: string, updates: Partial<Project>) => {
+    const cached = projectsPageCache;
+    if (cached && cached.userId === currentUser?.id) projectsPageCache = { ...cached, projects: cached.projects.map(project => project.id === projectId ? { ...project, ...updates } : project) };
     setProjects(current => current.map(project => (
       project.id === projectId ? { ...project, ...updates } : project
     )));
@@ -94,8 +102,13 @@ export default function ProjectsPage() {
     ));
   };
   const [contractors, setContractors] = useState<Contractor[]>([]);
+  const [ganttRows, setGanttRows] = useState<ProjectConstructionProgress[]>([]);
+  const [ganttLoading, setGanttLoading] = useState(false);
+  const [ganttError, setGanttError] = useState<string | null>(null);
+  const [ganttSaving, setGanttSaving] = useState(false);
+  const ganttRequestRef = useRef(0);
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, project: Project } | null>(null);
-  const [constructionMenu, setConstructionMenu] = useState<{ x: number; y: number; project: Project; type: 'racking' | 'electrical' | 'roof_cover' } | null>(null);
+  const [constructionMenu, setConstructionMenu] = useState<{ x: number; y: number; project: Project; type: 'racking' | 'steel' | 'electrical' | 'roof_cover' } | null>(null);
 
   useEffect(() => {
     const handleClickOutside = () => { setContextMenu(null); setConstructionMenu(null); };
@@ -154,7 +167,7 @@ export default function ProjectsPage() {
 
   const [error, setError] = useState<string | null>(null);
 
-  const fetchProjects = async () => {
+  const fetchProjects = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
@@ -179,30 +192,40 @@ export default function ProjectsPage() {
       setPositions(positionRows);
       setProjectAssignments(assignmentRows);
       setContractors(contractorsData.filter(c => c.is_active));
+      if (currentUser?.id) projectsPageCache = { userId: currentUser.id, loadedAt: Date.now(), projects: data, users: selectEngineeringMembers(usersData, positionRows, memberPositionRows), positions: positionRows, assignments: assignmentRows, contractors: contractorsData.filter(c => c.is_active) };
     } catch (err: any) {
       console.error('Fetch projects failed:', err);
       setError(getDatabaseErrorMessage(err, '無法載入案場資料'));
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [currentUser?.id]);
 
   useEffect(() => {
-    fetchProjects();
-  }, []);
+    const cached = validCache(currentUser?.id);
+    if (cached) {
+      setProjects(cached.projects);
+      setUsers(cached.users);
+      setPositions(cached.positions);
+      setProjectAssignments(cached.assignments);
+      setContractors(cached.contractors);
+      setIsLoading(false);
+    } else if (currentUser?.id) void fetchProjects();
+  }, [currentUser?.id, projectsRoute.kind, memberId, fetchProjects]);
 
   const filterUser = memberId ? users.find(user => user.id === memberId) : undefined;
-  const isActiveView = ['all', 'active', 'member', 'contractor-schedule'].includes(projectsRoute.kind);
+  const isActiveView = ['active', 'member', 'contractor-schedule'].includes(projectsRoute.kind);
   const isMeteredView = projectsRoute.kind === 'metered';
   const isWeeklyReportView = projectsRoute.kind === 'weekly-report';
-  const isClosedView = projectsRoute.kind === 'closed';
+  const isClosedView = projectsRoute.kind === 'all' || projectsRoute.kind === 'closed';
 
   const getPageTitle = () => {
     if (projectsRoute.kind === 'metered') return '已掛表';
     if (projectsRoute.kind === 'contractor-schedule') return '包商排工';
     if (projectsRoute.kind === 'weekly-report') return '週回報表';
     if (projectsRoute.kind === 'closed') return '結案／作廢清單';
-    if (projectsRoute.kind === 'active' || projectsRoute.kind === 'all') return '全部案場';
+    if (projectsRoute.kind === 'active') return '進行中案場';
+    if (projectsRoute.kind === 'all') return '所有案場';
     if (filterUser) return `${filterUser.name}案場`;
     if (projectsRoute.kind === 'member') return '個人案場';
     return '全部案場';
@@ -223,7 +246,7 @@ export default function ProjectsPage() {
 
   const filteredBaseProjects = useMemo(() => {
     return projects.filter(p => {
-      if (p.status !== '已結案' && p.status !== '作廢') return false;
+      if (projectsRoute.kind === 'closed' && p.status !== '已結案' && p.status !== '作廢') return false;
       if (filterCity && getCity(p.address) !== filterCity) return false;
       if (filterWarrantyStatus && p.warranty_status?.split('(')[0].trim() !== filterWarrantyStatus) return false;
       if (filterInverterBrand && p.inverter_brand !== filterInverterBrand) return false;
@@ -235,7 +258,7 @@ export default function ProjectsPage() {
       }
       return true;
     });
-  }, [projects, searchTerm, filterCity, filterWarrantyStatus, filterInverterBrand]);
+  }, [projects, projectsRoute.kind, searchTerm, filterCity, filterWarrantyStatus, filterInverterBrand]);
 
   const filteredProjects = useMemo(() => {
     if (memberId) {
@@ -252,6 +275,25 @@ export default function ProjectsPage() {
       return true;
     });
   }, [projects, searchTerm, memberId, positions, projectAssignments]);
+
+  const ganttProjectIds = useMemo(() => projects.map(project => project.id).sort().join(','), [projects]);
+  const loadGantt = useCallback(async () => {
+    const request = ++ganttRequestRef.current;
+    if (!ganttProjectIds) { setGanttRows([]); setGanttLoading(false); setGanttError(null); return; }
+    setGanttLoading(true);
+    setGanttError(null);
+    try {
+      const rows = await constructionProgressAdapter.listForProjects(ganttProjectIds.split(','));
+      if (request === ganttRequestRef.current) setGanttRows(rows);
+    } catch (cause) {
+      if (request === ganttRequestRef.current) setGanttError(getDatabaseErrorMessage(cause, '無法載入包商排工'));
+    } finally {
+      if (request === ganttRequestRef.current) setGanttLoading(false);
+    }
+  }, [ganttProjectIds]);
+  useEffect(() => {
+    if (projectsRoute.kind === 'contractor-schedule') void loadGantt();
+  }, [projectsRoute.kind, loadGantt]);
 
   const activeCategories = useMemo(() => {
     const cats = { section1: [] as Project[], section2: [] as Project[], section3: [] as Project[] };
@@ -273,7 +315,7 @@ export default function ProjectsPage() {
       if (editingProject) {
         await dbAdapter.updateProject(editingProject.id, data);
       } else {
-        const createdProject = await dbAdapter.createProject(data);
+        const createdProject = await dbAdapter.createProject({ ...data, racking_is_completed: data.racking_is_completed ?? false, electrical_is_completed: data.electrical_is_completed ?? false });
         try {
           const workflowResult = await dbAdapter.initializeProjectWorkflow(createdProject.id);
           logWorkflowInitialization(createdProject, workflowResult, currentUser);
@@ -319,7 +361,7 @@ export default function ProjectsPage() {
         updated_at: new Date().toISOString()
       };
       
-      const createdProject = await dbAdapter.createProject(newActive);
+      const createdProject = await dbAdapter.createProject({ ...newActive, racking_is_completed: false, electrical_is_completed: false });
       let workflowInitializationFailed = false;
       try {
         const workflowResult = await dbAdapter.initializeProjectWorkflow(createdProject.id);
@@ -396,10 +438,11 @@ export default function ProjectsPage() {
 
   const handleConstructionDatesChange = (
     project: Project,
-    type: 'racking' | 'electrical' | 'roof_cover',
+    type: 'racking' | 'steel' | 'electrical' | 'roof_cover',
     expectedStart: string | null,
     endDate: string | null,
     completed = Boolean(project[`${type}_is_completed` as keyof Project]),
+    preservePlannedEnd = false,
   ) => {
     const today = getConstructionToday();
     const nextCompleted = expectedStart && expectedStart > today ? false : completed;
@@ -423,7 +466,7 @@ export default function ProjectsPage() {
         is_completed: nextCompleted,
         actual_completed_date: nextCompleted ? normalizedEndDate : null,
       };
-      if (!nextCompleted && !completed) values.planned_end_date = endDate;
+      if (!nextCompleted && !preservePlannedEnd) values.planned_end_date = endDate;
       const saved = row
         ? await constructionProgressAdapter.update(project.id, row.id, values)
         : await constructionProgressAdapter.create(project.id, { work_type: type, sort_order: type === 'racking' ? 20 : type === 'electrical' ? 30 : 10, ...values });
@@ -440,6 +483,8 @@ export default function ProjectsPage() {
     try {
       const updatedProjects = projects.map(p => p.id === id ? { ...p, [field]: value } as Project : p);
       setProjects(updatedProjects);
+      const cached = projectsPageCache;
+      if (cached && cached.userId === currentUser?.id) projectsPageCache = { ...cached, projects: updatedProjects };
       const key = `${id}:${field}`;
       const oldTimer = saveTimeoutsRef.current.get(key);
       if (oldTimer) clearTimeout(oldTimer);
@@ -468,24 +513,29 @@ export default function ProjectsPage() {
   };
 
   const renderConstructionInput = (project: Project, type: 'racking' | 'electrical' | 'roof_cover') => {
-    const completed = Boolean(project[`${type}_is_completed` as keyof Project]);
-    const expected = project[`${type}_expected_start_date` as keyof Project] as string | null;
-    const end = project[`${type}_completion_date` as keyof Project] as string | null;
-    return <div className="flex min-w-[9.5rem] items-center gap-1" onContextMenu={event => {
+    const rackingProjection = type === 'racking' ? selectOuterRackingProgress(project, getConstructionToday()) : null;
+    const sourceType = rackingProjection?.source ?? type;
+    if (rackingProjection ? !rackingProjection.participating : project[`${type}_status` as keyof Project] === 'disabled') return <span className="block px-2 text-xs text-secondary">未參與</span>;
+    const completed = rackingProjection?.isCompleted ?? Boolean(project[`${type}_is_completed` as keyof Project]);
+    const expected = rackingProjection ? rackingProjection.plannedStartDate : project[`${type}_expected_start_date` as keyof Project] as string | null;
+    const end = rackingProjection ? rackingProjection.endDate : project[`${type}_completion_date` as keyof Project] as string | null;
+    return <div className="flex min-w-0 items-center gap-1" onContextMenu={event => {
       event.preventDefault(); event.stopPropagation();
-      if (currentUser?.role !== 'VIEWER') setConstructionMenu({ x: event.clientX, y: event.clientY, project, type });
+      if (currentUser?.role !== 'VIEWER') { setContextMenu(null); setConstructionMenu({ x: event.clientX, y: event.clientY, project, type: sourceType }); }
     }}>
       <DateDualInput
+        key={`${project.id}:${sourceType}`}
+        closeSignal={constructionMenu?.project.id === project.id && constructionMenu.type === sourceType ? `${project.id}:${sourceType}` : ''}
         baseDate={getConstructionToday()}
-        disabled={currentUser?.role === 'VIEWER' || completed}
+        disabled={currentUser?.role === 'VIEWER'}
         expectedDate={expected || null}
         completionDate={end || null}
         completionIsActual={completed}
-        summaryText={getProjectConstructionDisplay(expected, end, completed).label}
-        onChange={(nextStart, nextEnd) => handleConstructionDatesChange(project, type, nextStart, nextEnd)}
+        summaryText={rackingProjection?.display.label ?? getProjectConstructionDisplay(expected, end, completed).label}
+        onChange={(nextStart, nextEnd) => handleConstructionDatesChange(project, sourceType, nextStart, nextEnd)}
       />
-      {currentUser?.role !== 'VIEWER' && <button type="button" aria-label={`${type}施工操作`} title="施工操作" className="min-h-9 shrink-0 rounded border border-theme-border px-1 text-secondary hover:text-primary" onClick={event => {
-        event.stopPropagation(); setConstructionMenu({ x: event.clientX, y: event.clientY, project, type });
+      {currentUser?.role !== 'VIEWER' && <button type="button" aria-label={`${type}施工操作`} title="施工操作" className="min-h-9 shrink-0 rounded border border-theme-border px-1 text-secondary hover:text-primary sm:hidden" onClick={event => {
+        event.stopPropagation(); setContextMenu(null); setConstructionMenu({ x: event.clientX, y: event.clientY, project, type: sourceType });
       }}>⋯</button>}
     </div>;
   };
@@ -551,6 +601,7 @@ export default function ProjectsPage() {
                   onContextMenu={(e) => {
                     e.preventDefault();
                     if (currentUser?.role === 'VIEWER') return;
+                    setConstructionMenu(null);
                     setContextMenu({ x: e.clientX, y: e.clientY, project });
                   }}
                 >
@@ -674,6 +725,25 @@ export default function ProjectsPage() {
         </div>
       </div>
 
+      {!isClosedView && (
+        <div className="mb-6 space-y-2">
+          <nav aria-label="進行中案場分頁" className="flex gap-2 overflow-x-auto border-b border-theme-border/50 pb-2">
+            {([
+              ['/projects/active', '全部案場', projectsRoute.kind === 'active' || projectsRoute.kind === 'member'],
+              ['/projects/metered', '已掛表', isMeteredView],
+              ['/projects/contractor-schedule', '包商排工', projectsRoute.kind === 'contractor-schedule'],
+              ['/projects/weekly-report', '週回報表', isWeeklyReportView],
+            ] as const).map(([href, label, selected]) => (
+              <Link key={href} href={href} aria-current={selected ? 'page' : undefined} className={`shrink-0 border-b-2 px-3 py-2 text-sm font-medium ${selected ? 'border-accent text-accent' : 'border-transparent text-secondary hover:text-primary'}`}>{label}</Link>
+            ))}
+          </nav>
+          {(projectsRoute.kind === 'active' || projectsRoute.kind === 'member') && <nav aria-label="工程人員篩選" className="flex w-fit max-w-full gap-1 overflow-x-auto rounded-xl border border-theme-border bg-page p-1">
+            <Link href="/projects/active" aria-current={projectsRoute.kind === 'active' ? 'page' : undefined} className={`min-h-10 shrink-0 rounded-lg px-3 py-2 text-sm font-bold ${projectsRoute.kind === 'active' ? 'bg-accent text-white shadow-sm' : 'text-secondary hover:text-primary'}`}>全部人員</Link>
+            {users.map(user => { const href = buildMemberProjectsHref(user.id); return <Link key={user.id} href={href} aria-current={memberId === user.id ? 'page' : undefined} className={`min-h-10 shrink-0 rounded-lg px-3 py-2 text-sm font-bold ${memberId === user.id ? 'bg-accent text-white shadow-sm' : 'text-secondary hover:text-primary'}`}>{user.name}</Link>; })}
+          </nav>}
+        </div>
+      )}
+
       {isClosedView && (
         <div className="bg-card/60 border border-theme-border p-4 rounded-xl mb-6 flex flex-col md:flex-row gap-4 backdrop-blur-sm shrink-0">
           <div className="flex-1 flex items-center gap-3 bg-page/50 rounded-lg px-3 border border-theme-border/50">
@@ -758,7 +828,31 @@ export default function ProjectsPage() {
               <div className="min-h-[500px] flex-1 overflow-auto">
                 <GanttChart 
                   projects={filteredProjects} 
+                  allProjects={projects}
                   contractors={contractors} 
+                  rows={ganttRows}
+                  loading={ganttLoading}
+                  error={ganttError}
+                  saving={ganttSaving}
+                  canEdit={Boolean(currentUser && currentUser.role !== 'VIEWER')}
+                  onRetry={() => void loadGantt()}
+                  onSave={async (row, values) => {
+                    setGanttSaving(true);
+                    setGanttError(null);
+                    try {
+                      const saved = await constructionProgressAdapter.update(row.project_id, row.id, values);
+                      ganttRequestRef.current++;
+                      setGanttRows(current => current.map(item => item.id === saved.id ? saved : item));
+                      setGanttLoading(false);
+                      patchProjectState(saved.project_id, getConstructionProjectPatch(saved));
+                      return true;
+                    } catch (cause) {
+                      setGanttError(getDatabaseErrorMessage(cause, '包商排工儲存失敗'));
+                      return false;
+                    } finally {
+                      setGanttSaving(false);
+                    }
+                  }}
                   onProjectClick={(p) => setViewingProject(p)}
                 />
               </div>
@@ -842,10 +936,14 @@ export default function ProjectsPage() {
             const updated = updatedProjects.find((p: Project) => p.id === viewingProject.id);
             if (updated) setViewingProject(updated);
           }}
-          onConstructionUpdated={result => patchProjectState(
-            result.row.project_id,
-            getConstructionProjectPatch(result.row, result.type === 'remove'),
-          )}
+          onConstructionUpdated={result => {
+            ganttRequestRef.current++;
+            setGanttLoading(false);
+            setGanttRows(current => result.type === 'remove'
+              ? current.filter(row => row.id !== result.row.id)
+              : [...current.filter(row => row.id !== result.row.id), result.row]);
+            patchProjectState(result.row.project_id, getConstructionProjectPatch(result.row, result.type === 'remove'));
+          }}
           onMilestoneUpdated={milestone => patchProjectState(
             milestone.project_id,
             getWorkflowMilestoneProjectPatch(milestone),
@@ -933,7 +1031,7 @@ export default function ProjectsPage() {
           const completed = Boolean(project[`${type}_is_completed` as keyof Project]);
           handleConstructionDatesChange(project, type,
             project[`${type}_expected_start_date` as keyof Project] as string | null,
-            completed ? null : getConstructionToday(), !completed);
+            completed ? null : getConstructionToday(), !completed, true);
           setConstructionMenu(null);
         }}>{constructionMenu.project[`${constructionMenu.type}_is_completed` as keyof Project] ? '取消已完工' : '標記已完工'}</button>
       </div>}

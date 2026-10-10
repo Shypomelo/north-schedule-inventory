@@ -16,9 +16,10 @@ interface DateDualInputProps {
   defaultCompletionDate?: string;
   expectedLabel?: string;
   completionLabel?: string;
+  closeSignal?: string;
 }
 
-export function DateDualInput({ expectedDate, completionDate, baseDate, onChange, disabled, showCompletionInSummary = false, completionIsActual = false, summaryText, showCompletionToggle = false, isCompleted = false, defaultCompletionDate, expectedLabel = '進場日期', completionLabel }: DateDualInputProps) {
+export function DateDualInput({ expectedDate, completionDate, baseDate, onChange, disabled, showCompletionInSummary = false, completionIsActual = false, summaryText, showCompletionToggle = false, isCompleted = false, defaultCompletionDate, expectedLabel = '進場日期', completionLabel, closeSignal }: DateDualInputProps) {
   const [isFocused, setIsFocused] = useState(false);
   const [localExpected, setLocalExpected] = useState(expectedDate || '');
   const [localCompletion, setLocalCompletion] = useState(completionDate || '');
@@ -27,6 +28,8 @@ export function DateDualInput({ expectedDate, completionDate, baseDate, onChange
   const inputRef = useRef<HTMLInputElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const [popoverCoords, setPopoverCoords] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  useEffect(() => { if (closeSignal) setIsFocused(false); }, [closeSignal]);
 
   useEffect(() => {
     setLocalExpected(expectedDate || '');

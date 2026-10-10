@@ -6,6 +6,7 @@ const config: Config = {
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
   ],
+  safelist: ['grid-cols-[2rem_minmax(12rem,1fr)_5.5rem_10rem_8.5rem_8.5rem_minmax(11rem,1fr)_3rem]'],
   theme: {
     extend: {
       colors: {

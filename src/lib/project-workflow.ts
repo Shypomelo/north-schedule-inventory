@@ -80,6 +80,19 @@ export function getWorkflowOuterDisplay(
   };
 }
 
+export function getWorkflowOuterCompactLabel(
+  kind: WorkflowOuterKind,
+  status: string | null | undefined,
+  plannedDate: string | null | undefined,
+  actualDate: string | null | undefined,
+  today: string,
+): string {
+  const noun = kind === 'ACCEPTANCE' ? '驗收' : kind === 'METER' ? '掛表' : '設備登記';
+  const display = getWorkflowOuterDisplay(kind, status, plannedDate, actualDate, today);
+  if (display.isCompleted) return `已${noun}`;
+  return display.date ? `預計 ${display.date.slice(5, 7)}/${display.date.slice(8, 10)}` : '未排程';
+}
+
 export function getProjectOuterWorkflowFields(
   milestones: readonly OuterMilestoneFields[],
   legacyMeterDate: string | null,

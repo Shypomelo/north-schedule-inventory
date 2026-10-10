@@ -1,12 +1,11 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, CircleAlert, GripVertical, ListChecks, MoreHorizontal, Play, Plus, RefreshCw, X } from 'lucide-react';
+import { Check, Circle, CircleAlert, GripVertical, ListChecks, MoreHorizontal, Play, Plus, RefreshCw, X } from 'lucide-react';
 import { dbAdapter } from '@/lib/db';
 import { getDatabaseErrorMessage } from '@/lib/db/supabase-errors';
 import type {
   ActivityActionType,
-  Contractor,
   ProjectMilestone,
   ProjectMilestoneStatus,
   ProjectMilestoneUpdate,
@@ -25,12 +24,13 @@ import {
   validateWorkflowActualDate,
 } from '@/lib/project-workflow';
 import { logWorkflowActivitySafely } from '@/lib/workflow-activity';
-import { getConstructionToday } from '@/lib/construction-progress';
-import { WORKFLOW_GRID_CLASS } from '@/lib/workflow-table';
+import { classifyConstructionItem, getConstructionToday } from '@/lib/construction-progress';
+import { WORKFLOW_GRID_CLASS, WORKFLOW_GRID_STYLE } from '@/lib/workflow-table';
 import { WorkflowRebuild } from './WorkflowRebuild';
 import { presentBusinessDate } from '@/lib/date-presentation';
 import type { ConstructionProgressModel } from './useConstructionProgress';
 import { ConstructionProgressSection, ConstructionRow } from './ConstructionProgressSection';
+import { QuickBusinessDateInput } from './QuickBusinessDateInput';
 import { getProjectWorkItemPositions, reorderProjectWorkItems } from '@/lib/db/project-work-item-order';
 import { mergeProjectWorkItems, moveProjectWorkItem } from '@/lib/project-work-item-order';
 
@@ -64,7 +64,6 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
   const [positions, setPositions] = useState<Record<string,number>>({});
   const [phases, setPhases] = useState<WorkflowPhase[]>([]);
   const [types, setTypes] = useState<WorkflowType[]>([]);
-  const [contractors, setContractors] = useState<Contractor[]>([]);
   const [notesDrafts, setNotesDrafts] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isInitializing, setIsInitializing] = useState(false);
@@ -87,18 +86,16 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
     setIsLoading(true);
     setError(null);
     try {
-      const [workflowResult, phaseResult, typeResult, contractorRows, positionRows] = await Promise.all([
+      const [workflowResult, phaseResult, typeResult, positionRows] = await Promise.all([
         dbAdapter.getProjectWorkflow(projectId),
         dbAdapter.getWorkflowPhases(),
         dbAdapter.getWorkflowTypes(),
-        dbAdapter.getContractors(),
         getProjectWorkItemPositions(projectId),
       ]);
       const nextWorkflow = workflowResult as ProjectWorkflowData;
       setWorkflow(nextWorkflow);
       setPhases(phaseResult as WorkflowPhase[]);
       setTypes(typeResult as WorkflowType[]);
-      setContractors(contractorRows as Contractor[]);
       setPositions(positionRows);
       setNotesDrafts(Object.fromEntries(
         nextWorkflow.milestones.map(milestone => [milestone.id, milestone.notes ?? '']),
@@ -144,8 +141,9 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
   const allItems = useMemo(() => mergeProjectWorkItems(
     orderedMilestones,constructionModel?.rows ?? [],positions,
   ), [orderedMilestones,constructionModel?.rows,positions]);
-  const visibleItems = hideCompleted ? allItems.filter(item => item.kind === 'MILESTONE'
-    ? item.milestone.status !== 'COMPLETED' : !item.construction.is_completed) : allItems;
+    const visibleItems = hideCompleted ? allItems.filter(item => item.kind === 'MILESTONE'
+      ? item.milestone.status !== 'COMPLETED'
+      : classifyConstructionItem(item.construction, null, getConstructionToday()) !== 'COMPLETED') : allItems;
   const construction = constructionModel
     ? <ConstructionProgressSection model={constructionModel} embedded controlsOnly={Boolean(workflow.instance)} /> : null;
   const summary = useMemo(
@@ -469,9 +467,9 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
       {construction}
 
       <div className="overflow-x-auto rounded-xl border border-theme-border bg-card/40">
-          <div className="min-w-[80rem]">
-            <div className={`${WORKFLOW_GRID_CLASS} border-b border-theme-border bg-card px-3 py-2 text-xs font-semibold text-secondary`}>
-              <span /><span>工項</span><span>類型</span><span>狀態</span><span>包商</span><span>預計日期</span><span>實際日期</span><span>備註</span><span>操作</span>
+          <div className="min-w-[70rem]">
+            <div style={WORKFLOW_GRID_STYLE} className={`${WORKFLOW_GRID_CLASS} border-b border-theme-border bg-card px-3 py-2 text-xs font-semibold text-secondary`}>
+              <span /><span>工項</span><span>類型</span><span>狀態</span><span>預計日期</span><span>實際日期</span><span>備註</span><span>操作</span>
             </div>
             {visibleItems.length === 0 && <div className="px-3 py-4 text-sm text-secondary">目前篩選下沒有工項。</div>}
             {visibleItems.map(item => {
@@ -501,6 +499,7 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
                     }}
                     onDragLeave={() => setDragOverId(current => current === targetKey ? null : current)}
                     onDrop={event => { event.preventDefault(); void dropItem(targetKey); }}
+                    style={WORKFLOW_GRID_STYLE}
                     className={`${milestone.is_applicable ? '' : 'opacity-55'} ${dragOverId === targetKey && canDrop ? 'bg-accent/10' : ''} ${WORKFLOW_GRID_CLASS} border-b border-theme-border/60 px-3 py-2 last:border-b-0`}
                   >
                     <button
@@ -522,18 +521,16 @@ export function ProjectWorkflow({ projectId, projectName, targetMilestoneId, can
                     </button>
                     <span className="truncate font-medium text-primary" title={milestone.label}>{milestone.label}</span>
                     <span className="w-fit rounded-full border border-accent/25 bg-accent/10 px-2 py-1 text-xs text-accent">{milestone.type_name_snapshot}</span>
-                    <div className="flex items-center gap-1">
-                      <select value={milestone.status} onChange={event => void changeStatus(milestone, event.target.value as ProjectMilestoneStatus)} disabled={!canEdit} aria-label={`${milestone.label}狀態`} className="min-w-0 flex-1 rounded-md border border-theme-border bg-page px-2 py-1.5 text-xs text-primary outline-none focus:border-accent disabled:opacity-50">
-                        {STATUS_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-                      </select>
-                      {milestone.status === 'NOT_STARTED' ? (
-                        <button type="button" onClick={() => void changeStatus(milestone, 'IN_PROGRESS')} disabled={!canEdit || isSaving} aria-label={`開始${milestone.label}`} title="開始" className="rounded-md border border-accent/30 p-1.5 text-accent hover:bg-accent/10 disabled:opacity-50"><Play size={14} /></button>
-                      ) : null}
-                      {milestone.status !== 'COMPLETED' ? <button type="button" onClick={() => void quickComplete(milestone)} disabled={!canEdit || isSaving} aria-label={`快速完成${milestone.label}`} title="完成並填入今天" className="rounded-md border border-success/30 p-1.5 text-success hover:bg-success/10 disabled:opacity-50"><Check size={14} /></button> : <span role="img" aria-label={`${milestone.label}已完成`} title="已完成" className="rounded-md border border-success/30 bg-success/10 p-1.5 text-success"><Check size={14} /></span>}
+                    <div className="flex items-center gap-1" role="group" aria-label={`${milestone.label}狀態`}>
+                      {STATUS_OPTIONS.map(option => {
+                        const Icon = option.value === 'NOT_STARTED' ? Circle : option.value === 'IN_PROGRESS' ? Play : option.value === 'BLOCKED' ? CircleAlert : Check;
+                        const tone = option.value === 'NOT_STARTED' ? 'text-secondary' : option.value === 'IN_PROGRESS' ? 'text-accent' : option.value === 'BLOCKED' ? 'text-danger' : 'text-success';
+                        const selectedBackground = option.value === 'NOT_STARTED' ? 'bg-secondary/15' : option.value === 'IN_PROGRESS' ? 'bg-accent/15' : option.value === 'BLOCKED' ? 'bg-danger/15' : 'bg-success/15';
+                        return <button key={option.value} type="button" title={option.label} aria-label={`${milestone.label}：${option.label}`} aria-pressed={milestone.status === option.value} disabled={!canEdit || isSaving} onClick={() => void (option.value === 'COMPLETED' ? quickComplete(milestone) : changeStatus(milestone, option.value))} className={`flex h-8 w-8 items-center justify-center rounded-md ${tone} ${milestone.status === option.value ? `${selectedBackground} ring-1 ring-current` : 'hover:bg-page'} disabled:opacity-50`}><Icon size={16} aria-hidden="true" /></button>;
+                      })}
                     </div>
-                    <select value={milestone.contractor_id ?? ''} onChange={event => void persistMilestone(milestone, { contractor_id: event.target.value || null }, 'WORKFLOW_CONTRACTOR_CHANGED')} disabled={!canEdit} aria-label={`${milestone.label}包商`} className="w-full rounded-md border border-theme-border bg-page px-2 py-1.5 text-xs text-primary disabled:opacity-50"><option value="">未指定</option>{milestone.contractor_id && !contractors.some(contractor => contractor.id === milestone.contractor_id) && <option value={milestone.contractor_id}>{milestone.contractor_name || '既有包商'}</option>}{contractors.filter(contractor => contractor.is_active).map(contractor => <option key={contractor.id} value={contractor.id}>{contractor.name}</option>)}</select>
-                    <input type="date" value={milestone.planned_date ?? ''} onChange={event => void persistMilestone(milestone, { planned_date: event.target.value || null }, 'WORKFLOW_PLANNED_DATE_CHANGED')} disabled={!canEdit} aria-label={`${milestone.label}預計日期`} className="w-full rounded-md border border-theme-border bg-page px-2 py-1.5 text-xs text-primary outline-none focus:border-accent disabled:opacity-50" />
-                    <input type="date" value={milestone.actual_date ?? ''} onChange={event => void changeActualDate(milestone, event.target.value || null)} disabled={!canEdit || (milestone.milestone_key === 'EQUIPMENT_REGISTRATION' && milestone.status !== 'COMPLETED')} aria-label={`${milestone.label}實際日期`} title={milestone.milestone_key === 'EQUIPMENT_REGISTRATION' && milestone.status !== 'COMPLETED' ? '先手動確認完成，再調整實際日期' : undefined} className="w-full rounded-md border border-theme-border bg-page px-2 py-1.5 text-xs text-primary outline-none focus:border-accent disabled:opacity-50" />
+                    <QuickBusinessDateInput value={milestone.planned_date} today={getConstructionToday()} onCommit={date => void persistMilestone(milestone, { planned_date: date }, 'WORKFLOW_PLANNED_DATE_CHANGED')} disabled={!canEdit} label={`${milestone.label}預計日期`} />
+                    <QuickBusinessDateInput value={milestone.actual_date} today={getConstructionToday()} onCommit={date => void changeActualDate(milestone, date)} disabled={!canEdit || (milestone.milestone_key === 'EQUIPMENT_REGISTRATION' && milestone.status !== 'COMPLETED')} label={`${milestone.label}實際日期`} />
                     <input type="text" value={notesDrafts[milestone.id] ?? ''} onChange={event => setNotesDrafts(current => ({ ...current, [milestone.id]: event.target.value }))} onBlur={() => void saveNotes(milestone)} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} disabled={!canEdit} aria-label={`${milestone.label}備註`} placeholder="輸入備註" className="w-full rounded-md border border-theme-border bg-page px-2 py-1.5 text-xs text-primary outline-none focus:border-accent disabled:opacity-50" />
                     <div ref={menuId === milestone.id ? menuRef : undefined} className="relative flex justify-end">
                       {canEdit ? <button type="button" onClick={() => setMenuId(current => current === milestone.id ? null : milestone.id)} aria-label={`${milestone.label}操作`} aria-haspopup="menu" aria-expanded={menuId === milestone.id} className="rounded-md p-1.5 text-secondary hover:bg-page hover:text-primary"><MoreHorizontal size={17} /></button> : null}

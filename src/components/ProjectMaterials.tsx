@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Bell, ChevronDown, ChevronRight, Clipboard, MoreHorizontal, PackagePlus, Plus, Trash2 } from 'lucide-react';
+import { Bell, ChevronDown, ChevronRight, Clipboard, MoreHorizontal, PackagePlus, Plus, Trash2, X } from 'lucide-react';
 import { useUser } from './UserContext';
 import { useRowAutosave, type RowAutosaveState } from '@/hooks/useRowAutosave';
 import { dbAdapter } from '@/lib/db';
@@ -25,6 +25,7 @@ import {
 } from '@/lib/project-materials';
 import { formatCompactTaipeiReceiptTime, getEffectiveExpectedDeliveryAt } from '@/lib/material-receipt-time';
 import { summarizeMaterialReceipts } from '@/lib/material-receiving';
+import { buildProjectMaterialOverview } from '@/lib/project-material-overview';
 
 const compactInputClass = 'h-8 w-full min-w-0 rounded-md border border-theme-border bg-page px-2 text-xs text-primary outline-none focus:border-accent disabled:opacity-60';
 
@@ -66,6 +67,8 @@ export function ProjectMaterials({ projectId, projectName, canEdit }: Props) {
   const [receipts, setReceipts] = useState<MaterialReceipt[]>([]);
   const [preparations, setPreparations] = useState<Record<string, number>>({});
   const [historyMaterial, setHistoryMaterial] = useState<ProjectMaterial | null>(null);
+  const [showOverview, setShowOverview] = useState(false);
+  const [expandedOverviewKey, setExpandedOverviewKey] = useState<string | null>(null);
   const [expandedBatchIds, setExpandedBatchIds] = useState<Set<string>>(new Set());
   const [showBatchCreate, setShowBatchCreate] = useState(false);
   const [newBatchName, setNewBatchName] = useState('');
@@ -166,6 +169,7 @@ export function ProjectMaterials({ projectId, projectName, canEdit }: Props) {
     if (leftComplete !== rightComplete) return leftComplete ? 1 : -1;
     return right.created_at.localeCompare(left.created_at) || right.id.localeCompare(left.id);
   }), [batches, materials]);
+  const overview = useMemo(() => buildProjectMaterialOverview(projectId, materials, batches, receipts), [projectId, materials, batches, receipts]);
 
   const createBatch = async (event: FormEvent) => {
     event.preventDefault();
@@ -328,7 +332,8 @@ export function ProjectMaterials({ projectId, projectName, canEdit }: Props) {
   return <div className="space-y-4">
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-theme-border bg-card/50 p-4">
       <div><h3 className="flex items-center gap-2 font-semibold text-primary"><PackagePlus size={18} className="text-accent" />叫料批次</h3><p className="mt-1 text-xs text-secondary">{batches.length} 個批次，{materials.length} 筆物料</p></div>
-      {canEdit && <button type="button" onClick={openBatchCreate} className="flex min-h-10 items-center gap-2 rounded-lg bg-accent px-3 text-sm font-semibold text-white hover:bg-accent-hover"><Plus size={16} />新增叫料批次</button>}
+      <div className="flex flex-wrap gap-2"><button type="button" onClick={() => setShowOverview(true)} className="flex min-h-10 items-center rounded-lg border border-theme-border px-3 text-sm text-primary hover:bg-page">查看已叫物料</button>
+      {canEdit && <button type="button" onClick={openBatchCreate} className="flex min-h-10 items-center gap-2 rounded-lg bg-accent px-3 text-sm font-semibold text-white hover:bg-accent-hover"><Plus size={16} />新增叫料批次</button>}</div>
     </div>
     {showBatchCreate && <form onSubmit={createBatch} className="grid gap-3 rounded-xl border border-accent/30 bg-accent/5 p-4 sm:grid-cols-[minmax(12rem,1fr)_12rem_12rem_auto_auto] sm:items-end">
       <label className="text-xs text-secondary">批次名稱<input autoFocus value={newBatchName} onChange={event => setNewBatchName(event.target.value)} className={`${compactInputClass} mt-1 h-10`} /></label>
@@ -344,6 +349,7 @@ export function ProjectMaterials({ projectId, projectName, canEdit }: Props) {
       return <BatchCard key={batch.id} batch={batch} projectName={projectName} materials={batchMaterials} receipts={receipts} preparations={preparations} catalog={catalog} groups={groups} canEdit={canEdit} isExpanded={expandedBatchIds.has(batch.id)} isBusy={busyId !== null} batchSaveState={batchAutosave.stateFor(batch.id)} materialStateFor={materialAutosave.stateFor} onToggle={() => toggleBatch(batch.id)} onBatchChange={updates => batchAutosave.updateRow(batch.id, updates)} onBatchBlur={() => batchAutosave.flush(batch.id)} onSameDayChange={value => void setBatchSameDay(batch, value)} onDeleteBatch={() => void deleteBatch(batch, batchMaterials)} onMaterialChange={(id, updates) => materialAutosave.updateRow(id, updates)} onMaterialReceiptTimeChange={(material, value) => void updateMaterialReceiptTime(material, value)} onMaterialBlur={id => materialAutosave.flush(id)} onDeleteMaterial={material => void deleteMaterial(material)} onOpenHistory={setHistoryMaterial} onAddMaterial={addMaterial} onNotice={setNotice} onError={setError} currentUserId={currentUser?.id ?? null} />;
     })}
     {historyMaterial ? <MaterialReceiptHistoryDialog receipts={receipts} sourceType="PROJECT_MATERIAL" sourceId={historyMaterial.id} itemLabel={historyMaterial.specification?.trim() || historyMaterial.item_name} contextLabel={projectName} unit={historyMaterial.unit} canEdit={canEdit} onClose={() => setHistoryMaterial(null)} onChanged={refreshReceiptState} /> : null}
+    {showOverview && <div className="fixed inset-0 z-[80] flex items-center justify-center bg-page/80 p-2 backdrop-blur-sm sm:p-4"><div role="dialog" aria-modal="true" aria-label="查看已叫物料" className="max-h-[90dvh] w-full max-w-4xl overflow-y-auto rounded-xl border border-theme-border bg-card p-4 shadow-2xl"><div className="mb-4 flex items-center justify-between"><h3 className="font-bold text-primary">{projectName} · 已叫物料</h3><button type="button" aria-label="關閉已叫物料" onClick={() => setShowOverview(false)} className="rounded p-2 text-secondary hover:bg-page"><X size={20} /></button></div><div className="overflow-x-auto"><table className="w-full min-w-[40rem] text-left text-sm"><thead className="border-b border-theme-border text-secondary"><tr><th className="p-2">物料名稱</th><th className="p-2">規格／型號</th><th className="p-2">叫料總量</th><th className="p-2">已到貨</th><th className="p-2">未到貨</th></tr></thead><tbody>{overview.map(row => <tr key={row.key} className="border-b border-theme-border/50"><td colSpan={5} className="p-0"><button type="button" onClick={() => setExpandedOverviewKey(current => current === row.key ? null : row.key)} aria-expanded={expandedOverviewKey === row.key} className="grid w-full grid-cols-[repeat(5,minmax(0,1fr))] gap-2 p-2 text-left hover:bg-page"><span>{row.name}</span><span>{row.specification || '—'}</span><span>{row.ordered} {row.unit}</span><span>{row.received} {row.unit}</span><span>{row.remaining} {row.unit}</span></button>{expandedOverviewKey === row.key && <div className="border-t border-theme-border/40 bg-page/30 p-3 text-xs text-secondary">{row.sources.map(source => <div key={source.materialId} className="flex flex-wrap gap-3 py-1"><span>{source.batchName}</span><span>叫料 {source.quantity} {row.unit}</span><span>已到貨 {source.received} {row.unit}</span></div>)}</div>}</td></tr>)}{overview.length === 0 && <tr><td colSpan={5} className="p-6 text-center text-secondary">目前沒有已叫物料</td></tr>}</tbody></table></div></div></div>}
   </div>;
 }
 

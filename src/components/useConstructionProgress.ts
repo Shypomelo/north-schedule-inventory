@@ -30,10 +30,24 @@ export function useConstructionProgress(projectId: string, canEdit: boolean, onM
     setError(null);
     setConflictError(null);
     try {
-      const [progress, vendors, conflictResult] = await Promise.all([
+      let [progress, vendors, conflictResult] = await Promise.all([
         constructionProgressAdapter.list(projectId), dbAdapter.getContractors(),
         constructionProgressAdapter.conflicts(projectId).then(data => ({ data, error: null }), error => ({ data: [], error })),
       ]);
+      if (canEdit) {
+        let initialized = false;
+        for (const [work_type, sort_order] of [['racking', 0], ['electrical', 10]] as const) {
+          if (progress.some(row => row.work_type === work_type)) continue;
+          try {
+            await constructionProgressAdapter.create(projectId, { work_type, sort_order, is_completed: false });
+            initialized = true;
+          } catch (cause) {
+            progress = await constructionProgressAdapter.list(projectId);
+            if (!progress.some(row => row.work_type === work_type)) throw cause;
+          }
+        }
+        if (initialized) progress = await constructionProgressAdapter.list(projectId);
+      }
       if (version !== generation.current) return;
       setRows(progress);
       setContractors(vendors);
@@ -45,7 +59,7 @@ export function useConstructionProgress(projectId: string, canEdit: boolean, onM
     } finally {
       if (version === generation.current) setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, canEdit]);
   useEffect(() => { void load(); return invalidate; }, [load, invalidate]);
 
   const mutate = async (operation: () => Promise<void>): Promise<boolean> => {

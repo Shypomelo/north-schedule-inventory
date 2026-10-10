@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ConstructionWorkType, ProjectConstructionProgress } from './types';
-import { getConstructionToday, normalizeConstructionDateInput, validateActualCompletionDate, validateConstructionWorkName } from '../construction-progress';
+import { getConstructionToday, getConstructionWorkNameConflict, normalizeConstructionDateInput, validateActualCompletionDate, validateConstructionWorkName } from '../construction-progress';
 import type { ConstructionConflictRow } from '../construction-progress';
 import { supabase } from './supabaseClient';
 
@@ -21,6 +21,21 @@ function normalizeConstructionDates<T extends ConstructionUpdate>(values: T): T 
 // Both UI entrances use this row-ID contract; no flattened Project fields or milestone writes.
 export function createConstructionProgressAdapter(client: SupabaseClient) {
   return {
+    async listForProjects(projectIds: readonly string[]): Promise<ProjectConstructionProgress[]> {
+      const rows: ProjectConstructionProgress[] = [];
+      for (let offset = 0; offset < projectIds.length; offset += 100) {
+        const ids = projectIds.slice(offset, offset + 100);
+        for (let from = 0; ids.length; from += 1000) {
+          const { data, error } = await client.from('project_construction_progress').select('*')
+            .in('project_id', ids).is('deleted_at', null)
+            .order('id').range(from, from + 999);
+          if (error) throw error;
+          rows.push(...(data as ProjectConstructionProgress[]));
+          if (!data || data.length < 1000) break;
+        }
+      }
+      return rows;
+    },
     async conflicts(projectId: string): Promise<ConstructionConflictRow[]> {
       const { data, error } = await client.from('project_construction_progress')
         .select('project_id,contractor_id,planned_start_date,planned_end_date,projects!inner(project_name)')
@@ -40,6 +55,9 @@ export function createConstructionProgressAdapter(client: SupabaseClient) {
       if (values.work_type === 'other') {
         const error = validateConstructionWorkName(values.work_name ?? null);
         if (error) throw new Error(error);
+        const existing = await this.list(projectId);
+        const conflict = getConstructionWorkNameConflict(values.work_name!, existing);
+        if (conflict) throw new Error(conflict);
       }
       const normalizedValues = normalizeConstructionDates(values);
       const completionError = validateActualCompletionDate(normalizedValues.actual_completed_date ?? null, getConstructionToday());
@@ -53,6 +71,11 @@ export function createConstructionProgressAdapter(client: SupabaseClient) {
       if (values.work_name !== undefined) {
         const error = validateConstructionWorkName(values.work_name);
         if (error) throw new Error(error);
+        const existing = await this.list(projectId);
+        const target = existing.find(row => row.id === id);
+        if (!target || target.work_type !== 'other') throw new Error('只能修改自訂施工工種名稱');
+        const conflict = getConstructionWorkNameConflict(values.work_name!, existing, id);
+        if (conflict) throw new Error(conflict);
       }
       const normalizedValues = normalizeConstructionDates(values);
       const completionError = validateActualCompletionDate(normalizedValues.actual_completed_date ?? null, getConstructionToday());

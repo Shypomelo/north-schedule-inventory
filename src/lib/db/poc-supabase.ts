@@ -882,7 +882,7 @@ const buildProjectProgressOperations = async (projectId: string | null, p: Parti
     `${type}_contractor_id`, `${type}_expected_start_date`, `${type}_completion_date`,
     `${type}_is_completed`, `${type}_status`, `${type}_notes`,
   ].some(key => p[key as keyof Project] !== undefined));
-  if (!relevant) return [];
+  if (!relevant && projectId) return [];
 
   const existingProgress = projectId ? await constructionProgressAdapter.list(projectId) : [];
   const operations: AtomicProgressOperation[] = [];
@@ -893,7 +893,8 @@ const buildProjectProgressOperations = async (projectId: string | null, p: Parti
     const completed = p[`${type}_is_completed` as keyof Project] as boolean | undefined;
     const status = p[`${type}_status` as keyof Project] as string | null | undefined;
     const notes = p[`${type}_notes` as keyof Project] as string | null | undefined;
-    if ([contractorId, start, end, completed, status, notes].every(value => value === undefined)) continue;
+    const defaultParticipating = !projectId && (type === 'racking' || type === 'electrical');
+    if (!defaultParticipating && [contractorId, start, end, completed, status, notes].every(value => value === undefined)) continue;
 
     const matches = existingProgress.filter(row => row.work_type === type);
     if (matches.length > 1) throw new Error(`同類施工工項有多筆有效資料，請在案場彈窗編輯：${type}`);
@@ -903,11 +904,11 @@ const buildProjectProgressOperations = async (projectId: string | null, p: Parti
       values.contractor_id = contractorId || null;
     }
     if (start !== undefined) values.planned_start_date = start || null;
-    if (status !== undefined) values.status_override = status || null;
+    if (status !== undefined || defaultParticipating) values.status_override = status || null;
     if (notes !== undefined) values.notes = notes || null;
     const nextCompleted = completed ?? existing?.is_completed ?? false;
-    if (completed !== undefined) {
-      values.is_completed = completed;
+    if (completed !== undefined || defaultParticipating) {
+      values.is_completed = completed ?? false;
       values.actual_completed_date = completed ? end || existing?.actual_completed_date || getConstructionToday() : null;
     }
     if (end !== undefined) {
@@ -923,7 +924,7 @@ const buildProjectProgressOperations = async (projectId: string | null, p: Parti
     }
     if (existing) {
       operations.push({ kind: 'update', work_type: type, id: existing.id, values });
-    } else if (contractorId || start || end || completed || status || notes) {
+    } else if (defaultParticipating || contractorId || start || end || completed !== undefined || status || notes) {
       if (type === 'other') throw new Error('其他施工工項請在案場彈窗新增');
       operations.push({ kind: 'create', work_type: type, sort_order: (existingProgress.length + operations.length) * 10, values });
     }

@@ -1,357 +1,149 @@
-import React, { useMemo, useRef } from 'react';
-import { addDays, differenceInDays, format, isAfter, isBefore, max, min, parseISO, startOfDay } from 'date-fns';
-import { AlertTriangle } from 'lucide-react';
-import { Project, Contractor } from '@/lib/db/types';
+"use client";
 
-interface GanttChartProps {
+import React, { useMemo, useRef, useState } from 'react';
+import { AlertTriangle } from 'lucide-react';
+import type { Contractor, Project, ProjectConstructionProgress } from '@/lib/db/types';
+import { getConstructionWorkLabel, getConstructionToday } from '@/lib/construction-progress';
+import { findContractorOverlaps, getScheduledInterval, type ContractorOverlap } from '@/lib/contractor-schedule';
+import { getContractorsForWorkType } from '@/lib/contractors';
+
+interface Props {
   projects: Project[];
+  allProjects: Project[];
   contractors: Contractor[];
+  rows: ProjectConstructionProgress[];
+  loading: boolean;
+  error: string | null;
+  saving: boolean;
+  canEdit: boolean;
+  onSave: (row: ProjectConstructionProgress, values: Pick<ProjectConstructionProgress, 'contractor_id' | 'contractor_name' | 'planned_start_date' | 'planned_end_date'>) => Promise<boolean>;
+  onRetry: () => void;
   onProjectClick?: (project: Project) => void;
 }
+const COLORS: Record<string, string> = {
+  racking: 'bg-emerald-500 border-emerald-500', electrical: 'bg-blue-500 border-blue-500',
+  steel: 'bg-purple-500 border-purple-500', roof_cover: 'bg-orange-500 border-orange-500',
+  civil: 'bg-amber-500 border-amber-500', other: 'bg-slate-500 border-slate-500',
+};
+const dayNumber = (date: string) => Date.parse(date + 'T00:00:00Z') / 86400000;
+const dateAt = (day: number) => new Date(day * 86400000).toISOString().slice(0, 10);
+const shortDate = (date: string) => date.replace(/-/g, '/');
 
-const CONTRACTOR_TYPES = [
-  { key: 'racking', label: '支架', color: 'bg-emerald-500', bgLight: 'bg-emerald-500/20', border: 'border-emerald-500' },
-  { key: 'electrical', label: '電力', color: 'bg-blue-500', bgLight: 'bg-blue-500/20', border: 'border-blue-500' },
-  { key: 'steel', label: '鋼構', color: 'bg-purple-500', bgLight: 'bg-purple-500/20', border: 'border-purple-500' },
-  { key: 'roof_cover', label: '新設頂蓋', color: 'bg-orange-500', bgLight: 'bg-orange-500/20', border: 'border-orange-500' },
-  { key: 'civil', label: '土木', color: 'bg-amber-500', bgLight: 'bg-amber-500/20', border: 'border-amber-500' },
-  { key: 'other', label: '其他', color: 'bg-slate-500', bgLight: 'bg-slate-500/20', border: 'border-slate-500' },
-];
-
-export function GanttChart({ projects, contractors, onProjectClick }: GanttChartProps) {
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  
-  // We want to extract all tasks across all projects
-  const tasks = useMemo(() => {
-    const extracted: any[] = [];
-    projects.forEach(p => {
-      CONTRACTOR_TYPES.forEach(type => {
-        const statusField = `${type.key}_status` as keyof Project;
-        const startField = `${type.key}_expected_start_date` as keyof Project;
-        const endField = `${type.key}_completion_date` as keyof Project;
-        const contractorIdField = `${type.key}_contractor_id` as keyof Project;
-        const contractorNameField = `${type.key}_contractor_name` as keyof Project;
-        
-        if (p[statusField] === 'disabled') return;
-
-        const startDateStr = p[startField] as string | null;
-        const endDateStr = p[endField] as string | null;
-        const contractorId = p[contractorIdField] as string | null;
-        const contractorName = p[contractorNameField] as string | null;
-        
-        let contractor = contractors.find(c => c.id === contractorId);
-        if (!contractor && (contractorId || contractorName)) {
-           // Create a fallback contractor object for the chart
-           contractor = {
-             id: contractorId || `fallback-${contractorName}`,
-             name: contractorName || '未知包商',
-             contractor_type: type.key as any,
-             work_capabilities: [type.key],
-             is_active: false,
-             contact_person: null,
-             phone: null,
-             notes: null,
-             created_at: '',
-             updated_at: ''
-           } as Contractor;
-        }
-
-        if (startDateStr) {
-          extracted.push({
-            project: p,
-            type,
-            startDateStr,
-            endDateStr,
-            contractor,
-            hasStart: !!startDateStr,
-            hasEnd: !!endDateStr,
-          });
-        }
-      });
+export function GanttChart({ projects, allProjects, contractors, rows, loading, error, saving, canEdit, onSave, onRetry, onProjectClick }: Props) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<{ contractorId: string; start: string; end: string } | null>(null);
+  const [view, setView] = useState<'week' | 'month'>('week');
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const projectMap = useMemo(() => new Map(allProjects.map(project => [project.id, project])), [allProjects]);
+  const visibleIds = useMemo(() => new Set(projects.map(project => project.id)), [projects]);
+  const activeRows = useMemo(() => rows.filter(row => projectMap.has(row.project_id) && !row.deleted_at && row.status_override !== 'disabled'), [rows, projectMap]);
+  const intervals = useMemo(() => activeRows.map(getScheduledInterval).filter((item): item is NonNullable<typeof item> => item !== null), [activeRows]);
+  const invalidRows = useMemo(() => activeRows.filter(row => visibleIds.has(row.project_id) && row.planned_start_date && !getScheduledInterval(row)), [activeRows, visibleIds]);
+  const overlaps = useMemo(() => findContractorOverlaps(activeRows).filter(item => visibleIds.has(item.left.row.project_id) || visibleIds.has(item.right.row.project_id)), [activeRows, visibleIds]);
+  const overlapsById = useMemo(() => {
+    const map = new Map<string, ContractorOverlap[]>();
+    overlaps.forEach(item => {
+      for (const id of [item.left.row.id, item.right.row.id]) map.set(id, [...(map.get(id) ?? []), item]);
     });
-    return extracted;
-  }, [projects, contractors]);
-
-  const { validTasks, invalidTasks } = useMemo(() => {
-    const valid: any[] = [];
-    const invalid: any[] = [];
-    for (const t of tasks) {
-      if (t.hasStart && t.hasEnd) {
-        // Parse dates safely
-        const start = parseISO(t.startDateStr);
-        const end = parseISO(t.endDateStr);
-        if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
-          valid.push({ ...t, start: startOfDay(start), end: startOfDay(end), conflicts: [] });
-          continue;
-        }
-      }
-      // If it reaches here, it has a start date but no end date, or invalid parsing
-      invalid.push(t);
-    }
-
-    // Detect overlaps among valid tasks
-    for (let i = 0; i < valid.length; i++) {
-      for (let j = i + 1; j < valid.length; j++) {
-        const t1 = valid[i];
-        const t2 = valid[j];
-        
-        // Check if same contractor and they overlap (but ignore if it's the same project)
-        if (t1.contractor && t2.contractor && t1.project.id !== t2.project.id) {
-          // Compare by ID if exists, otherwise by exact name
-          const isSameContractor = t1.contractor.id === t2.contractor.id || 
-                                  (!t1.contractor.id.startsWith('fallback-') && t1.contractor.id === t2.contractor.id) ||
-                                  (t1.contractor.name === t2.contractor.name);
-          
-          if (isSameContractor && t1.start <= t2.end && t1.end >= t2.start) {
-            t1.conflicts.push(t2);
-            t2.conflicts.push(t1);
-          }
-        }
-      }
-    }
-
-    return { validTasks: valid, invalidTasks: invalid };
-  }, [tasks]);
-
-  const { minDate, maxDate, totalDays, dates } = useMemo(() => {
-    if (validTasks.length === 0) {
-      const today = startOfDay(new Date());
-      return { minDate: today, maxDate: today, totalDays: 1, dates: [today] };
-    }
-
-    const starts = validTasks.map(t => t.start);
-    const ends = validTasks.map(t => t.end);
-    
-    // Add some padding to the timeline (3 days before min, 7 days after max)
-    const minD = addDays(min(starts), -3);
-    const maxD = addDays(max(ends), 7);
-    
-    const days = differenceInDays(maxD, minD) + 1;
-    const dArray = [];
-    for (let i = 0; i < days; i++) {
-      dArray.push(addDays(minD, i));
-    }
-
-    return { minDate: minD, maxDate: maxD, totalDays: days, dates: dArray };
-  }, [validTasks]);
-
-  // Group valid tasks by project for the timeline view
-  const groupedByProject = useMemo(() => {
-    const map = new Map<string, typeof validTasks>();
-    validTasks.forEach(t => {
-      if (!map.has(t.project.id)) map.set(t.project.id, []);
-      map.get(t.project.id)!.push(t);
-    });
-    
-    // Sort projects by their earliest task
-    const sortedProjects = Array.from(map.entries()).sort((a, b) => {
-      const minA = min(a[1].map(t => t.start));
-      const minB = min(b[1].map(t => t.start));
-      return minA.getTime() - minB.getTime();
-    });
-    
-    return sortedProjects;
-  }, [validTasks]);
-
-  const conflictingContractors = useMemo(() => {
-    const conflictMap = new Map<string, any[]>();
-    validTasks.forEach(t => {
-      if (t.conflicts && t.conflicts.length > 0 && t.contractor) {
-        if (!conflictMap.has(t.contractor.id)) {
-          conflictMap.set(t.contractor.id, []);
-        }
-        conflictMap.get(t.contractor.id)!.push(t);
-      }
-    });
-    return Array.from(conflictMap.entries()).map(([id, tasks]) => ({
-      contractor: tasks[0].contractor,
-      tasks: tasks.sort((a, b) => a.start.getTime() - b.start.getTime())
-    }));
-  }, [validTasks]);
-
-  const handleProjectLeftClick = (projectId: string) => {
-    const projectRow = groupedByProject.find(p => p[0] === projectId);
-    if (!projectRow || !scrollContainerRef.current) return;
-    
-    const tasks = projectRow[1];
-    if (tasks.length === 0) return;
-    
-    // Find earliest start date for this project
-    const earliestStart = min(tasks.map(t => t.start));
-    const startOffset = differenceInDays(earliestStart, minDate);
-    
-    // Calculate scroll position (40px per day, minus some padding)
-    const scrollPos = Math.max(0, startOffset * 40 - 120);
-    
-    scrollContainerRef.current.scrollTo({
-      left: scrollPos,
-      behavior: 'smooth'
-    });
+    return map;
+  }, [overlaps]);
+  const grouped = useMemo(() => {
+    const map = new Map<string, typeof intervals>();
+    intervals.filter(item => visibleIds.has(item.row.project_id)).forEach(item => map.set(item.row.project_id, [...(map.get(item.row.project_id) ?? []), item]));
+    return Array.from(map.entries()).sort((a, b) => a[1][0].start.localeCompare(b[1][0].start));
+  }, [intervals, visibleIds]);
+  const { firstDay, dates } = useMemo(() => {
+    const today = dayNumber(getConstructionToday());
+    const visible = intervals.filter(item => visibleIds.has(item.row.project_id));
+    const first = visible.length ? Math.min(...visible.map(item => dayNumber(item.start))) - 3 : today - 3;
+    const last = visible.length ? Math.max(...visible.map(item => dayNumber(item.end))) + 7 : today + 7;
+    return { firstDay: first, dates: Array.from({ length: Math.max(1, last - first + 1) }, (_, index) => dateAt(first + index)) };
+  }, [intervals, visibleIds]);
+  const dayWidth = view === 'week' ? 40 : 16;
+  const selected = activeRows.find(row => row.id === editingId);
+  const beginEdit = (row: ProjectConstructionProgress) => {
+    if (!canEdit) return;
+    setEditingId(row.id);
+    setDraft({ contractorId: row.contractor_id ?? '', start: row.planned_start_date ?? '', end: row.planned_end_date ?? '' });
+    setSaveError(null);
   };
-
-  return (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* Warning Section for tasks without end dates */}
-      {invalidTasks.length > 0 && (
-        <div className="bg-rose-500/10 border border-rose-500/50 rounded-xl p-4 mb-4 flex-shrink-0">
-          <h3 className="text-rose-400 font-bold mb-2 flex items-center gap-2">
-            ⚠️ 以下工程因缺少「完工日期」而無法顯示於甘特圖：
-          </h3>
-          <div className="flex flex-wrap gap-2 text-sm text-rose-200/80">
-            {invalidTasks.map((t, idx) => (
-              <span key={idx} className="bg-rose-500/20 px-2 py-1 rounded">
-                {t.project.name} - {t.type.label}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Conflict Warning Section */}
-      {conflictingContractors.length > 0 && (
-        <div className="bg-orange-500/10 border border-orange-500/50 rounded-xl p-4 mb-4 flex-shrink-0 shadow-lg shadow-orange-500/5">
-          <h3 className="text-orange-400 font-bold mb-3 flex items-center gap-2">
-            <AlertTriangle size={18} /> 發現包商撞期（同一包商在不同案場或工種的施工期間重疊）：
-          </h3>
-          <div className="flex flex-col gap-3 text-sm text-orange-200/80">
-            {conflictingContractors.map((c, idx) => (
-              <div key={idx} className="bg-orange-500/20 px-3 py-2.5 rounded-lg flex flex-col gap-2">
-                <span className="font-bold text-orange-300 text-base">[{c.contractor.name}]</span>
-                <div className="flex flex-wrap gap-2">
-                  {c.tasks.map((t: any, i: number) => (
-                    <div key={i} className="bg-page/60 px-2 py-1 rounded border border-orange-500/30 flex items-center gap-2">
-                      <button 
-                        onClick={() => document.getElementById(`gantt-project-${t.project.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
-                        className="font-medium text-emerald-400 hover:text-emerald-300 hover:underline cursor-pointer"
-                      >
-                        {t.project.name} ({t.type.label})
-                      </button>
-                      <span className="text-orange-300/80 text-xs">
-                        {format(t.start, 'yyyy/MM/dd')} ~ {format(t.end, 'yyyy/MM/dd')}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Gantt Chart Container */}
-      <div ref={scrollContainerRef} className="flex-1 overflow-auto rounded-xl border border-theme-border/50 bg-card/20 shadow-xl relative">
-        {validTasks.length === 0 ? (
-          <div className="p-8 text-center text-secondary">目前沒有可顯示的排程資料（需有進場及完工日期）</div>
-        ) : (
-          <div className="inline-flex flex-col min-w-full">
-            {/* Header Row (Dates) */}
-            <div className="flex sticky top-0 z-20 bg-card border-b border-theme-border/50">
-              <div className="w-48 flex-shrink-0 border-r border-theme-border/50 p-3 sticky left-0 z-30 bg-card font-medium text-primary">
-                案場名稱
-              </div>
-              <div className="flex" style={{ width: `${totalDays * 40}px` }}>
-                {dates.map((d, i) => {
-                  const isToday = format(d, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
-                  return (
-                    <div 
-                      key={i} 
-                      className={`w-[40px] flex-shrink-0 border-r border-theme-border/30 flex flex-col items-center justify-center text-xs ${isToday ? 'bg-success/20 text-success font-bold' : 'text-secondary'}`}
-                    >
-                      <span>{format(d, 'MM/dd')}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Body Rows (Projects) */}
-            {groupedByProject.map(([projectId, projectTasks]) => {
-              const project = projectTasks[0].project;
-              return (
-                <div key={projectId} id={`gantt-project-${projectId}`} className="flex border-b border-theme-border/30 hover:bg-card/60 transition-colors relative">
-                  {/* Left fixed column */}
-                  <div className="w-48 flex-shrink-0 border-r border-theme-border/50 p-3 sticky left-0 z-10 bg-card/95 backdrop-blur font-medium text-primary">
-                    <button 
-                      onClick={() => handleProjectLeftClick(projectId)}
-                      className="truncate hover:text-emerald-400 hover:underline cursor-pointer text-left w-full block" 
-                      title={project.name}
-                    >
-                      {project.name}
-                    </button>
-                    <div className="text-xs text-secondary truncate">{project.manager || '未指定負責人'}</div>
-                  </div>
-                  
-                  {/* Timeline track */}
-                  <div className="flex relative" style={{ width: `${totalDays * 40}px` }}>
-                    {/* Background grid lines */}
-                    {dates.map((_, i) => (
-                      <div key={i} className="w-[40px] flex-shrink-0 border-r border-theme-border/10" />
-                    ))}
-
-                    {/* Today indicator line */}
-                    {dates.map((d, i) => {
-                      if (format(d, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd')) {
-                        return (
-                          <div 
-                            key={`today-${i}`}
-                            className="absolute top-0 bottom-0 w-px bg-emerald-500/50 z-0 pointer-events-none"
-                            style={{ left: `${i * 40 + 20}px` }}
-                          />
-                        );
-                      }
-                      return null;
-                    })}
-
-                    {/* Task Bars */}
-                    {projectTasks.map((t, idx) => {
-                      // Calculate positions
-                      const startOffset = differenceInDays(t.start, minDate);
-                      const duration = differenceInDays(t.end, t.start) + 1; // Inclusive
-                      const leftPos = startOffset * 40;
-                      const width = duration * 40;
-                      
-                      // Handle potential overlap by offsetting top slightly if multiple tasks
-                      const topOffset = 8 + (idx * 30); // Simple stacking, 
-                      
-                      // For simplicity, we just vertically stack tasks inside the row.
-                      // That means the row needs to be tall enough to fit them all.
-                      // We will set the row container's min-height based on number of tasks.
-                      
-                      const hasConflict = t.conflicts && t.conflicts.length > 0;
-                      let tooltipText = `${t.type.label} (${t.contractor?.name || '未指定包商'})\n${format(t.start, 'yyyy/MM/dd')} - ${format(t.end, 'yyyy/MM/dd')}`;
-                      if (hasConflict) {
-                        tooltipText += `\n\n⚠️ 撞期警告：\n此包商在重疊期間也被安排於：\n` + 
-                          t.conflicts.map((c: any) => `- ${c.project.name} (${c.type.label})`).join('\n');
-                      }
-
-                      return (
-                        <div
-                          key={`${projectId}-${t.type.key}`}
-                          className={`absolute h-6 rounded-md shadow-sm border flex items-center px-2 text-xs text-white truncate cursor-pointer transition-transform hover:-translate-y-0.5 ${hasConflict ? 'border-orange-400 border-2 bg-orange-500/80 !text-white animate-pulse' : `${t.type.color} ${t.type.border}`}`}
-                          style={{
-                            left: `${leftPos}px`,
-                            width: `${width}px`,
-                            top: `${topOffset}px`
-                          }}
-                          title={tooltipText}
-                          onClick={() => onProjectClick?.(t.project)}
-                        >
-                          {hasConflict && <AlertTriangle size={12} className="mr-1 text-white shrink-0" />}
-                          <span className="truncate font-medium">{t.type.label}</span>
-                          {t.contractor && <span className="ml-1 opacity-80 truncate">- {t.contractor.name}</span>}
-                        </div>
-                      );
-                    })}
-                  </div>
-                  
-                  {/* Invisible spacer to ensure row is tall enough for all stacked tasks */}
-                  <div style={{ height: `${projectTasks.length * 30 + 16}px` }} className="pointer-events-none w-0" />
-                </div>
-              );
-            })}
-          </div>
-        )}
+  const save = async () => {
+    if (!selected || !draft || saving) return;
+    if (draft.end && !draft.start) { setSaveError('請先填寫預計進場日期'); return; }
+    if (draft.start && draft.end && draft.end < draft.start) { setSaveError('預計完工日期不可早於進場日期'); return; }
+    const contractor = contractors.find(item => item.id === draft.contractorId);
+    if (draft.contractorId && !contractor && draft.contractorId !== selected.contractor_id) { setSaveError('無法辨識包商'); return; }
+    const ok = await onSave(selected, {
+      contractor_id: draft.contractorId || null,
+      contractor_name: contractor?.name ?? (draft.contractorId === selected.contractor_id ? selected.contractor_name : null),
+      planned_start_date: draft.start || null,
+      planned_end_date: draft.end || null,
+    });
+    if (ok) { setEditingId(null); setDraft(null); setSaveError(null); }
+    else setSaveError('儲存失敗，請重新載入後再試');
+  };
+  const conflictText = (item: ContractorOverlap) => {
+    const { left, right } = item;
+    const vendor = contractors.find(c => c.id === left.row.contractor_id)?.name ?? left.row.contractor_name ?? left.row.contractor_id;
+    const line = (work: typeof left) => `${projectMap.get(work.row.project_id)?.name ?? work.row.project_id}／${getConstructionWorkLabel(work.row as ProjectConstructionProgress)}：${shortDate(work.start)}～${shortDate(work.end)}${work.provisional ? '（暫估）' : ''}`;
+    return `包商撞期：${vendor}\n${line(left)}\n${line(right)}\n重疊：${shortDate(item.start)}～${shortDate(item.end)}`;
+  };
+  return <div className="flex h-full flex-col overflow-hidden">
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm">
+      <span className="text-secondary">預計施工期間・無完工日暫估至進場月份月底</span>
+      <div className="flex rounded border border-theme-border" aria-label="時間檢視">
+        {(['week', 'month'] as const).map(option => <button key={option} type="button" aria-pressed={view === option} className={`px-3 py-1 ${view === option ? 'bg-accent text-white' : 'text-secondary'}`} onClick={() => setView(option)}>{option === 'week' ? '週' : '月'}</button>)}
       </div>
     </div>
-  );
+    {error && <p role="alert" className="mb-3 text-sm text-danger">{error} <button type="button" className="underline" onClick={onRetry}>重試</button></p>}
+    {saveError && <p role="alert" className="mb-3 text-sm text-danger">{saveError}</p>}
+    {!loading && invalidRows.length > 0 && <div role="alert" className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-300">下列工項的預計完工日早於進場日，請修正後再排入時間軸：{invalidRows.map(row => <button key={row.id} type="button" disabled={!canEdit} className="ml-2 underline disabled:no-underline" onClick={() => beginEdit(row)}>{projectMap.get(row.project_id)?.name}／{getConstructionWorkLabel(row)}</button>)}</div>}
+    {!loading && overlaps.length > 0 && <div className="mb-3 rounded-xl border border-red-500/50 bg-red-500/10 p-3 text-sm text-red-300">
+      <strong className="flex items-center gap-1"><AlertTriangle size={16} />包商撞期警示（{overlaps.length} 組）</strong>
+      <div className="mt-2 flex flex-wrap gap-2">{overlaps.map(item => <span key={item.left.row.id + ':' + item.right.row.id} className="rounded border border-red-500/30 px-2 py-1" title={conflictText(item)}>{contractors.find(c => c.id === item.left.row.contractor_id)?.name ?? item.left.row.contractor_name ?? '包商'}：{projectMap.get(item.left.row.project_id)?.name}／{getConstructionWorkLabel(item.left.row)} × {projectMap.get(item.right.row.project_id)?.name}／{getConstructionWorkLabel(item.right.row)}（{shortDate(item.start)}～{shortDate(item.end)}）</span>)}</div>
+    </div>}
+    {loading ? <div className="p-8 text-center text-secondary">施工資料載入中…</div> : <>
+      {canEdit && activeRows.some(row => visibleIds.has(row.project_id) && !row.planned_start_date) && <div className="mb-3 flex flex-wrap gap-2 text-xs">{activeRows.filter(row => visibleIds.has(row.project_id) && !row.planned_start_date).map(row => <button key={row.id} type="button" className="rounded border border-theme-border px-2 py-1 text-secondary hover:text-primary" onClick={() => beginEdit(row)}>＋ {projectMap.get(row.project_id)?.name}／{getConstructionWorkLabel(row)} 安排施工</button>)}</div>}
+      <div ref={scrollRef} className="relative flex-1 overflow-auto rounded-xl border border-theme-border/50 bg-card/20 shadow-xl">
+        {grouped.length === 0 ? <div className="p-8 text-center text-secondary">目前沒有已安排施工日期的工項</div> : <div className="inline-flex min-w-full flex-col">
+          <div className="sticky top-0 z-20 flex border-b border-theme-border/50 bg-card">
+            <div className="sticky left-0 z-30 w-48 shrink-0 border-r border-theme-border/50 bg-card p-3 font-medium text-primary">案場／施工日期</div>
+            <div className="flex" style={{ width: dates.length * dayWidth }}>{dates.map((date, index) => <div key={date} className={`shrink-0 border-r border-theme-border/20 text-center text-[10px] ${date === getConstructionToday() ? 'bg-success/20 text-success' : 'text-secondary'}`} style={{ width: dayWidth }} title={date}>{view === 'week' || index === 0 || date.endsWith('-01') ? date.slice(5).replace('-', '/') : ''}</div>)}</div>
+          </div>
+          {grouped.map(([projectId, items]) => {
+            const project = projectMap.get(projectId)!;
+            return <div key={projectId} id={`gantt-project-${projectId}`} className="relative flex border-b border-theme-border/30 hover:bg-card/60">
+              <div className="sticky left-0 z-10 w-48 shrink-0 border-r border-theme-border/50 bg-card/95 p-3 text-primary backdrop-blur">
+                <button type="button" className="block w-full truncate text-left font-medium hover:text-emerald-400" title={project.name} onClick={() => scrollRef.current?.scrollTo({ left: Math.max(0, (Math.min(...items.map(item => dayNumber(item.start))) - firstDay) * dayWidth - 120), behavior: 'smooth' })}>{project.name}</button>
+                <div className="truncate text-xs text-secondary">{project.capacity ? `${project.capacity} kWp` : project.manager || '未填容量'}</div>
+                {onProjectClick && <button type="button" className="text-[11px] text-accent hover:underline" onClick={() => onProjectClick(project)}>查看案場</button>}
+              </div>
+              <div className="relative flex" style={{ width: dates.length * dayWidth, height: items.length * 30 + 16 }}>
+                {dates.map(date => <div key={date} className={`shrink-0 border-r border-theme-border/10 ${date === getConstructionToday() ? 'bg-success/10' : ''}`} style={{ width: dayWidth }} />)}
+                {items.map((item, index) => {
+                  const conflicts = overlapsById.get(item.row.id) ?? [];
+                  const vendor = contractors.find(c => c.id === item.row.contractor_id)?.name ?? item.row.contractor_name ?? '未指定包商';
+                  const title = `${getConstructionWorkLabel(item.row)}（${vendor}）\n${shortDate(item.start)}～${shortDate(item.end)}${item.provisional ? '（暫估至月底）' : ''}${conflicts.length ? '\n\n' + conflicts.map(conflictText).join('\n\n') : ''}`;
+                  return <button key={item.row.id} type="button" title={title} aria-label={`${project.name} ${getConstructionWorkLabel(item.row)} ${vendor}${conflicts.length ? ' 包商撞期' : ''}`} disabled={!canEdit} onClick={() => beginEdit(item.row)} className={`absolute z-[1] flex h-6 items-center overflow-hidden rounded-md border px-2 text-xs text-white shadow-sm ${conflicts.length ? 'border-2 border-red-400 bg-red-600' : COLORS[item.row.work_type]} ${canEdit ? 'cursor-pointer hover:brightness-110' : 'cursor-default'}`} style={{ left: (dayNumber(item.start) - firstDay) * dayWidth, width: (dayNumber(item.end) - dayNumber(item.start) + 1) * dayWidth, top: 8 + index * 30 }}>
+                    {conflicts.length > 0 && <AlertTriangle size={12} className="mr-1 shrink-0" />}<span className="truncate font-medium">{getConstructionWorkLabel(item.row)}{item.provisional ? ' 暫估' : ''}</span><span className="ml-1 truncate opacity-80">－{vendor}</span>
+                  </button>;
+                })}
+              </div>
+            </div>;
+          })}
+        </div>}
+      </div>
+    </>}
+    {selected && draft && <div className="mt-3 rounded-xl border border-theme-border bg-card p-3 text-sm" aria-label="編輯施工排程">
+      <div className="mb-2 font-medium text-primary">{projectMap.get(selected.project_id)?.name}／{getConstructionWorkLabel(selected)}</div>
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="text-xs text-secondary">包商<select className="block min-w-40 rounded border border-theme-border bg-page p-2 text-primary" value={draft.contractorId} disabled={saving} onChange={event => setDraft({ ...draft, contractorId: event.target.value })}><option value="">未指定</option>{selected.contractor_id && !getContractorsForWorkType(contractors, selected.work_type, false, selected.work_name).some(c => c.id === selected.contractor_id) && <option value={selected.contractor_id}>{contractors.find(c => c.id === selected.contractor_id)?.name ?? selected.contractor_name ?? '既有包商'}</option>}{getContractorsForWorkType(contractors, selected.work_type, false, selected.work_name).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+        <label className="text-xs text-secondary">預計進場<input className="block rounded border border-theme-border bg-page p-2 text-primary" type="date" value={draft.start} disabled={saving} onChange={event => setDraft({ ...draft, start: event.target.value })} /></label>
+        <label className="text-xs text-secondary">預計完工<input className="block rounded border border-theme-border bg-page p-2 text-primary" type="date" value={draft.end} disabled={saving} onChange={event => setDraft({ ...draft, end: event.target.value })} /></label>
+        <button type="button" disabled={saving} className="rounded bg-accent px-3 py-2 text-white disabled:opacity-50" onClick={() => void save()}>{saving ? '儲存中…' : '儲存'}</button>
+        <button type="button" disabled={saving} className="rounded border border-theme-border px-3 py-2 text-secondary" onClick={() => { setEditingId(null); setDraft(null); setSaveError(null); }}>取消</button>
+      </div>
+    </div>}
+  </div>;
 }

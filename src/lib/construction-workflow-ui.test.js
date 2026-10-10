@@ -15,8 +15,11 @@ function load(relative, mocks = {}) {
   mod.require = id => {
     if (id in mocks) return mocks[id];
     if (id === './supabaseClient') return { supabase: {} };
-    if (id.startsWith('@/')) return load(path.relative(__dirname, path.resolve(__dirname, '..', id.slice(2))) + '.ts', mocks);
-    if (id.startsWith('.')) return load(path.relative(__dirname, path.resolve(path.dirname(filename), id)) + '.ts', mocks);
+    if (id.startsWith('@/') || id.startsWith('.')) {
+      const base = id.startsWith('@/') ? path.resolve(__dirname, '..', id.slice(2)) : path.resolve(path.dirname(filename), id);
+      const resolved = ['.ts', '.tsx'].map(ext => base + ext).find(candidate => fs.existsSync(candidate));
+      return load(path.relative(__dirname, resolved), mocks);
+    }
     return require(id);
   };
   mod._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
@@ -28,7 +31,7 @@ function load(relative, mocks = {}) {
 const helpers = load('construction-progress.ts');
 const workflowHelpers = load('project-workflow.ts');
 const { updateAuthoritativeMilestone } = load('workflow-milestone-editor.ts');
-const { ConstructionProgressSection, ConstructionWorkTypeControls } = load('../components/ConstructionProgressSection.tsx');
+const { ConstructionProgressSection, ConstructionWorkTypeControls, ConstructionTradesEditor } = load('../components/ConstructionProgressSection.tsx');
 const { DateDualInput } = load('../components/DateDualInput.tsx');
 const { createConstructionProgressAdapter } = load('db/construction-progress.ts');
 const row = (values = {}) => ({
@@ -195,6 +198,10 @@ test('one completion date displays planned before completion and actual after co
 });
 
 test('construction completion uses the existing quick date parser and emits only ISO dates or null', () => {
+  assert.equal(helpers.normalizeConstructionDateInput('0703', '2026-10-10'), '2026-07-03');
+  assert.equal(helpers.normalizeConstructionDateInput('20260703', '2026-10-10'), '2026-07-03');
+  assert.throws(() => helpers.normalizeConstructionDateInput('0231', '2026-10-10'), /日期格式無效/);
+  assert.throws(() => helpers.normalizeConstructionDateInput('20260229', '2026-10-10'), /日期格式無效/);
   assert.equal(helpers.normalizeConstructionDateInput('0905', '2026-09-05'), '2026-09-05');
   assert.equal(helpers.normalizeConstructionDateInput('9/4', '2026-09-05'), '2026-09-04');
   assert.equal(helpers.normalizeConstructionDateInput('20260903', '2026-09-05'), '2026-09-03');
@@ -210,7 +217,7 @@ test('completed construction date renders without zero and commits through norma
     model: model([row({ work_name: '防水', is_completed: true, actual_completed_date: '2026-09-05' })]),
   }));
   assert.match(valid, /aria-label="實際完工日期"/);
-  assert.match(valid, /value="實際 2026\/09\/05"/);
+  assert.match(valid, /value="2026\/09\/05"/);
   assert.doesNotMatch(valid, /value="預計 2026\/09\/05/);
   assert.doesNotMatch(valid, /value="0"/);
 
@@ -219,7 +226,7 @@ test('completed construction date renders without zero and commits through norma
   }));
   assert.doesNotMatch(invalidLegacy, /value="0"/);
 
-  const source = fs.readFileSync(path.resolve(__dirname, '../components/ConstructionProgressSection.tsx'), 'utf8');
+  const source = fs.readFileSync(path.resolve(__dirname, '../components/QuickBusinessDateInput.tsx'), 'utf8');
   assert.match(source, /normalizeConstructionDateInput\(draft, today\)/);
   assert.match(source, /onBlur=\{commit\}/);
   assert.match(source, /event\.key === 'Enter'/);
@@ -252,6 +259,92 @@ test('outer construction stage follows V2 start, end, and completion fields', ()
     'future completion must be rejected before the project update query',
   );
 });
+test('planned end derives completion without forging actual date and updates with date extension', () => {
+  const item = row({ work_type: 'racking', planned_start_date: '2026-10-03', planned_end_date: '2026-10-09' });
+  assert.equal(helpers.getEffectiveConstructionStatus(item, '2026-10-10'), 'AUTO_COMPLETED');
+  assert.equal(helpers.classifyConstructionItem(item, null, '2026-10-10'), 'COMPLETED');
+  assert.deepEqual(helpers.getConstructionOuterDisplay(item, '2026-10-10'), { status: 'COMPLETED', label: '已完工', date: null });
+  assert.equal(helpers.getConstructionEndDate(item), '2026-10-09');
+  assert.equal(helpers.getEffectiveConstructionStatus({ ...item, planned_end_date: '2026-10-11' }, '2026-10-10'), 'IN_PROGRESS');
+  assert.equal(helpers.getEffectiveConstructionStatus({ ...item, planned_end_date: '2026-10-10' }, '2026-10-10'), 'IN_PROGRESS');
+  const manual = { ...item, is_completed: true, actual_completed_date: '2026-10-10' };
+  assert.equal(helpers.getEffectiveConstructionStatus({ ...manual, planned_end_date: '2026-10-11' }, '2026-10-10'), 'MANUAL_COMPLETED');
+  const cancelled = { ...manual, ...helpers.constructionCompletionPatch(false, manual.actual_completed_date, '2026-10-10') };
+  assert.equal(cancelled.actual_completed_date, null);
+  assert.equal(helpers.getEffectiveConstructionStatus(cancelled, '2026-10-10'), 'AUTO_COMPLETED');
+});
+test('outer racking chooses the earliest participating steel or racking entry date', () => {
+  const project = {
+    racking_expected_start_date: '2026-10-12', racking_completion_date: '2026-10-20', racking_is_completed: false, racking_status: null,
+    steel_expected_start_date: '2026-10-03', steel_completion_date: '2026-10-09', steel_is_completed: false, steel_status: null,
+  };
+  const select = changes => helpers.selectOuterRackingProgress({ ...project, ...changes }, '2026-10-10');
+  assert.deepEqual([select({}).source, select({}).plannedStartDate, select({}).display.status], ['steel', '2026-10-03', 'COMPLETED']);
+  assert.deepEqual([select({ steel_expected_start_date: '2026-10-15' }).source, select({ steel_expected_start_date: '2026-10-15' }).plannedStartDate], ['racking', '2026-10-12']);
+  assert.equal(select({ racking_expected_start_date: null }).source, 'steel');
+  assert.equal(select({ steel_expected_start_date: null }).source, 'racking');
+  assert.deepEqual([select({ racking_expected_start_date: null, steel_expected_start_date: null }).source,
+    select({ racking_expected_start_date: null, steel_expected_start_date: null }).display.status], ['racking', 'UNSCHEDULED']);
+  assert.equal(select({ steel_expected_start_date: '2026-10-12' }).source, 'racking');
+  assert.equal(select({ steel_status: 'disabled' }).source, 'racking');
+  assert.equal(select({ racking_status: 'disabled' }).source, 'steel');
+  assert.equal(select({ steel_completion_date: '2026-10-11' }).display.status, 'IN_PROGRESS');
+  assert.deepEqual(select({ steel_is_completed: true, steel_completion_date: '2026-10-08' }).display,
+    { status: 'COMPLETED', label: '已完工 10/08', date: '2026-10-08' });
+  assert.equal(select({ racking_is_completed: true, racking_completion_date: '2026-10-07' }).display.status, 'COMPLETED');
+  assert.equal(select({ racking_is_completed: true, racking_completion_date: '2026-10-07' }).display.date, null);
+});
+test('outer racking projection follows canonical inner patches and keeps individual completion', () => {
+  const project = {
+    racking_expected_start_date: '2026-10-12', racking_completion_date: '2026-10-20', racking_is_completed: false, racking_status: null,
+    steel_expected_start_date: '2026-10-03', steel_completion_date: '2026-10-09', steel_is_completed: false, steel_status: null,
+  };
+  const selected = helpers.selectOuterRackingProgress(project, '2026-10-10');
+  assert.equal(selected.source, 'steel');
+  const steel = row({ work_type: 'steel', planned_start_date: '2026-10-18', planned_end_date: '2026-10-25' });
+  const afterInnerEdit = { ...project, ...helpers.getConstructionProjectPatch(steel) };
+  assert.equal(helpers.selectOuterRackingProgress(afterInnerEdit, '2026-10-10').source, 'racking');
+  assert.equal(helpers.selectOuterRackingProgress(afterInnerEdit, '2026-10-10').plannedStartDate, '2026-10-12');
+  const manualSteel = { ...steel, is_completed: true, actual_completed_date: '2026-10-10' };
+  const afterManualEdit = { ...project, ...helpers.getConstructionProjectPatch(manualSteel) };
+  assert.equal(helpers.selectOuterRackingProgress(afterManualEdit, '2026-10-10').source, 'racking');
+  assert.equal(afterManualEdit.steel_is_completed, true);
+  assert.equal(afterManualEdit.racking_is_completed, false);
+  const page = fs.readFileSync(path.resolve(__dirname, '../app/projects/[[...filter]]/page.tsx'), 'utf8');
+  assert.match(page, /onChange=\{\(nextStart, nextEnd\) => handleConstructionDatesChange\(project, sourceType, nextStart, nextEnd\)\}/);
+  assert.match(page, /setConstructionMenu\(\{ x: event\.clientX, y: event\.clientY, project, type: sourceType \}\)/);
+  assert.match(page, /filter\(row => row\.work_type === type\)/);
+  assert.match(page, /constructionProgressAdapter\.update\(project\.id, row\.id, values\)/);
+});
+test('participating work without an entry date is unscheduled and custom names stay unique', () => {
+  const item = row({ work_type: 'electrical', planned_start_date: null, planned_end_date: '2026-10-01' });
+  assert.equal(helpers.getEffectiveConstructionStatus(item, '2026-10-10'), 'UNSCHEDULED');
+  assert.equal(helpers.classifyConstructionItem(item, null, '2026-10-10'), 'UNSCHEDULED');
+  const existing = [row({ id: 'one', work_type: 'other', work_name: '測試工種' })];
+  assert.match(helpers.getConstructionWorkNameConflict(' 測試工種 ', existing), /工種/);
+  assert.equal(helpers.getConstructionWorkNameConflict('測試工種', existing, 'one'), null);
+  assert.match(helpers.getConstructionWorkNameConflict('支架', existing), /工種/);
+});
+test('basic trade editor defaults fixed participation and exposes scoped custom controls', () => {
+  const blank = renderToStaticMarkup(React.createElement(ConstructionTradesEditor, { model: model([]) }));
+  assert.match(blank, /checked=""[^>]*\/><span class="text-primary">支架<\/span>/);
+  assert.match(blank, /checked=""[^>]*\/><span class="text-primary">電力<\/span>/);
+  const disabled = renderToStaticMarkup(React.createElement(ConstructionTradesEditor, { model: model([
+    row({ id: 'r', work_type: 'racking', status_override: 'disabled' }),
+    row({ id: 'custom', work_type: 'other', work_name: '測試工種' }),
+  ]) }));
+  assert.match(disabled, /aria-label="修改測試工種名稱"/);
+  assert.match(disabled, /aria-label="刪除或停用測試工種"/);
+  assert.doesNotMatch(disabled, /aria-label="修改支架名稱"/);
+});
+test('construction rows and milestone header share horizontal grid columns', () => {
+  const html = renderToStaticMarkup(React.createElement(ConstructionProgressSection, { model: model([row({ work_name: '測試工種' })]) }));
+  assert.match(html, /grid-template-columns:2rem minmax\(12rem,1fr\) 5\.5rem 10rem/);
+  assert.match(html, /min-w-\[80rem\]/);
+  const workflow = fs.readFileSync(path.resolve(__dirname, '../components/ProjectWorkflow.tsx'), 'utf8');
+  assert.match(workflow, /style=\{WORKFLOW_GRID_STYLE\}/);
+  assert.match(workflow, /min-w-\[70rem\]/);
+});
 test('sort uses order, creation timestamp and ID without changing original array', () => {
   const rows = [row({ id: 'b', sort_order: 20 }), row({ id: 'c' }), row({ id: 'a' }), row({ id: 'd', created_at: '2025-01-01' })];
   assert.deepEqual(helpers.sortConstructionRows(rows).map(r => r.id), ['d', 'a', 'c', 'b']);
@@ -260,7 +353,7 @@ test('sort uses order, creation timestamp and ID without changing original array
 test('legacy unnamed other displays other without any write or legacy end date', () => {
   const legacy = row();
   const html = renderToStaticMarkup(React.createElement(ConstructionProgressSection, { model: model([legacy]) }));
-  assert.match(html, /placeholder="其他"/);
+  assert.match(html, />其他<\/span>/);
   assert.doesNotMatch(html, /2020-01-01/);
   assert.equal(legacy.work_name, null);
   assert.equal(helpers.getConstructionWorkLabel(legacy), '其他');
@@ -453,9 +546,14 @@ test('fixed disable keeps dates/completion/notes; other deletion is type-scoped 
   assert.ok(client.calls.some(c => c[0] === 'eq' && c[1] === 'work_type' && c[2] === 'other'));
 });
 test('insert stays in construction domain; DB/RLS errors are not treated as saves', async () => {
-  const client = fakeClient();
+  const client = fakeClient({ data: [], error: null });
   await createConstructionProgressAdapter(client).create('p', { work_type: 'other', work_name: '防水', sort_order: 60 });
   assert.deepEqual(client.calls[0], ['from', 'project_construction_progress']);
   assert.deepEqual(client.calls.find(c => c[0] === 'insert')[1], { project_id: 'p', work_type: 'other', work_name: '防水', sort_order: 60 });
   await assert.rejects(createConstructionProgressAdapter(fakeClient({ data: null, error: new Error('RLS denied') })).update('p', 'id', { notes: 'x' }), /RLS denied/);
+});
+test('custom construction trade refuses an existing name before insert', async () => {
+  const client = fakeClient({ data: [row({ work_type: 'other', work_name: '防水' })], error: null });
+  await assert.rejects(createConstructionProgressAdapter(client).create('p', { work_type: 'other', work_name: ' 防水 ', sort_order: 60 }), /已存在/);
+  assert.equal(client.calls.some(call => call[0] === 'insert'), false);
 });
