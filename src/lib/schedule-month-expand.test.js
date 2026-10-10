@@ -89,8 +89,11 @@ test('schedule card click remains separate from week expansion', () => {
   const cardRenderStart = schedulePage.indexOf('dayTasks.slice(0, DAILY_TASK_DISPLAY_LIMIT).map');
   const remainderStart = schedulePage.indexOf('dayTasks.length > DAILY_TASK_DISPLAY_LIMIT', cardRenderStart);
   const cardRender = schedulePage.slice(cardRenderStart, remainderStart);
-  assert.match(cardRender, /setEditingTask\(task\)/);
-  assert.match(cardRender, /setIsFormOpen\(true\)/);
+  assert.match(cardRender, /onClick=\{\(\) => openTaskEditor\(task\)\}/);
+  const openTaskEditor = schedulePage.match(/const openTaskEditor = \(task: ScheduleTask\) => \{([\s\S]*?)\n  \};/);
+  assert.ok(openTaskEditor);
+  assert.match(openTaskEditor[1], /setEditingTask\(task\)/);
+  assert.match(openTaskEditor[1], /setIsFormOpen\(true\)/);
   assert.doesNotMatch(cardRender, /toggleExpandedMonthWeek/);
 });
 
